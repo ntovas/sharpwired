@@ -122,6 +122,7 @@ public sealed partial class Circuit
             AssumeRange(member, 0, 1, allowExistingReaders);
         }
         OneHotGroupList.Add(new OneHotGroup([.. members], allowAllZero));
+        TensorProgram = null;
     }
 
     /// <summary>
@@ -352,6 +353,7 @@ public sealed partial class Circuit
             _ => new NumericRange(0, 1),
         });
         ExpressionWires[expressionKey] = wire;
+        TensorProgram = null;
         return wire;
     }
 

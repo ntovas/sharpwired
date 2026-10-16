@@ -7,7 +7,7 @@ namespace Sharpwired.Core.Tests;
 
 public class NumericSemanticsTests
 {
-    // 'explicit rounding survives consumers, duplicate terms, and circuit inlining' (reference part).
+    // 'explicit rounding survives consumers, duplicate terms, and circuit inlining'.
     [Fact]
     public void Explicit_rounding_survives_consumers_duplicate_terms_and_circuit_inlining()
     {
@@ -19,14 +19,17 @@ public class NumericSemanticsTests
         var mapping = parent.InlineCircuit(circuit, [parent.Source(0), parent.Source(1)]);
         float[] source = [16_777_216, 1];
 
-        var values = circuit.EvaluateReference(source);
-        Js.Is(0, values[difference.Position]);
-        Js.Is(Js.F(Js.F(source[0] + source[0]) + source[0]), values[duplicate.Position]);
+        foreach (var values in new[] { circuit.EvaluateReference(source), circuit.EvaluateTensor(source) })
+        {
+            Js.Is(0, values[difference.Position]);
+            Js.Is(Js.F(Js.F(source[0] + source[0]) + source[0]), values[duplicate.Position]);
+        }
         Assert.Equal(3, circuit.Operations[duplicate.Position - circuit.SourceSize].LeftTerms.Length);
         Js.Is(0, parent.EvaluateReference(source)[mapping[difference.Position].Position]);
+        Js.Is(0, parent.EvaluateTensor(source)[mapping[difference.Position].Position]);
     }
 
-    // 'explicit term order survives source permutation during inlining' (reference part).
+    // 'explicit term order survives source permutation during inlining'.
     [Fact]
     public void Explicit_term_order_survives_source_permutation_during_inlining()
     {
@@ -38,6 +41,7 @@ public class NumericSemanticsTests
         float[] permuted = [16_777_216, -16_777_216, 1];
         Js.Is(0, circuit.EvaluateReference(original)[sum.Position]);
         Js.Is(0, parent.EvaluateReference(permuted)[mapping[sum.Position].Position]);
+        Js.Is(0, parent.EvaluateTensor(permuted)[mapping[sum.Position].Position]);
         var reordered = parent.RoundAffine([(parent.Source(0), 1), (parent.Source(1), 1), (parent.Source(2), 1)]);
         Assert.NotEqual(mapping[sum.Position], reordered);
         Js.Is(1, parent.EvaluateReference(permuted)[reordered.Position]);
@@ -169,7 +173,7 @@ public class NumericSemanticsTests
         }
     }
 
-    // 'selection preserves finite extreme operands and its intended derivative' (reference part).
+    // 'selection preserves finite extreme operands and its intended derivative'.
     [Fact]
     public void Selection_preserves_finite_extreme_operands_and_its_intended_derivative()
     {
@@ -180,6 +184,7 @@ public class NumericSemanticsTests
         {
             float[] source = [gate, 3e38f, -3e38f];
             Js.Is(source[gate == 0 ? 1 : 2], circuit.EvaluateReference(source)[output.Position]);
+            Js.Is(source[gate == 0 ? 1 : 2], circuit.EvaluateTensor(source)[output.Position]);
         }
         var values = circuit.EvaluateReference([0.25f, 3, 7]);
         var seeds = new float[values.Length];

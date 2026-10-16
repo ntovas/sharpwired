@@ -1,45 +1,62 @@
 // Handwired source: tests/runtime/numeric-ui-core.test.ts.
-// Each test name holds the Handwired test name. A test that compares with the
-// tensor evaluator keeps its reference-evaluator part here. PHASE2-TENSOR-ASSERTIONS.md
-// lists the tensor assertions.
+// Each test name holds the Handwired test name. The tests that compare with the tensor evaluator
+// hold both the reference assertions and the tensor assertions.
 
 namespace Sharpwired.Core.Tests;
 
 public class CircuitTests
 {
-    // 'tensor layers append only their new values' (reference part).
+    // Handwired evaluateOutput: set the program on the circuit, then read one wire of EvaluateTensor.
+    private static float EvaluateOutput(Circuit circuit, TensorProgram program, float[] source, Wire wire)
+    {
+        circuit.TensorProgram = program;
+        return circuit.EvaluateTensor(source)[wire.Position];
+    }
+
+    // 'tensor layers append only their new values'.
     [Fact]
-    public void Tensor_layers_append_only_their_new_values_reference_part()
+    public void Tensor_layers_append_only_their_new_values()
     {
         var circuit = new Circuit(2);
         var first = circuit.Affine([(circuit.Source(0), 2)]);
         circuit.Affine([(first, 4)]);
         circuit.Affine([(circuit.Source(1), 3)]);
+        var program = circuit.CompileTensorProgram();
 
-        var values = circuit.EvaluateReference([5, 7]);
-        Assert.Equal([5f, 7f, 10f, 40f, 21f], values);
+        Assert.Equal(
+            [(2, 3, 3)],
+            program.Layers.Select(layer => (layer.InputSize, layer.OutputSize, layer.Weights.Length)));
+        Assert.Equal<int>([0, 1, 2, 3, 4], program.WireOrder);
+        float[] source = [5, 7];
+        Assert.Equal([5f, 7f, 10f, 40f, 21f], circuit.EvaluateReference(source));
+        Assert.Equal([5f, 7f, 10f, 40f, 21f], circuit.EvaluateTensor(source));
     }
 
-    // 'the reference and tensor evaluators round every arithmetic step' (reference part).
+    // 'the reference and tensor evaluators round every arithmetic step'.
+    // Handwired checks instanceof Float32Array. Both C# evaluators return float[] by their type.
     [Fact]
-    public void The_reference_evaluator_rounds_every_arithmetic_step()
+    public void The_reference_and_tensor_evaluators_round_every_arithmetic_step()
     {
         var circuit = new Circuit(2);
         var sum = circuit.Affine([(circuit.Source(0), 1), (circuit.Source(1), 1)]);
+        float[] source = [16_777_216, 1];
 
-        var reference = circuit.EvaluateReference([16_777_216, 1]);
+        var reference = circuit.EvaluateReference(source);
+        var tensor = circuit.EvaluateTensor(source);
         Js.Is(16_777_216, reference[sum.Position]);
+        Js.Is(16_777_216, tensor[sum.Position]);
     }
 
-    // 'tensor and reference evaluators both reject a wrong-sized source table' (reference part).
+    // 'tensor and reference evaluators both reject a wrong-sized source table'.
     [Fact]
-    public void The_reference_evaluator_rejects_a_wrong_sized_source_table()
+    public void Tensor_and_reference_evaluators_both_reject_a_wrong_sized_source_table()
     {
         var circuit = new Circuit(2);
         circuit.Affine([(circuit.Source(0), 1), (circuit.Source(1), 1)]);
 
         foreach (var source in new[] { new float[] { 7 }, new float[] { 7, 8, 9 } })
         {
+            Js.Throws(() => circuit.EvaluateTensor(source), "source table has the wrong length");
             Js.Throws(() => circuit.EvaluateReference(source), "source table has the wrong length");
         }
     }
@@ -60,6 +77,7 @@ public class CircuitTests
 
         Assert.Equal<Term>([new Term(Wire.FromPosition(1), 3), new Term(Wire.FromPosition(2), 5)], circuit.Operations[0].LeftTerms);
         Js.Is(131, circuit.EvaluateReference([11, 13, 17])[3]);
+        Js.Is(131, circuit.EvaluateTensor([11, 13, 17])[3]);
     }
 
     // 'a sum shared by many consumers stays one materialized wire'.
@@ -124,7 +142,7 @@ public class CircuitTests
         Assert.Equal(first, second);
     }
 
-    // 'duplicate-wire terms merge into one exact FP32 coefficient' (reference part).
+    // 'duplicate-wire terms merge into one exact FP32 coefficient'.
     [Fact]
     public void Duplicate_wire_terms_merge_into_one_exact_FP32_coefficient()
     {
@@ -139,9 +157,10 @@ public class CircuitTests
         var unmerged = Js.F(Js.F(Js.F(1.0 / 3) * x) + Js.F(Js.F(0.1) * x));
         Assert.NotEqual(expected, unmerged);
         Js.Is(expected, circuit.EvaluateReference([(float)x])[sum.Position]);
+        Js.Is(expected, circuit.EvaluateTensor([(float)x])[sum.Position]);
     }
 
-    // 'constant terms and constant gates fold before compilation' (reference part).
+    // 'constant terms and constant gates fold before compilation'.
     [Fact]
     public void Constant_terms_and_constant_gates_fold_before_compilation()
     {
@@ -159,6 +178,7 @@ public class CircuitTests
         Assert.All(circuit.Operations, operation => Assert.Empty(operation.GateTerms));
         Assert.Equal(source, circuit.Operations[1].LeftTerms[0].Wire);
         Assert.Equal([3f, 59f, 62f, 0f], circuit.EvaluateReference([13]).Skip(1));
+        Assert.Equal([3f, 59f, 62f, 0f], circuit.EvaluateTensor([13]).Skip(1));
     }
 
     // 'identity affine operations return an alias without allocating a wire'.
@@ -216,45 +236,62 @@ public class CircuitTests
         Assert.Equal(2, circuit.Operations.Count);
     }
 
-    // 'tensor roots remove operations that cannot affect an output' (reference part).
+    // 'tensor roots remove operations that cannot affect an output'.
     [Fact]
-    public void Tensor_roots_remove_operations_that_cannot_affect_an_output_reference_part()
+    public void Tensor_roots_remove_operations_that_cannot_affect_an_output()
     {
         var circuit = new Circuit(2);
         var liveDependency = circuit.Reglu([(circuit.Source(0), 2)], 0, [(circuit.Source(1), 1)], 0);
         var liveOutput = circuit.Affine([(liveDependency, 1)], 3);
         circuit.Reglu([(circuit.Source(0), 7)], 11, [(circuit.Source(1), -2)], 5);
+        var program = circuit.CompileTensorProgram([liveOutput]);
 
-        Assert.Equal(5, circuit.Width);
+        Assert.Equal(5, program.Width);
+        Assert.Equal(4, program.ValueCount);
+        Assert.Equal<int>([0, 1, liveDependency.Position, liveOutput.Position], program.WireOrder);
+        Js.Is(445, EvaluateOutput(circuit, program, [13, 17], liveOutput));
         Js.Is(445, circuit.EvaluateReference([13, 17])[liveOutput.Position]);
     }
 
-    // 'affine outputs do not allocate fake gate rows' (reference part).
+    // 'affine outputs do not allocate fake gate rows'.
     [Fact]
-    public void Affine_outputs_do_not_allocate_fake_gate_rows_reference_part()
+    public void Affine_outputs_do_not_allocate_fake_gate_rows()
     {
         var circuit = new Circuit(2);
         var affine = circuit.Affine([(circuit.Source(0), 2)], 1);
         var reglu = circuit.Reglu([(circuit.Source(0), 3)], 2, [(circuit.Source(1), -1)], 5);
+        var program = circuit.CompileTensorProgram([affine, reglu]);
+        var layer = program.Layers[0];
 
         Assert.Equal(OperationKind.Affine, circuit.Operations[0].Kind);
         Assert.Equal(OperationKind.Reglu, circuit.Operations[1].Kind);
+        Assert.Equal(2, layer.OutputSize);
+        Assert.Equal<int>([1], layer.GateRows);
+        Assert.Equal(3, layer.Bias.Length);
+        Assert.Equal<int>([0, 1, 2, 3], layer.RowOffsets);
+        Assert.Equal<int>([0, 0, 1], layer.Columns);
+        Assert.Equal(3, layer.Weights.Length);
+        Js.Is(15, EvaluateOutput(circuit, program, [7, 2], affine));
+        Js.Is(69, EvaluateOutput(circuit, program, [7, 2], reglu));
         var values = circuit.EvaluateReference([7, 2]);
         Js.Is(15, values[affine.Position]);
         Js.Is(69, values[reglu.Position]);
     }
 
-    // 'boolean outputs make complete decisions with an explicit tie rule' (reference part).
+    // 'boolean outputs make complete decisions with an explicit tie rule'.
     [Fact]
     public void Boolean_outputs_make_complete_decisions_with_an_explicit_tie_rule()
     {
         var circuit = new Circuit(1);
         circuit.AssumeRange(circuit.Source(0), 0, 1);
         var decision = circuit.Boolean(circuit.Source(0));
+        var program = circuit.CompileTensorProgram([decision]);
 
         Assert.Equal(OperationKind.Boolean, circuit.Operations[0].Kind);
+        Assert.Equal<int>([0], program.Layers[0].BooleanRows);
         foreach (var (score, expected) in new (float, float)[] { (0, 0), (0.49f, 0), (0.5f, 1), (0.51f, 1), (1, 1) })
         {
+            Js.Is(expected, EvaluateOutput(circuit, program, [score], decision));
             Js.Is(expected, circuit.EvaluateReference([score])[decision.Position]);
         }
     }

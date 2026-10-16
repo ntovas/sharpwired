@@ -59,7 +59,7 @@ public sealed partial class Circuit
         }
     }
 
-    private float[] EvaluateOperationStream(ReadOnlySpan<float> source)
+    internal float[] EvaluateOperationStream(ReadOnlySpan<float> source)
     {
         if (source.Length != SourceSize) throw new ArgumentException("source table has the wrong length");
         var values = new float[Width];

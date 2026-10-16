@@ -137,6 +137,7 @@ public sealed partial class Circuit
         RangeList.Add(IndexReadRange(table, acceptedRange, below, above, RangeList));
         var readWire = new Wire(width);
         ExpressionWires[expressionKey] = readWire;
+        TensorProgram = null;
         return readWire;
     }
 

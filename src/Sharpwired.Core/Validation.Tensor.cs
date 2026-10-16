@@ -1,4 +1,5 @@
-// Handwired source: src/runtime/numeric-ui-core.ts (validateTensorProgram, assertFiniteValues).
+// Handwired source: src/runtime/numeric-ui-core.ts (validateTensorProgram, assertFiniteValues,
+// validateTensorEvaluation).
 
 namespace Sharpwired.Core;
 
@@ -139,6 +140,35 @@ public static partial class Validation
         foreach (var root in roots)
         {
             Invariant(root < width && seenWires[root], "every tensor root must be present");
+        }
+    }
+
+    /// <summary>
+    /// Check that the tensor values equal the reference values on each wire of the program that
+    /// EvaluateTensor runs without a program argument: <see cref="Circuit.TensorProgram"/>, or a
+    /// program of every operation that this call compiles into it when it is null.
+    /// </summary>
+    /// <remarks>
+    /// The comparison is == on float, as Handwired uses ===: +0 equals -0, and a NaN value never
+    /// passes. The reference values come from the operation stream, which checks the length of the
+    /// source table and not the source ranges.
+    /// </remarks>
+    /// <param name="circuit">The circuit.</param>
+    /// <param name="source">The source table of the evaluation.</param>
+    /// <param name="tensorValues">The value of each wire, for example from EvaluateTensor.</param>
+    public static void ValidateTensorEvaluation(this Circuit circuit, ReadOnlySpan<float> source, float[] tensorValues)
+    {
+        ArgumentNullException.ThrowIfNull(tensorValues);
+        var expectedValues = circuit.EvaluateOperationStream(source);
+        if (expectedValues.Length != tensorValues.Length) throw new ArgumentException("tensor result width mismatch");
+        var program = circuit.TensorProgram ??= circuit.CompileTensorProgram();
+        foreach (var wire in program.WireOrder)
+        {
+            // The message is built only on failure, so a passing check allocates no string.
+            if (!(tensorValues[wire] == expectedValues[wire]))
+            {
+                throw new InvalidOperationException($"tensor wire {wire} does not match the reference FP32 atom program");
+            }
         }
     }
 

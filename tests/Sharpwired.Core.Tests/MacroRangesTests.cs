@@ -3,8 +3,7 @@
 // calls Circuit.Select and Circuit.Multiply. Macros.Relu, Macros.Maximum and Macros.Minimum port
 // emitRelu, emitMaximum and emitMinimum, and Macros.Spring and Macros.ClampZeroOne port emitSpring
 // and emitClampZeroOne.
-// Each helper also compares with the tensor evaluator in Handwired. PHASE2-TENSOR-ASSERTIONS.md
-// lists those assertions.
+// Each helper compares the tensor value with the reference value (toBe), as in Handwired.
 
 namespace Sharpwired.Core.Tests;
 
@@ -19,6 +18,16 @@ public class MacroRangesTests
 
     private static double SignedMagnitude(Func<double> next, double scale) => (next() * 2 - 1) * scale;
 
+    // The reference value of the result. The compiled and literal evaluators must agree bit for bit
+    // at each magnitude: the tensor value must be the reference value (toBe).
+    private static float EvaluateBoth(Circuit circuit, float[] source, Wire result)
+    {
+        var reference = circuit.EvaluateReference(source);
+        var tensor = circuit.EvaluateTensor(source);
+        Js.Is(reference[result.Position], tensor[result.Position]);
+        return reference[result.Position];
+    }
+
     // max(a, b) expanded as b + relu(a - b), evaluated through the real circuit.
     private static float EvaluateMaximum(double a, double b)
     {
@@ -26,7 +35,7 @@ public class MacroRangesTests
         circuit.AssumeRange(circuit.Source(0), -Big, Big);
         circuit.AssumeRange(circuit.Source(1), -Big, Big);
         var result = circuit.Maximum(circuit.Source(0), circuit.Source(1));
-        return circuit.EvaluateReference([(float)a, (float)b])[result.Position];
+        return EvaluateBoth(circuit, [(float)a, (float)b], result);
     }
 
     // min(a, b) expanded as a - relu(a - b).
@@ -36,7 +45,7 @@ public class MacroRangesTests
         circuit.AssumeRange(circuit.Source(0), -Big, Big);
         circuit.AssumeRange(circuit.Source(1), -Big, Big);
         var result = circuit.Minimum(circuit.Source(0), circuit.Source(1));
-        return circuit.EvaluateReference([(float)a, (float)b])[result.Position];
+        return EvaluateBoth(circuit, [(float)a, (float)b], result);
     }
 
     // select(gate, off, on) expanded as gate * on + (1 - gate) * off, two masked products.
@@ -47,7 +56,7 @@ public class MacroRangesTests
         circuit.AssumeRange(circuit.Source(1), -Big, Big);
         circuit.AssumeRange(circuit.Source(2), -Big, Big);
         var result = circuit.Select(circuit.Source(0), circuit.Source(1), circuit.Source(2));
-        return circuit.EvaluateReference([(float)gate, (float)off, (float)on])[result.Position];
+        return EvaluateBoth(circuit, [(float)gate, (float)off, (float)on], result);
     }
 
     // multiply(a, b); ranges chosen so each operand keeps its sign freedom.
@@ -57,7 +66,7 @@ public class MacroRangesTests
         circuit.AssumeRange(circuit.Source(0), a < 0 ? -Big : 0, Big);
         circuit.AssumeRange(circuit.Source(1), b < 0 ? -Big : 0, Big);
         var result = circuit.Multiply(circuit.Source(0), circuit.Source(1));
-        return circuit.EvaluateReference([(float)a, (float)b])[result.Position];
+        return EvaluateBoth(circuit, [(float)a, (float)b], result);
     }
 
     // The clamp01 shape relu(v) - relu(v - 1), as Handwired emitClampZeroOne builds it, with unit pinned to 1.
@@ -72,7 +81,7 @@ public class MacroRangesTests
         var aboveOne = circuit.Relu(circuit.Affine([(value, 1), (unit, -1)]));
         var result = circuit.Affine([(positive, 1), (aboveOne, -1)]);
         circuit.AssumeRange(result, 0, 1);
-        var value01 = circuit.EvaluateReference([(float)v, 1])[result.Position];
+        var value01 = EvaluateBoth(circuit, [(float)v, 1], result);
         // Sharpwired: Handwired does not export emitClampZeroOne. Macros.ClampZeroOne is public, so
         // this helper also checks that the macro gives the same value as the mirror above.
         var macroCircuit = new Circuit(2);
@@ -327,5 +336,7 @@ public class MacroRangesTests
         Assert.Equal(OperationKind.Reglu, circuit.Operations[0].Kind);
         Js.Is(-6, circuit.EvaluateReference([-3, 2])[product.Position]);
         Js.Throws(() => circuit.EvaluateReference([-3, -2]), "outside its assumed range");
+        Js.Is(-6, circuit.EvaluateTensor([-3, 2])[product.Position]);
+        Js.Throws(() => circuit.EvaluateTensor([-3, -2]), "outside its assumed range");
     }
 }

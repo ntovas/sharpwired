@@ -1,8 +1,8 @@
-// Handwired source: src/runtime/numeric-ui-core.ts validateTensorProgram. Handwired has no test for
-// most of its messages. Each test here changes one field of a compiled program with a with
-// expression, and checks that ValidateTensorProgram refuses the copy with the Handwired message.
-// index-read.test.ts 'validators reject malformed index read programs and circuits' is in
-// IndexReadTests. The gather messages come with gather lowering.
+// Handwired source: src/runtime/numeric-ui-core.ts validateTensorProgram and validateTensorEvaluation.
+// Handwired has no test for most of their messages. Each ValidateTensorProgram test here changes one
+// field of a compiled program with a with expression, and checks that ValidateTensorProgram refuses
+// the copy with the Handwired message. index-read.test.ts 'validators reject malformed index read
+// programs and circuits' is in IndexReadTests. The gather messages come with gather lowering.
 
 namespace Sharpwired.Core.Tests;
 
@@ -194,5 +194,107 @@ public class TensorValidationTests
             Layers = [program.Layers[0]],
         };
         Js.Throws(() => circuit.ValidateTensorProgram(shorter), "tensor output wire is invalid");
+    }
+
+    // ValidateTensorEvaluation reads TensorProgram ??= CompileTensorProgram(), as Handwired does.
+    [Fact]
+    public void Tensor_evaluation_of_the_cached_program_passes_and_a_missing_program_is_compiled()
+    {
+        var (circuit, _) = Build();
+        float[] source = [1.5f, 3, -2, 1];
+        circuit.ValidateTensorEvaluation(source, circuit.EvaluateTensor(source));
+        var cached = circuit.TensorProgram;
+        Assert.NotNull(cached);
+
+        circuit.TensorProgram = null;
+        circuit.ValidateTensorEvaluation(source, circuit.EvaluateReference(source));
+        Assert.NotNull(circuit.TensorProgram);
+        TensorChecks.AssertSameProgram(cached, circuit.TensorProgram);
+    }
+
+    [Fact]
+    public void A_changed_tensor_value_is_refused()
+    {
+        var (circuit, _) = Build();
+        float[] source = [1.5f, 3, -2, 1];
+        var values = circuit.EvaluateTensor(source);
+        var deep = circuit.Width - 1;
+        values[deep] = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(values[deep]) + 1);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => circuit.ValidateTensorEvaluation(source, values));
+        Assert.Equal($"tensor wire {deep} does not match the reference FP32 atom program", exception.Message);
+    }
+
+    // Only the wires of WireOrder are compared. A wire that the cached program removed can hold any value.
+    [Fact]
+    public void Only_the_wires_of_the_cached_program_are_compared()
+    {
+        var (circuit, _) = Build();
+        var removed = circuit.CompileTensorProgram([Wire.FromPosition(4)]);
+        circuit.TensorProgram = removed;
+        float[] source = [1.5f, 3, -2, 1];
+        var values = circuit.EvaluateTensor(source);
+        Assert.DoesNotContain(5, removed.WireOrder);
+        values[5] = 1234;
+
+        circuit.ValidateTensorEvaluation(source, values);
+    }
+
+    // Handwired compares with ===: +0 equals -0, and NaN equals no value, also not NaN.
+    [Fact]
+    public void Tensor_evaluation_compares_with_JavaScript_strict_equality()
+    {
+        var circuit = new Circuit(2);
+        var sum = circuit.Affine([(circuit.Source(0), 1), (circuit.Source(1), 1)]);
+        float[] zero = [-0f, 0f];
+        var values = circuit.EvaluateTensor(zero);
+        values[sum.Position] = -0f;
+        Js.Is(0, circuit.EvaluateReference(zero)[sum.Position]);
+        circuit.ValidateTensorEvaluation(zero, values);
+
+        float[] infinities = [float.PositiveInfinity, float.NegativeInfinity];
+        var nanValues = circuit.EvaluateTensor(infinities);
+        Js.Is(double.NaN, nanValues[sum.Position]);
+        Js.Throws(
+            () => circuit.ValidateTensorEvaluation(infinities, nanValues),
+            $"tensor wire {sum.Position} does not match the reference FP32 atom program");
+    }
+
+    [Fact]
+    public void A_tensor_result_of_the_wrong_width_is_refused()
+    {
+        var (circuit, _) = Build();
+        float[] source = [1.5f, 3, -2, 1];
+        var values = circuit.EvaluateTensor(source);
+
+        var exception = Assert.Throws<ArgumentException>(() => circuit.ValidateTensorEvaluation(source, values[..^1]));
+        Assert.Equal("tensor result width mismatch", exception.Message);
+        Js.Throws(() => circuit.ValidateTensorEvaluation(source, [.. values, 0]), "tensor result width mismatch");
+    }
+
+    // Handwired evaluateOperationStream checks the source length and not the source ranges.
+    [Fact]
+    public void Tensor_evaluation_checks_the_source_length_and_not_the_source_ranges()
+    {
+        var (circuit, _) = Build();
+        Js.Throws(() => circuit.ValidateTensorEvaluation([1, 2, 3], new float[circuit.Width]), "source table has the wrong length");
+
+        // Source 0 is outside its range 0..2. A circuit with the same operations and the range 0..10
+        // on source 0 gives the values.
+        float[] source = [7, 3, -2, 1];
+        circuit.ValidateTensorEvaluation(source, BuildWithAWiderIndexRange().EvaluateReference(source));
+    }
+
+    private static Circuit BuildWithAWiderIndexRange()
+    {
+        var circuit = new Circuit(4);
+        circuit.AssumeRange(circuit.Source(0), 0, 10);
+        circuit.AssumeRange(circuit.Source(3), 0, 1);
+        var affine = circuit.RoundAffine([(circuit.Source(1), 2)], 1);
+        var product = circuit.Reglu([(circuit.Source(1), 3)], 2, [(circuit.Source(2), -1)], 5);
+        var read = circuit.IndexRead(circuit.Source(0), [circuit.Source(1), circuit.Source(2), circuit.Source(3)]);
+        circuit.Boolean(circuit.Source(3));
+        circuit.Reglu([(affine, 1), (read, 1)], 0, [(product, 1)], 0);
+        return circuit;
     }
 }
