@@ -326,6 +326,35 @@ public partial class IndexReadTests
         Assert.NotEqual(first, circuit.IndexRead(circuit.Source(0), candidates));
     }
 
+    // No Handwired case. The table lookup hashes the content, so many distinct tables do not make
+    // a read slower, and identical content still shares one table.
+    [Fact]
+    public void A_thousand_distinct_tables_each_read_their_own_table_and_identical_content_shares_it()
+    {
+        const int TableCount = 1_000;
+        const int TableSize = 64;
+        var circuit = new Circuit(1 + 2 * TableSize);
+        circuit.AssumeRange(circuit.Source(0), 0, TableSize - 1);
+        // Table t holds, at position k, cell 1 + 2k or cell 2 + 2k, as bit k of t selects. Each t
+        // below 1,024 gives different content.
+        Wire[] Content(int t) =>
+            [.. Enumerable.Range(0, TableSize).Select(k => circuit.Source(1 + 2 * k + (k < 10 ? (t >> k) & 1 : 0)))];
+        var tables = new CandidateTable[TableCount];
+        for (var t = 0; t < TableCount; t++)
+        {
+            var read = circuit.IndexRead(circuit.Source(0), Content(t));
+            tables[t] = circuit.Operations[read.Position - circuit.SourceSize].IndexRead!.Table;
+            Assert.Equal<Wire>(Content(t), tables[t].Candidates);
+        }
+        Assert.Equal(TableCount, tables.Select(table => table.Id).Distinct().Count());
+        for (var t = 0; t < TableCount; t++)
+        {
+            // A new list with the same content and the other side rule: a new operation on the same table.
+            var read = circuit.IndexRead(circuit.Source(0), Content(t), OutOfRange.Zero);
+            Assert.Same(tables[t], circuit.Operations[read.Position - circuit.SourceSize].IndexRead!.Table);
+        }
+    }
+
     // 'a constant index selects its candidate while building'.
     [Fact]
     public void A_constant_index_selects_its_candidate_while_building()

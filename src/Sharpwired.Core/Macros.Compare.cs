@@ -72,7 +72,9 @@ public static partial class Macros
     {
         if (!Enum.IsDefined(relation))
         {
-            throw new ArgumentException($"comparison relation must be >, >=, <, <= or ===, got {relation}");
+            // Handwired writes the relation that the caller passed. An enum value with no name has
+            // no symbol, so the message writes it as the cast that gives it.
+            throw new ArgumentException($"comparison relation must be >, >=, <, <= or ===, got (Relation){((int)relation).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         }
         var left = CreateCompareOperand(circuit, a);
         var right = CreateCompareOperand(circuit, b);
