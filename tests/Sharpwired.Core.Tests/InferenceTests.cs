@@ -6,8 +6,8 @@ namespace Sharpwired.Core.Tests;
 public class InferenceTests
 {
     // comparison.test.ts 'grids are inferred through sums and products that cannot round'.
-    // This port keeps the assertions that use no index read, no emitCompare and no validateGrids.
-    // The index read assertions belong to plan task 3, the others to plan tasks 4 and 6.
+    // This port keeps the assertions that use no emitCompare and no validateGrids.
+    // The others belong to plan tasks 4 and 6.
     [Fact]
     public void Grids_are_inferred_through_sums_and_products_that_cannot_round()
     {
@@ -28,6 +28,7 @@ public class InferenceTests
         Assert.Null(circuit.Grids[circuit.Affine([(circuit.Source(0), 1), (circuit.Source(2), 1)]).Position]);
         circuit.AssumeRange(circuit.Source(3), 0, 1);
         Assert.Equal(1.0, circuit.Grids[circuit.Boolean(circuit.Source(3)).Position]);
+        Assert.Equal(1.0 / 64, circuit.Grids[circuit.IndexRead(circuit.Affine([], 0), [circuit.Source(0), circuit.Source(1)]).Position]);
         // A coarser declaration is kept. Operations already read source 0, so the late declaration needs the opt-out.
         circuit.AssumeGrid(circuit.Source(0), 1, allowExistingReaders: true);
         circuit.AssumeGrid(circuit.Source(0), 1.0 / 64);

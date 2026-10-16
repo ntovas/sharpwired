@@ -1,5 +1,5 @@
 // Handwired source: src/runtime/numeric-ui-core.ts (validateCircuit, validateTerms, assertWire,
-// indexMagnitudeLimit).
+// indexMagnitudeLimit, validateIndexReads).
 
 namespace Sharpwired.Core;
 
@@ -68,6 +68,30 @@ public static class Validation
             }
         }
         return wireCount;
+    }
+
+    /// <summary>
+    /// Check that every index form holds an integer within the index range that the builder
+    /// accepted, also a range declared on the index wire. Then floor changes nothing, and the read
+    /// equals a one-hot masked sum over the same table. For example, an index built as
+    /// scrollTop / 28 fails at scrollTop 14. For tests: the evaluators do not do this check.
+    /// </summary>
+    public static void ValidateIndexReads(this Circuit circuit, float[] values)
+    {
+        if (values.Length != circuit.Width) throw new ArgumentException("index read validation needs the full wire values");
+        for (var operationIndex = 0; operationIndex < circuit.Operations.Count; operationIndex++)
+        {
+            var operation = circuit.Operations[operationIndex];
+            if (operation.Kind != OperationKind.Index) continue;
+            double index = Circuit.EvaluateTerms(values, operation.GateTerms, operation.GateBias);
+            var range = operation.IndexRead!.IndexRange;
+            if (!(double.IsInteger(index) && index >= range.Minimum && index <= range.Maximum))
+            {
+                throw new InvalidOperationException(
+                    $"index read wire {circuit.SourceSize + operationIndex} needs an integer index within "
+                    + $"{Fp32.Format(range.Minimum)}..{Fp32.Format(range.Maximum)}, got {Fp32.Format(index)}");
+            }
+        }
     }
 
     private static void ValidateTerms(IEnumerable<Term> terms, int wireLimit)
