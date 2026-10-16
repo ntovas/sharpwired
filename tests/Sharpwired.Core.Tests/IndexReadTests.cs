@@ -326,8 +326,8 @@ public partial class IndexReadTests
         Assert.NotEqual(first, circuit.IndexRead(circuit.Source(0), candidates));
     }
 
-    // No Handwired case. The table lookup hashes the content, so many distinct tables do not make
-    // a read slower, and identical content still shares one table.
+    // No Handwired case. The table lookup hashes the content. Each read gets its own table, and
+    // identical content still shares one table. This test does not measure time.
     [Fact]
     public void A_thousand_distinct_tables_each_read_their_own_table_and_identical_content_shares_it()
     {

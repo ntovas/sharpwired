@@ -397,7 +397,6 @@ public class ComparisonTests
         }
         // f(largestFinite - -largestFinite) is Infinity.
         Js.Throws(() => circuit.Compare(circuit.Source(2), Relation.Greater, circuit.Affine([(circuit.Source(2), -1)])), "can overflow FP32");
-        Js.Throws(() => circuit.Compare(circuit.Source(0), (Relation)99, circuit.Source(2)), "comparison relation");
         // Handwired writes the relation value that the caller passed, for example "got !==". Here
         // the caller passed an enum value that has no name, so the message writes the cast.
         Js.Throws(
