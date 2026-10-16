@@ -1,7 +1,6 @@
 // Handwired source: tests/runtime/numeric-semantics.test.ts.
 // Each test name holds the Handwired test name. A test that compares with the
-// tensor evaluator keeps its reference-evaluator part here. PHASE2-TENSOR-ASSERTIONS.md
-// lists the tensor assertions.
+// tensor evaluator holds its reference part and its tensor part.
 
 namespace Sharpwired.Core.Tests;
 
@@ -65,9 +64,9 @@ public class NumericSemanticsTests
         Js.Is(double.PositiveInfinity, circuit.Ranges[poisoned.Position].Maximum);
     }
 
-    // 'overflowing unselected candidates do not lower to gather' (reference part).
+    // 'overflowing unselected candidates do not lower to gather'.
     [Fact]
-    public void Overflowing_unselected_candidates_give_NaN_in_the_reference_evaluator()
+    public void Overflowing_unselected_candidates_do_not_lower_to_gather()
     {
         var circuit = new Circuit(4);
         circuit.AssumeOneHot([circuit.Source(0), circuit.Source(1)]);
@@ -78,11 +77,14 @@ public class NumericSemanticsTests
             (circuit.Multiply(circuit.Source(2), circuit.Source(0)), 1),
             (circuit.Multiply(twice, circuit.Source(1)), 1),
         ]);
-
-        Assert.True(float.IsNaN(circuit.EvaluateReference([1, 0, 5, 3e38f])[output.Position]));
+        circuit.TensorProgram = circuit.CompileTensorProgram([output]);
+        Assert.Equal(0, circuit.TensorProgram.GatherSlotCount);
+        float[] source = [1, 0, 5, 3e38f];
+        Assert.True(float.IsNaN(circuit.EvaluateReference(source)[output.Position]));
+        Assert.True(float.IsNaN(circuit.EvaluateTensor(source)[output.Position]));
     }
 
-    // 'min and max ranges describe their arithmetic, not mathematical bounds' (reference part).
+    // 'min and max ranges describe their arithmetic, not mathematical bounds'.
     [Fact]
     public void Min_and_max_ranges_describe_their_arithmetic_not_mathematical_bounds()
     {
@@ -98,7 +100,11 @@ public class NumericSemanticsTests
                 (circuit.Multiply(circuit.Source(2), circuit.Source(0)), 1),
                 (circuit.Multiply(extreme, circuit.Source(1)), 1),
             ]);
-            Assert.True(float.IsNaN(circuit.EvaluateReference([1, 0, 5, 3e38f, -3e38f])[output.Position]));
+            circuit.TensorProgram = circuit.CompileTensorProgram([output]);
+            Assert.Equal(0, circuit.TensorProgram.GatherSlotCount);
+            float[] source = [1, 0, 5, 3e38f, -3e38f];
+            Assert.True(float.IsNaN(circuit.EvaluateReference(source)[output.Position]));
+            Assert.True(float.IsNaN(circuit.EvaluateTensor(source)[output.Position]));
         }
         var unit = new Circuit(2);
         unit.AssumeRange(unit.Source(0), 1, 1);
@@ -333,5 +339,28 @@ public class NumericSemanticsTests
         Assert.Matches(differenceMessage, Js.Throws(() => circuit.ValidateNoNaN(values, [picked]), "first NaN").Message);
         Assert.Matches(differenceMessage, Js.Throws(() => circuit.ValidateNoNaN(values, [scaled]), "first NaN").Message);
         circuit.ValidateNoNaN(values, [scale]);
+    }
+
+    // 'reusable tensor evaluation returns only roots and refreshes every call'.
+    [Fact]
+    public void Reusable_tensor_evaluation_returns_only_roots_and_refreshes_every_call()
+    {
+        var circuit = new Circuit(4);
+        circuit.AssumeOneHot([circuit.Source(0), circuit.Source(1)], allowAllZero: true);
+        circuit.AssumeRange(circuit.Source(2), -100, 100);
+        circuit.AssumeRange(circuit.Source(3), -100, 100);
+        var picked = circuit.Affine([
+            (circuit.Multiply(circuit.Source(0), circuit.Source(2)), 1),
+            (circuit.Multiply(circuit.Source(1), circuit.Source(3)), 1),
+        ]);
+        var run = circuit.CreateTensorEvaluator([picked, circuit.Source(2), picked]);
+        var first = run.Evaluate([1, 0, 7, -3]);
+        // assert.deepEqual of node:assert/strict compares numbers with Object.is.
+        Js.AllIs([7, 7, 7], first.Select(value => (double)value));
+        var second = run.Evaluate([0, 1, 9, -5]);
+        Assert.Same(first, second);
+        Js.AllIs([-5, 9, -5], second.Select(value => (double)value));
+        Js.AllIs([0, 9, 0], run.Evaluate([0, 0, 9, -5]).Select(value => (double)value));
+        Js.Throws(() => run.Evaluate(new float[3]), "wrong length");
     }
 }
