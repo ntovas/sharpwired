@@ -3,12 +3,32 @@
 // These tests check that .NET float arithmetic gives the Math.fround semantics
 // that Handwired uses. The exactness of every macro depends on them.
 
+// The JIT does not optimize a method that it compiles at Tier 0 or with MinOpts, and that code
+// never forms an FMA. So the arithmetic helpers below have AggressiveOptimization: the JIT skips
+// Tier 0 and compiles them fully optimized at the first call. The project sets Optimize to true,
+// so that the Debug build does not mark the assembly with DisableOptimizations, which forces
+// unoptimized code. TieredCompilation is false in the project, so that the production evaluator
+// in Sharpwired.Core also gets fully optimized code at the first call in a Release run.
+
+using System.Runtime.CompilerServices;
+
 namespace Sharpwired.Core.Tests;
 
 public class Fp32SemanticsTests
 {
     // The values come from an array, so that the C# compiler cannot fold them.
+    // a = b = 1 + 2^-12 and c = -(1 + 2^-11). The exact product is 1 + 2^-11 + 2^-24.
+    // FP32 rounds the product to 1 + 2^-11, so the separately rounded sum is 0. An FMA gives 2^-24.
     private static readonly float[] FixedInputs = [1f + MathF.ScaleB(1f, -12), 1f + MathF.ScaleB(1f, -12), -(1f + MathF.ScaleB(1f, -11))];
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
+    private static float PlainMultiplyAdd(float a, float b, float c) => a * b + c;
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
+    private static float CastMultiplyAdd(float a, float b, float c) => (float)((float)a * (float)b + (float)c);
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
+    private static float AddThenMultiply(float a, float b, float c) => c + a * b;
 
     [Fact]
     public void A_multiply_and_an_add_round_separately_and_do_not_contract_into_an_fma()
@@ -17,15 +37,36 @@ public class Fp32SemanticsTests
         float b = FixedInputs[1];
         float c = FixedInputs[2];
 
-        float separate = (float)((float)(a * b) + c);
-        float plain = a * b + c;
         float fused = MathF.FusedMultiplyAdd(a, b, c);
-
-        // The exact product is 1 + 2^-11 + 2^-24. FP32 rounds it to 1 + 2^-11, so the sum is 0.
-        Assert.Equal(0f, separate);
         Assert.Equal(MathF.ScaleB(1f, -24), fused);
-        Assert.NotEqual(fused, separate);
-        Assert.Equal(separate, plain);
+
+        Assert.Equal(0f, PlainMultiplyAdd(a, b, c));
+        Assert.Equal(0f, CastMultiplyAdd(a, b, c));
+        Assert.Equal(0f, AddThenMultiply(a, b, c));
+    }
+
+    [Fact]
+    public void The_reference_evaluator_rounds_a_multiply_and_an_add_separately()
+    {
+        float a = FixedInputs[0];
+        float b = FixedInputs[1];
+        float c = FixedInputs[2];
+        Assert.NotEqual(0f, MathF.FusedMultiplyAdd(a, b, c));
+
+        var circuit = new Circuit(3);
+        circuit.AssumeRange(circuit.Source(0), 1, 2);
+        circuit.AssumeRange(circuit.Source(1), 1, 2);
+        circuit.AssumeRange(circuit.Source(2), -2, -1);
+        // A Multiply and an affine sum: f(f(a × b) + c).
+        var product = circuit.Multiply(circuit.Source(0), circuit.Source(1));
+        var sum = circuit.RoundAffine([(product, 1), (circuit.Source(2), 1)]);
+        // One affine term with a coefficient: f(c + f(b × a)), where b is the coefficient.
+        // EvaluateTerms computes value + coefficient × values[wire], the form that an FMA can replace.
+        var term = circuit.RoundAffine([(circuit.Source(2), 1), (circuit.Source(0), (double)b)]);
+
+        var values = circuit.EvaluateReference([a, b, c]);
+        Assert.Equal(0f, values[sum.Position]);
+        Assert.Equal(0f, values[term.Position]);
     }
 
     [Fact]
@@ -43,8 +84,9 @@ public class Fp32SemanticsTests
             float separate = (float)((double)product + c);
             if (fused == separate) continue;
             found++;
-            Assert.Equal(separate, a * b + c);
-            Assert.Equal(separate, (float)((float)a * (float)b + (float)c));
+            Assert.Equal(separate, PlainMultiplyAdd(a, b, c));
+            Assert.Equal(separate, CastMultiplyAdd(a, b, c));
+            Assert.Equal(separate, AddThenMultiply(a, b, c));
         }
 
         Assert.True(found >= 100, $"the search found only {found} inputs where an FMA differs");

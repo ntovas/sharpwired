@@ -2,6 +2,9 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Fp32SemanticsTests needs optimized JIT code in Debug and in Release. See the comment in that file. -->
+    <Optimize>true</Optimize>
+    <TieredCompilation>false</TieredCompilation>
   </PropertyGroup>
 
   <ItemGroup>
