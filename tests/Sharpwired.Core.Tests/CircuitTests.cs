@@ -257,4 +257,37 @@ public class CircuitTests
             Js.Is(expected, circuit.EvaluateReference([score])[decision.Position]);
         }
     }
+
+    // 'reference backpropagation follows affine and ReGLU atoms'.
+    [Fact]
+    public void Reference_backpropagation_follows_affine_and_ReGLU_atoms()
+    {
+        var circuit = new Circuit(3);
+        var output = circuit.Reglu(
+            [(circuit.Source(0), 2), (circuit.Source(2), 1)],
+            0,
+            [(circuit.Source(0), 3), (circuit.Source(1), -1)],
+            0);
+        var values = circuit.EvaluateReference([2, 1, -1]);
+        var outputGradients = new float[values.Length];
+        outputGradients[output.Position] = 1;
+        var gradients = circuit.BackpropagateReference(values, outputGradients);
+
+        Js.Is(15, values[output.Position]);
+        Assert.Equal([19f, -3f, 5f], gradients[..3]);
+    }
+
+    // 'reference backpropagation rejects hard boolean decisions'.
+    [Fact]
+    public void Reference_backpropagation_rejects_hard_boolean_decisions()
+    {
+        var circuit = new Circuit(1);
+        circuit.AssumeRange(circuit.Source(0), 0, 1);
+        var output = circuit.Boolean(circuit.Source(0));
+        var values = circuit.EvaluateReference([0.4f]);
+        var outputGradients = new float[values.Length];
+        outputGradients[output.Position] = 1;
+
+        Js.Throws(() => circuit.BackpropagateReference(values, outputGradients), "cannot backpropagate through a boolean atom");
+    }
 }

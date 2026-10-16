@@ -494,6 +494,42 @@ public class SpringMatrixTests
             target.RoundingPoints().Select(point => point.Kind).Order());
     }
 
+    // 'animated objects' / 'the backward pass gives matrix cells and state the gradients of whole
+    // products, and rejects the settle atom by default'.
+    [Fact]
+    public void The_backward_pass_gives_matrix_cells_and_state_the_gradients_of_whole_products_and_rejects_the_settle_atom_by_default()
+    {
+        var built = BuildObject(1, false, false);
+        var circuit = built.Circuit;
+        var random = Js.CreateRandom(29);
+        for (var sample = 0; sample < 100; sample++)
+        {
+            var steps = sample < 10 ? 0 : (int)Math.Floor(random() * 301);
+            var matrix = Fp32Matrix(Constants[sample % 3], steps);
+            var source = new float[circuit.SourceSize];
+            var destination = F(random() * 800);
+            var displacement = F((random() * 2 - 1) * 500);
+            var velocity = F((random() * 2 - 1) * 2000);
+            WriteSprings(source, [new SpringSample(matrix, displacement, velocity, destination, destination)]);
+            source[built.SettleCheckCell] = 0;
+            var values = circuit.EvaluateReference(source);
+            var seeds = new float[values.Length];
+            seeds[built.Object.Positions[0].Position] = 1;
+            Js.Throws(() => circuit.BackpropagateReference(values, seeds), "boolean atom");
+            var gradients = circuit.BackpropagateReference(values, seeds, BooleanGradient.StraightThrough);
+            static void Close(double actual, double expected) =>
+                Assert.True(Math.Abs(actual - expected) <= 1e-4 * Math.Max(1, Math.Abs(expected)), $"expected {expected:R}, got {actual:R}");
+            // position = destination + m0 × displacement + m1 × velocity
+            Close(gradients[0], displacement);
+            Close(gradients[1], velocity);
+            Js.Is(0, gradients[2]);
+            Js.Is(0, gradients[3]);
+            Close(gradients[4], matrix[0]);
+            Close(gradients[5], matrix[1]);
+            Js.Is(1, gradients[6]);
+        }
+    }
+
     // 'animated objects' / 'refuses settle check and snap wires outside 0..1, and objects without springs'.
     [Fact]
     public void Refuses_settle_check_and_snap_wires_outside_0_to_1_and_objects_without_springs()

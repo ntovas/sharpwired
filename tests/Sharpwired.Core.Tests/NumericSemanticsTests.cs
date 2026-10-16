@@ -141,9 +141,37 @@ public class NumericSemanticsTests
         }
     }
 
-    // 'selection preserves finite extreme operands and its intended derivative' (reference values).
+    // 'whole multiplication has the correct derivative at zero in either order'.
     [Fact]
-    public void Selection_preserves_finite_extreme_operands()
+    public void Whole_multiplication_has_the_correct_derivative_at_zero_in_either_order()
+    {
+        foreach (var nonnegative in new[] { false, true })
+        {
+            foreach (var (left, right) in new[] { (0, 1), (1, 0) })
+            {
+                var circuit = new Circuit(2);
+                if (nonnegative) circuit.AssumeRange(circuit.Source(1), 0, 1);
+                var product = circuit.Multiply(circuit.Source(left), circuit.Source(right));
+                var output = circuit.Affine([(product, 2)]);
+                var values = circuit.EvaluateReference([3, 0]);
+                var seeds = new float[values.Length];
+                seeds[output.Position] = 1;
+                var gradients = circuit.BackpropagateReference(values, seeds);
+                Js.Is(6, gradients[1]);
+                Js.Is(0, gradients[0]);
+                var parent = new Circuit(2);
+                var map = parent.InlineCircuit(circuit, [parent.Source(0), parent.Source(1)]);
+                var parentValues = parent.EvaluateReference([3, 0]);
+                var parentSeeds = new float[parentValues.Length];
+                parentSeeds[map[output.Position].Position] = 1;
+                Js.Is(6, parent.BackpropagateReference(parentValues, parentSeeds)[1]);
+            }
+        }
+    }
+
+    // 'selection preserves finite extreme operands and its intended derivative' (reference part).
+    [Fact]
+    public void Selection_preserves_finite_extreme_operands_and_its_intended_derivative()
     {
         var circuit = new Circuit(3);
         circuit.AssumeRange(circuit.Source(0), 0, 1);
@@ -153,6 +181,24 @@ public class NumericSemanticsTests
             float[] source = [gate, 3e38f, -3e38f];
             Js.Is(source[gate == 0 ? 1 : 2], circuit.EvaluateReference(source)[output.Position]);
         }
+        var values = circuit.EvaluateReference([0.25f, 3, 7]);
+        var seeds = new float[values.Length];
+        seeds[output.Position] = 1;
+        Assert.Equal([4f, 0.75f, 0.25f], circuit.BackpropagateReference(values, seeds)[..3]);
+    }
+
+    // 'boolean surrogate derivatives must be requested explicitly'.
+    [Fact]
+    public void Boolean_surrogate_derivatives_must_be_requested_explicitly()
+    {
+        var circuit = new Circuit(1);
+        circuit.AssumeRange(circuit.Source(0), 0, 1);
+        var output = circuit.Boolean(circuit.Source(0));
+        var values = circuit.EvaluateReference([0.25f]);
+        var seeds = new float[values.Length];
+        seeds[output.Position] = 1;
+        Js.Throws(() => circuit.BackpropagateReference(values, seeds), "boolean atom");
+        Js.Is(1, circuit.BackpropagateReference(values, seeds, BooleanGradient.StraightThrough)[0]);
     }
 
     // 'source cells, constants and hand-counted positions become wires only through checked helpers'.

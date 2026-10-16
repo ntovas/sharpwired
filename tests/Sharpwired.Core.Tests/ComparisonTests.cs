@@ -4,7 +4,6 @@
 // validateCircuit part, and PHASE2-TENSOR-ASSERTIONS.md lists the tensor part. Handwired cost
 // reads compileTensorProgram([root]). Cost here counts the operations that the root reads, by
 // the findLiveOperations rule without gather plans, and the layers of their depths.
-// The backpropagateReference assertions belong to plan task 7.
 
 using System.Numerics;
 
@@ -588,18 +587,56 @@ public class ComparisonTests
         Assert.True(inferred > 100, $"inferred {inferred} grids");
     }
 
-    // backward pass: 'grid bits have slope 1 on fractional inputs, and atoms throw without
-    // straight-through' (the forward value). The gradients belong to plan task 7.
+    private static float[] GradientsAt(Circuit circuit, Wire bit, float[] source, BooleanGradient booleanGradient = BooleanGradient.Reject)
+    {
+        var values = circuit.EvaluateReference(source);
+        var seeds = new float[values.Length];
+        seeds[bit.Position] = 1;
+        return circuit.BackpropagateReference(values, seeds, booleanGradient);
+    }
+
+    // backward pass: 'the cascade runs without a special case and gives the operands 0'.
     [Fact]
-    public void A_grid_bit_at_a_fractional_input_off_its_grid_is_a_fraction()
+    public void The_cascade_runs_without_a_special_case_and_gives_the_operands_0()
+    {
+        var (circuit, bits) = BuildPairCircuit(0, 16_384);
+        foreach (var difference in new[] { -100, -1, -SmallestSubnormal, 0, SmallestSubnormal, Math.Pow(2, -30), 0.3, 100 })
+        {
+            float[] source = difference >= 0 ? [(float)difference, 0] : [0, (float)-difference];
+            foreach (var bit in bits)
+            {
+                var gradients = GradientsAt(circuit, bit, source);
+                Js.Is(0, gradients[0]);
+                Js.Is(0, gradients[1]);
+            }
+        }
+    }
+
+    // backward pass: 'grid bits have slope 1 on fractional inputs, and atoms throw without
+    // straight-through'.
+    [Fact]
+    public void Grid_bits_have_slope_1_on_fractional_inputs_and_atoms_throw_without_straight_through()
     {
         var circuit = new Circuit(1);
         circuit.AssumeRange(circuit.Source(0), -1000, 1000);
         circuit.AssumeGrid(circuit.Source(0), 1);
         var atLeastFive = circuit.Compare(circuit.Source(0), Relation.GreaterOrEqual, circuit.Affine([], 5));
+        Assert.Equal([0f, 0f, 1f, 0f, 0f], new[] { 3f, 4f, 4.5f, 5f, 6f }.Select(value => GradientsAt(circuit, atLeastFive, [value])[0]));
         Js.Is(0.5, circuit.EvaluateReference([4.5f])[atLeastFive.Position]);
         // Sharpwired addition: the forward values at the inputs where Handwired reads the gradients.
         Assert.Equal([0.0, 0.0, 0.5, 1.0, 1.0], new[] { 3f, 4f, 4.5f, 5f, 6f }.Select(value => (double)circuit.EvaluateReference([value])[atLeastFive.Position]));
+        foreach (var grid in new double?[] { 1, null })
+        {
+            var rounding = new Circuit(2);
+            foreach (var position in new[] { 0, 1 })
+            {
+                rounding.AssumeRange(Wire.FromPosition(position), 0, 16_384);
+                if (grid is { } step) rounding.AssumeGrid(Wire.FromPosition(position), step);
+            }
+            var bit = rounding.Compare(rounding.Source(0), Relation.Greater, rounding.Source(1), new CompareOptions { EndWithBoolean = true });
+            Js.Throws(() => GradientsAt(rounding, bit, [3, 2]), "cannot backpropagate through a boolean atom");
+            Assert.True(float.IsFinite(GradientsAt(rounding, bit, [3, 2], BooleanGradient.StraightThrough)[0]));
+        }
     }
 
     // rounding points: 'every operation emitCompare builds is recorded, as integer bits on grids and
