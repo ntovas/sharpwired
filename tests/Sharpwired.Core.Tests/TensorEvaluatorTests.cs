@@ -2,7 +2,8 @@
 // values of its last evaluation: the source cells, then every live operation in wireOrder"), and
 // src/runtime/numeric-ui-core.ts (Circuit.evaluateTensor, Circuit.createTensorEvaluator,
 // Circuit.createTensorProgramEvaluator, and the resets of Circuit.tensorProgram in assumeOneHot,
-// indexRead and append). Handwired has no test for the other cases here.
+// indexRead and append, and the gather index store of applyGathers). Handwired has no test for the
+// other cases here.
 
 namespace Sharpwired.Core.Tests;
 
@@ -81,7 +82,7 @@ public class TensorEvaluatorTests
         foreach (var recomputeDepths in new[] { false, true })
         {
             var evaluator = circuit.CreateTensorEvaluator([product, sum], recomputeDepths);
-            TensorChecks.AssertSameProgram(circuit.CompileTensorProgram([product, sum], recomputeDepths), evaluator.Program);
+            TensorChecks.AssertSameProgram(circuit.CompileTensorProgram([product, sum], lowerGathers: true, recomputeDepths: recomputeDepths), evaluator.Program);
             Assert.DoesNotContain(unused.Position, evaluator.Program.WireOrder);
             Assert.Equal([10f, 5f], evaluator.Evaluate([2, 3]));
         }
@@ -256,5 +257,50 @@ public class TensorEvaluatorTests
         var swappedMapping = parent.InlineCircuit(child, [parent.Source(1), parent.Source(0)]);
         Assert.Null(parent.TensorProgram);
         Assert.NotEqual(sameMapping[childSum.Position], swappedMapping[childSum.Position]);
+    }
+
+    // Handwired createTensorEvaluator compiles with lowerGathers true (numeric-ui-core.ts:761), so a
+    // one-hot-masked sum becomes one gather read in the program of the evaluator.
+    [Fact]
+    public void Create_tensor_evaluator_lowers_gathers()
+    {
+        var circuit = new Circuit(4);
+        Wire[] bits = [circuit.Source(0), circuit.Source(1)];
+        circuit.AssumeOneHot(bits);
+        circuit.AssumeRange(circuit.Source(2), 0, 100);
+        circuit.AssumeRange(circuit.Source(3), 0, 100);
+        var read = circuit.Affine([(circuit.Multiply(bits[0], circuit.Source(2)), 1), (circuit.Multiply(bits[1], circuit.Source(3)), 1)]);
+
+        foreach (var recomputeDepths in new[] { false, true })
+        {
+            var evaluator = circuit.CreateTensorEvaluator([read], recomputeDepths);
+            Assert.Equal(1, TensorChecks.GatherStatistics(evaluator.Program).ReadCount);
+            TensorChecks.AssertSameProgram(circuit.CompileTensorProgram([read], lowerGathers: true, recomputeDepths: recomputeDepths), evaluator.Program);
+            Assert.Equal([9f], evaluator.Evaluate([0, 1, 7, 9]));
+        }
+    }
+
+    // An Int32Array store of the gather index applies ECMAScript ToInt32: an infinite index gives 0.
+    // A broken contract makes a computed member +Infinity, so the index is +Infinity, and the read
+    // selects the first candidate. The saturating .NET (int) cast gives int.MaxValue, and the clamp
+    // then selects the last candidate.
+    [Fact]
+    public void A_gather_index_of_positive_infinity_stores_0_and_reads_the_first_candidate()
+    {
+        var circuit = new Circuit(6);
+        var raw = circuit.Source(2);
+        var member = circuit.RoundAffine([(raw, 2)]);
+        Wire[] bits = [circuit.Source(0), member, circuit.Source(1)];
+        circuit.AssumeOneHot(bits);
+        Wire[] values = [circuit.Source(3), circuit.Source(4), circuit.Source(5)];
+        foreach (var value in values) circuit.AssumeRange(value, 0, 100);
+        var read = circuit.Affine([.. bits.Select((bit, slot) => new Term(circuit.Multiply(bit, values[slot]), 1))], 0.5);
+        var program = circuit.CompileTensorProgram([read]);
+        circuit.ValidateTensorProgram(program);
+        Assert.Equal(1, TensorChecks.GatherStatistics(program).ReadCount);
+
+        var tensor = circuit.EvaluateTensor([0, 0, float.PositiveInfinity, 11, 22, 33], program);
+        Js.Is(float.PositiveInfinity, tensor[member.Position]);
+        Js.Is(Js.F(0.5 + 11), tensor[read.Position]);
     }
 }

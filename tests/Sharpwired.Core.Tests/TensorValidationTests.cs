@@ -2,7 +2,7 @@
 // Handwired has no test for most of their messages. Each ValidateTensorProgram test here changes one
 // field of a compiled program with a with expression, and checks that ValidateTensorProgram refuses
 // the copy with the Handwired message. index-read.test.ts 'validators reject malformed index read
-// programs and circuits' is in IndexReadTests. The gather messages come with gather lowering.
+// programs and circuits' is in IndexReadTests.
 
 namespace Sharpwired.Core.Tests;
 
@@ -296,5 +296,131 @@ public class TensorValidationTests
         circuit.Boolean(circuit.Source(3));
         circuit.Reglu([(affine, 1), (read, 1)], 0, [(product, 1)], 0);
         return circuit;
+    }
+
+    // A program with gathers. Layer 0: the sum p and the input of the boolean atom. Layer 1, in operation order: the gather reads read
+    // and second (one group, so one slot), the ReGLU gated, the boolean atom decision and the affine
+    // plain, which stores a weight.
+    private static (Circuit Circuit, TensorProgram Program, int[] Rows) BuildGathers()
+    {
+        var circuit = new Circuit(4);
+        Wire[] bits = [circuit.Source(0), circuit.Source(1)];
+        circuit.AssumeOneHot(bits);
+        circuit.AssumeRange(circuit.Source(2), 0, 100);
+        circuit.AssumeRange(circuit.Source(3), 0, 100);
+        Term[] Masked() => [(circuit.Multiply(bits[0], circuit.Source(2)), 1), (circuit.Multiply(bits[1], circuit.Source(3)), 1)];
+        var read = circuit.Affine(Masked());
+        var second = circuit.Affine(Masked(), 1);
+        var p = circuit.RoundAffine([(circuit.Source(2), 1), (circuit.Source(3), 1)]);
+        var gated = circuit.Reglu([(p, 1)], 0, [(circuit.Source(3), 1)], 0);
+        var decision = circuit.Boolean(circuit.RoundAffine([(circuit.Source(2), 0.01)]));
+        var plain = circuit.RoundAffine([(p, 1)], 3);
+        var program = circuit.CompileTensorProgram([read, second, gated, decision, plain]);
+        circuit.ValidateTensorProgram(program);
+        // The row of each wire in layer 1.
+        var layerStart = program.SourceSize + program.Layers[0].OutputSize;
+        int RowOf(Wire wire) => program.WireOrder.ToList().IndexOf(wire.Position) - layerStart;
+        return (circuit, program, [RowOf(read), RowOf(second), RowOf(gated), RowOf(decision), RowOf(plain)]);
+    }
+
+    private static Action CorruptGathers(Func<TensorLayer, TensorLayer> change)
+    {
+        var (circuit, program, _) = BuildGathers();
+        var copy = program with { Layers = program.Layers.SetItem(1, change(program.Layers[1])) };
+        return () => circuit.ValidateTensorProgram(copy);
+    }
+
+    private static TensorLayer ChangeGatherRead(TensorLayer layer, Func<TensorGatherRead, TensorGatherRead> change) =>
+        layer with { GatherReads = layer.GatherReads.SetItem(0, change(layer.GatherReads[0])) };
+
+    private static TensorLayer ChangeGatherCompute(TensorLayer layer, Func<TensorGatherCompute, TensorGatherCompute> change) =>
+        layer with { GatherComputes = layer.GatherComputes.SetItem(0, change(layer.GatherComputes[0])) };
+
+    [Fact]
+    public void The_gather_test_program_has_the_expected_shape()
+    {
+        var (_, program, rows) = BuildGathers();
+        Assert.Equal(2, program.Layers.Length);
+        Assert.Equal(1, program.GatherSlotCount);
+        var layer = program.Layers[1];
+        Assert.Equal(5, layer.OutputSize);
+        Assert.Equal([0, 1, 2, 3, 4], rows);
+        var compute = Assert.Single(layer.GatherComputes);
+        Assert.Equal(0, compute.Slot);
+        Assert.Equal<int>([0, 1], compute.BitPositions);
+        Assert.Equal([(0, 0, false), (1, 0, false)], layer.GatherReads.Select(read => (read.Row, read.Slot, read.Masked)));
+        Assert.Equal<int>([2], layer.GateRows);
+        Assert.Equal<int>([3], layer.BooleanRows);
+    }
+
+    [Fact]
+    public void A_malformed_gather_compute_is_refused()
+    {
+        Js.Throws(CorruptGathers(layer => ChangeGatherCompute(layer, compute => compute with { Slot = 1 })), "gather slot is invalid");
+        Js.Throws(CorruptGathers(layer => ChangeGatherCompute(layer, compute => compute with { Slot = -1 })), "gather slot is invalid");
+        Js.Throws(
+            CorruptGathers(layer => layer with { GatherComputes = layer.GatherComputes.Add(layer.GatherComputes[0]) }),
+            "gather slot must be resolved exactly once");
+        Js.Throws(
+            CorruptGathers(layer => ChangeGatherCompute(layer, compute => compute with { BitPositions = UnsignedIndices.From([0, 6]) })),
+            "gather bit is not available");
+    }
+
+    [Fact]
+    public void A_malformed_gather_read_is_refused()
+    {
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Row = layer.OutputSize })), "gather output row is invalid");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Row = -1 })), "gather output row is invalid");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Row = 2 })), "gather output row cannot be gated");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Row = 3 })), "gather output row cannot be boolean");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Row = 4 })), "gather output row must store no weights");
+        // A read in a layer that resolves no slot, and reads of slots outside the program.
+        Js.Throws(CorruptGathers(layer => layer with { GatherComputes = [] }), "gather read must follow its slot resolution");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Slot = 1 })), "gather read must follow its slot resolution");
+        Js.Throws(CorruptGathers(layer => ChangeGatherRead(layer, read => read with { Slot = -1 })), "gather read must follow its slot resolution");
+        Js.Throws(
+            CorruptGathers(layer => ChangeGatherRead(layer, read => read with { CandidatePositions = UnsignedIndices.Empty })),
+            "gather read needs at least one candidate");
+        Js.Throws(
+            CorruptGathers(layer => ChangeGatherRead(layer, read => read with { CandidatePositions = UnsignedIndices.From([2, 6]) })),
+            "gather candidate is not available");
+    }
+
+    // Handwired validateTensorProgram ends with "every gather slot must be resolved" (:3183-3185).
+    [Fact]
+    public void A_gather_slot_that_no_layer_resolves_is_refused()
+    {
+        var (circuit, program, _) = BuildGathers();
+        Js.Throws(() => circuit.ValidateTensorProgram(program with { GatherSlotCount = 2 }), "every gather slot must be resolved");
+        // A program with no gathers that states one slot.
+        var (denseCircuit, denseProgram) = Build();
+        Assert.Equal(0, denseProgram.GatherSlotCount);
+        Js.Throws(() => denseCircuit.ValidateTensorProgram(denseProgram with { GatherSlotCount = 1 }), "every gather slot must be resolved");
+        // Handwired new Uint8Array(-1) throws a RangeError. This port refuses the count with a message.
+        Js.Throws(() => denseCircuit.ValidateTensorProgram(denseProgram with { GatherSlotCount = -1 }), "gather slot count must be a nonnegative integer");
+    }
+
+    // An index read output row that a gather read also writes.
+    [Fact]
+    public void An_index_read_on_a_gather_output_row_is_refused()
+    {
+        var circuit = new Circuit(5);
+        Wire[] bits = [circuit.Source(0), circuit.Source(1)];
+        circuit.AssumeOneHot(bits);
+        circuit.AssumeRange(circuit.Source(2), 0, 100);
+        circuit.AssumeRange(circuit.Source(3), 0, 100);
+        circuit.AssumeRange(circuit.Source(4), 0, 1);
+        var read = circuit.Affine([(circuit.Multiply(bits[0], circuit.Source(2)), 1), (circuit.Multiply(bits[1], circuit.Source(3)), 1)]);
+        var p = circuit.RoundAffine([(circuit.Source(4), 1)]);
+        var indexed = circuit.IndexRead(p, [circuit.Source(2), circuit.Source(3)]);
+        var program = circuit.CompileTensorProgram([read, indexed]);
+        circuit.ValidateTensorProgram(program);
+        var layer = program.Layers[1];
+        Assert.Single(layer.GatherReads);
+        Assert.Single(layer.IndexReads);
+        var changed = layer with { IndexReads = layer.IndexReads.SetItem(0, layer.IndexReads[0] with { Row = layer.GatherReads[0].Row }) };
+        Js.Throws(
+            () => circuit.ValidateTensorProgram(program with { Layers = program.Layers.SetItem(1, changed) }),
+            "index read output row must be unique");
     }
 }

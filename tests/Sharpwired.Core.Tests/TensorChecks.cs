@@ -1,10 +1,14 @@
 // Handwired source: the test helpers programCounts of tests/runtime/index-read.test.ts and
-// tests/runtime/spring-matrix.test.ts, and the toEqual comparison of two compiled programs.
+// tests/runtime/spring-matrix.test.ts, gatherStatistics and loweredWires of
+// tests/runtime/gather-lowering.test.ts, and the toEqual comparison of two compiled programs.
 
 namespace Sharpwired.Core.Tests;
 
 // The counts that the Handwired tests read from a compiled program.
 internal sealed record ProgramCountsResult(int LiveOperations, int Layers, int StoredWeights, int GatherReads, int IndexReads);
+
+// The counts of Handwired gatherStatistics.
+internal sealed record GatherStatisticsResult(int ReadCount, int ComputeCount, int SlotCount, int StoredWeightCount, int GatherBytes);
 
 internal static class TensorChecks
 {
@@ -22,6 +26,39 @@ internal static class TensorChecks
             indexReads += layer.IndexReads.Length;
         }
         return new ProgramCountsResult(program.ValueCount - program.SourceSize, program.Layers.Length, storedWeights, gatherReads, indexReads);
+    }
+
+    // Handwired gatherStatistics: the gather reads, the gather computes, the slots, the stored weights,
+    // and the bytes of the gather tables. A compute stores its bit table and a 32-bit slot number. A
+    // read stores its candidate table and three 32-bit values (row, slot and mask flag).
+    public static GatherStatisticsResult GatherStatistics(TensorProgram program)
+    {
+        var readCount = 0;
+        var computeCount = 0;
+        var storedWeightCount = 0;
+        var gatherBytes = 0;
+        foreach (var layer in program.Layers)
+        {
+            readCount += layer.GatherReads.Length;
+            computeCount += layer.GatherComputes.Length;
+            storedWeightCount += layer.Weights.Length;
+            foreach (var compute in layer.GatherComputes) gatherBytes += compute.BitPositions.ByteLength + 4;
+            foreach (var read in layer.GatherReads) gatherBytes += read.CandidatePositions.ByteLength + 12;
+        }
+        return new GatherStatisticsResult(readCount, computeCount, program.GatherSlotCount, storedWeightCount, gatherBytes);
+    }
+
+    // Handwired loweredWires: the wires whose operation the program lowered to a gather read.
+    public static HashSet<int> LoweredWires(TensorProgram program)
+    {
+        var wires = new HashSet<int>();
+        var availableValues = program.SourceSize;
+        foreach (var layer in program.Layers)
+        {
+            foreach (var read in layer.GatherReads) wires.Add(program.WireOrder[availableValues + read.Row]);
+            availableValues += layer.OutputSize;
+        }
+        return wires;
     }
 
     // Handwired toEqual on two programs: each field, each index array with its element width, and

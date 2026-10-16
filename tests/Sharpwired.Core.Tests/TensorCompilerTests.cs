@@ -72,8 +72,7 @@ public class TensorCompilerTests
     }
 
     // index-read.test.ts 'recomputing depths without lowered gathers reproduces the build-time program'.
-    // Handwired compiles with lowerGathers false. The compiler of this task has no gather lowering yet,
-    // so each compile is a compile without lowered gathers.
+    // Both compiles pass lowerGathers false, as Handwired does (index-read.test.ts:771).
     [Fact]
     public void Recomputing_depths_without_lowered_gathers_reproduces_the_build_time_program()
     {
@@ -111,8 +110,8 @@ public class TensorCompilerTests
             }
             var roots = wires.Where(wire => wire.Position >= circuit.SourceSize && random() < 0.5).ToArray();
             TensorChecks.AssertSameProgram(
-                circuit.CompileTensorProgram(roots),
-                circuit.CompileTensorProgram(roots, recomputeDepths: true));
+                circuit.CompileTensorProgram(roots, lowerGathers: false),
+                circuit.CompileTensorProgram(roots, lowerGathers: false, recomputeDepths: true));
         }
     }
 

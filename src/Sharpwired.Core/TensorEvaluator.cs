@@ -1,7 +1,7 @@
 // Handwired source: src/runtime/numeric-ui-core.ts (the function that
 // Circuit.createTensorProgramEvaluator returns, with its packedValues property; TensorWorkspace,
-// createTensorWorkspace, executeTensorProgram, sparseMatmulAddBias, applyIndexReads,
-// evaluateTensorProgram).
+// createTensorWorkspace, executeTensorProgram, sparseMatmulAddBias, applyGathers, applyIndexReads,
+// evaluateTensorProgram, and the ECMAScript ToInt32 of an Int32Array store).
 
 namespace Sharpwired.Core;
 
@@ -77,7 +77,7 @@ public sealed class TensorEvaluator
 
 // Handwired TensorWorkspace and createTensorWorkspace: the arrays that one evaluation computes in.
 // The input and projection arrays have the size of the largest layer, and each layer uses their
-// first entries.
+// first entries. The gather arrays hold the index and the mass of each slot.
 internal sealed class TensorWorkspace
 {
     public TensorWorkspace(TensorProgram program)
@@ -92,6 +92,8 @@ internal sealed class TensorWorkspace
         PackedValues = new float[program.ValueCount];
         Input = new float[maxInputSize];
         Projection = new float[maxProjectionSize];
+        GatherIndices = new int[program.GatherSlotCount];
+        GatherMasses = new float[program.GatherSlotCount];
     }
 
     public float[] PackedValues { get; }
@@ -99,6 +101,10 @@ internal sealed class TensorWorkspace
     public float[] Input { get; }
 
     public float[] Projection { get; }
+
+    public int[] GatherIndices { get; }
+
+    public float[] GatherMasses { get; }
 }
 
 internal static class TensorExecution
@@ -119,7 +125,8 @@ internal static class TensorExecution
 
     // Handwired executeTensorProgram. The packed values are the source cells, then the outputs of
     // each layer. Each layer copies its inputs, computes its projection rows with the sparse matrix,
-    // applies the index reads, the gates and the boolean atoms, and appends its outputs.
+    // applies the gather reads, the index reads, the gates and the boolean atoms, and appends its
+    // outputs.
     public static void ExecuteTensorProgram(ReadOnlySpan<float> source, TensorProgram program, TensorWorkspace workspace)
     {
         if (source.Length != program.SourceSize) throw new ArgumentException("source table has the wrong length");
@@ -136,6 +143,7 @@ internal static class TensorExecution
                 input[column] = packedValues[layer.InputIndices[column]];
             }
             SparseMatmulAddBias(projection, layer.Weights.AsSpan(), layer.Columns, layer.RowOffsets, input, layer.Bias.AsSpan());
+            if (layer.GatherReads.Length > 0) ApplyGathers(layer, packedValues, projection, workspace.GatherIndices, workspace.GatherMasses);
             if (layer.IndexReads.Length > 0) ApplyIndexReads(layer, packedValues, projection);
             for (var gateRow = 0; gateRow < layer.GateRows.Count; gateRow++)
             {
@@ -151,6 +159,50 @@ internal static class TensorExecution
             Array.Copy(projection, 0, packedValues, availableValues, outputSize);
             availableValues += outputSize;
         }
+    }
+
+    // Handwired applyGathers. Each compute resolves one slot: the dot product of the bits with
+    // 0..N-1 and the sum of the bits, in double, as Handwired computes in float64. For exact bits of 0
+    // and 1 these are small integers, with no rounding. The index store applies ToInt32, as an
+    // Int32Array store does, and the mass store rounds to FP32, as a Float32Array store does. Each
+    // read then adds the selected candidate (times the mass for a group that allows all zeros) to
+    // the bias of its row, with one FP32 round.
+    private static void ApplyGathers(TensorLayer layer, float[] packedValues, float[] projection, int[] gatherIndices, float[] gatherMasses)
+    {
+        foreach (var compute in layer.GatherComputes)
+        {
+            var index = 0.0;
+            var mass = 0.0;
+            for (var position = 0; position < compute.BitPositions.Count; position++)
+            {
+                double bit = packedValues[compute.BitPositions[position]];
+                index += position * bit;
+                mass += bit;
+            }
+            gatherIndices[compute.Slot] = JsToInt32(index);
+            gatherMasses[compute.Slot] = (float)mass;
+        }
+        foreach (var read in layer.GatherReads)
+        {
+            // The clamp makes a broken one-hot contract read a wrong value, not a position outside
+            // the table. For an exact one-hot the clamp changes nothing.
+            var limit = read.CandidatePositions.Count - 1;
+            var index = Math.Min(Math.Max(gatherIndices[read.Slot], 0), limit);
+            var contribution = packedValues[read.CandidatePositions[index]];
+            if (read.Masked) contribution = (float)(gatherMasses[read.Slot] * contribution);
+            projection[read.Row] = (float)(projection[read.Row] + contribution);
+        }
+    }
+
+    // ECMAScript ToInt32, the conversion of an Int32Array store: NaN and the infinities give 0, and
+    // other values truncate toward zero and wrap modulo 2^32. The .NET (int) cast saturates.
+    private static int JsToInt32(double value)
+    {
+        if (!double.IsFinite(value)) return 0;
+        var truncated = Math.Truncate(value);
+        var wrapped = truncated % 4_294_967_296.0;
+        if (wrapped < 0) wrapped += 4_294_967_296.0;
+        return unchecked((int)(uint)wrapped);
     }
 
     // Handwired applyIndexReads: copy the packed value of the selected candidate into the output

@@ -7,9 +7,10 @@ public static partial class Validation
 {
     /// <summary>
     /// Check that a compiled program fits the circuit: the sizes match, each layer reads only the
-    /// values that earlier layers wrote, each row and column is inside its layer, each index read
-    /// can reach its candidates, each constant is finite, each live wire is written exactly once,
-    /// and each root is present.
+    /// values that earlier layers wrote, each row and column is inside its layer, each gather slot is
+    /// resolved exactly once before its reads, each gather read and index read can reach its
+    /// candidates, each constant is finite, each live wire is written exactly once, and each root is
+    /// present.
     /// </summary>
     /// <remarks>
     /// A program record can hold values that a JavaScript program object cannot have the same way,
@@ -34,6 +35,9 @@ public static partial class Validation
             Invariant(wire < wireOrder.Count && wireOrder[wire] == wire, "tensor source order mismatch");
             seenWires[wire] = true;
         }
+        // Handwired new Uint8Array(gatherSlotCount) throws a RangeError for a negative count.
+        Invariant(program.GatherSlotCount >= 0, "gather slot count must be a nonnegative integer");
+        var resolvedGatherSlots = new bool[program.GatherSlotCount];
         // The explicit candidate position arrays already checked, so that reads that share one
         // table are checked one time.
         var checkedCandidatePositions = new HashSet<UnsignedIndices>(ReferenceEqualityComparer.Instance);
@@ -78,11 +82,33 @@ public static partial class Validation
             {
                 Invariant(column < layer.InputSize, "sparse matrix column is invalid");
             }
-            var seenReadRows = new bool[outputSize];
+            foreach (var compute in layer.GatherComputes)
+            {
+                Invariant(compute.Slot >= 0 && compute.Slot < program.GatherSlotCount, "gather slot is invalid");
+                Invariant(!resolvedGatherSlots[compute.Slot], "gather slot must be resolved exactly once");
+                resolvedGatherSlots[compute.Slot] = true;
+                foreach (var bitPosition in compute.BitPositions)
+                {
+                    Invariant(bitPosition < availableValues, "gather bit is not available");
+                }
+            }
             foreach (var read in layer.GatherReads)
             {
-                if (read.Row >= 0 && read.Row < outputSize) seenReadRows[read.Row] = true;
+                Invariant(read.Row >= 0 && read.Row < outputSize, "gather output row is invalid");
+                Invariant(!seenGateRows[read.Row], "gather output row cannot be gated");
+                Invariant(!seenBooleanRows[read.Row], "gather output row cannot be boolean");
+                Invariant(rowOffsets[read.Row] == rowOffsets[read.Row + 1], "gather output row must store no weights");
+                Invariant(
+                    read.Slot >= 0 && read.Slot < program.GatherSlotCount && resolvedGatherSlots[read.Slot],
+                    "gather read must follow its slot resolution");
+                Invariant(read.CandidatePositions.Count > 0, "gather read needs at least one candidate");
+                foreach (var candidatePosition in read.CandidatePositions)
+                {
+                    Invariant(candidatePosition < availableValues, "gather candidate is not available");
+                }
             }
+            var seenReadRows = new bool[outputSize];
+            foreach (var read in layer.GatherReads) seenReadRows[read.Row] = true;
             var seenIndexRows = new bool[projectionSize];
             foreach (var read in layer.IndexReads)
             {
@@ -137,6 +163,10 @@ public static partial class Validation
             availableValues += outputSize;
         }
         Invariant(availableValues == valueCount, "tensor program output size mismatch");
+        foreach (var resolved in resolvedGatherSlots)
+        {
+            Invariant(resolved, "every gather slot must be resolved");
+        }
         foreach (var root in roots)
         {
             Invariant(root < width && seenWires[root], "every tensor root must be present");

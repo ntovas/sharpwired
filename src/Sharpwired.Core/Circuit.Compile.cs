@@ -10,19 +10,22 @@ public sealed partial class Circuit
 {
     /// <summary>
     /// Compile the operations that the roots read, directly or through other operations, into
-    /// layers of sparse matrices. With no roots, every operation is a root. The layer of an
-    /// operation is its depth minus 1: the build-time depth, or with recomputeDepths, one more than
-    /// the deepest value that it reads in the compiled program. In a layer, the rows follow the
-    /// operation order and the input columns follow the packed positions.
+    /// layers of sparse matrices. With no roots, every operation is a root. With lowerGathers, a
+    /// masked sum over a declared one-hot group becomes one gather read of the selected candidate,
+    /// and its products leave the program when nothing else reads them. The layer of an operation is
+    /// its depth minus 1: the build-time depth, or with recomputeDepths, one more than the deepest
+    /// value that it reads in the compiled program. In a layer, the rows follow the operation order
+    /// and the input columns follow the packed positions.
     /// </summary>
-    public TensorProgram CompileTensorProgram(IReadOnlyList<Wire>? roots = null, bool recomputeDepths = false)
+    public TensorProgram CompileTensorProgram(IReadOnlyList<Wire>? roots = null, bool lowerGathers = true, bool recomputeDepths = false)
     {
         var width = Width;
         Wire[] normalizedRoots = roots is null
             ? [.. Enumerable.Range(SourceSize, OperationList.Count).Select(position => new Wire(position))]
             : [.. roots];
-        var liveOperations = FindLiveOperations(normalizedRoots, SourceSize, OperationList, width);
-        var compiledDepths = recomputeDepths ? ComputeCompiledDepths(liveOperations) : null;
+        var gatherPlans = lowerGathers ? PlanGatherLowering(this) : [];
+        var liveOperations = FindLiveOperations(normalizedRoots, SourceSize, OperationList, width, gatherPlans, OneHotGroupList);
+        var compiledDepths = recomputeDepths ? ComputeCompiledDepths(liveOperations, gatherPlans) : null;
         var operationsByLayer = new List<List<int>?>();
         for (var operationIndex = 0; operationIndex < OperationList.Count; operationIndex++)
         {
@@ -53,6 +56,9 @@ public sealed partial class Circuit
         // The packed form of each candidate table, keyed by the table instance, so that each read of
         // a table stores the same positions instance.
         var packedTables = new Dictionary<CandidateTable, PackedCandidateTable>(ReferenceEqualityComparer.Instance);
+        // The slot of each group, given at the first read of the group. The slot numbers count up
+        // from 0, so the count of the dictionary is the next slot.
+        var slotByGroup = new Dictionary<int, int>();
         for (var layerIndex = 0; layerIndex < operationsByLayer.Count; layerIndex++)
         {
             var operationIndices = operationsByLayer[layerIndex];
@@ -63,6 +69,9 @@ public sealed partial class Circuit
             var inputWires = new List<int>();
             foreach (var operationIndex in operationIndices)
             {
+                // A gather row reads the packed values directly by position, so it adds no input
+                // column to the layer.
+                if (gatherPlans.ContainsKey(operationIndex)) continue;
                 var operation = OperationList[operationIndex];
                 foreach (var term in operation.LeftTerms)
                 {
@@ -93,6 +102,7 @@ public sealed partial class Circuit
             var gateRows = new List<int>();
             var booleanRows = new List<int>();
             var projectionTerms = new ImmutableArray<Term>[projectionSize];
+            var pendingGatherReads = new List<(int Row, GatherPlan Plan)>();
             var pendingIndexReads = new List<(int Row, int IndexRow, IndexReadInstruction Read)>();
             var gateRow = 0;
             var indexReadRow = 0;
@@ -106,6 +116,14 @@ public sealed partial class Circuit
                 packedIndexByWire[outputWire] = packedOutput;
                 // A Float32Array store rounds the float64 bias to FP32 one time.
                 bias[row] = (float)operation.LeftBias;
+                if (gatherPlans.TryGetValue(operationIndex, out var plan))
+                {
+                    // The lowered sum keeps its bias in the sparse row and stores no weights. The
+                    // executor adds the selected value to the bias.
+                    projectionTerms[row] = [];
+                    pendingGatherReads.Add((row, plan));
+                    continue;
+                }
                 projectionTerms[row] = operation.LeftTerms;
                 if (operation.Kind == OperationKind.Reglu)
                 {
@@ -129,6 +147,36 @@ public sealed partial class Circuit
                     pendingIndexReads.Add((row, indexRow, operation.IndexRead!));
                     indexReadRow++;
                 }
+            }
+            var gatherComputes = ImmutableArray.CreateBuilder<TensorGatherCompute>();
+            var gatherReads = ImmutableArray.CreateBuilder<TensorGatherRead>(pendingGatherReads.Count);
+            foreach (var (row, plan) in pendingGatherReads)
+            {
+                var group = OneHotGroupList[plan.GroupIndex];
+                if (!slotByGroup.TryGetValue(plan.GroupIndex, out var slot))
+                {
+                    // The first read of the group: resolve its index here, one time, before the reads
+                    // of the layer run. The bits and the candidates are at earlier depths than the
+                    // sum that they fed, so they are packed.
+                    slot = slotByGroup.Count;
+                    slotByGroup[plan.GroupIndex] = slot;
+                    var bitPositions = new int[group.Members.Length];
+                    for (var index = 0; index < bitPositions.Length; index++)
+                    {
+                        var position = packedIndexByWire[group.Members[index].Position];
+                        Validation.Invariant(position >= 0 && position < availableValues, "gather bit is not available");
+                        bitPositions[index] = position;
+                    }
+                    gatherComputes.Add(new TensorGatherCompute(slot, UnsignedIndices.From(bitPositions)));
+                }
+                var candidatePositions = new int[plan.CandidateWires.Length];
+                for (var index = 0; index < candidatePositions.Length; index++)
+                {
+                    var position = packedIndexByWire[plan.CandidateWires[index].Position];
+                    Validation.Invariant(position >= 0 && position < availableValues, "gather candidate is not available");
+                    candidatePositions[index] = position;
+                }
+                gatherReads.Add(new TensorGatherRead(row, slot, group.AllowAllZero, UnsignedIndices.From(candidatePositions)));
             }
             var indexReads = ImmutableArray.CreateBuilder<TensorIndexRead>(pendingIndexReads.Count);
             foreach (var (row, indexRow, read) in pendingIndexReads)
@@ -180,8 +228,8 @@ public sealed partial class Circuit
                 RowOffsets = UnsignedIndices.From(rowOffsets),
                 Columns = UnsignedIndices.From(columns),
                 Weights = ImmutableCollectionsMarshal.AsImmutableArray(weights),
-                GatherComputes = [],
-                GatherReads = [],
+                GatherComputes = gatherComputes.ToImmutable(),
+                GatherReads = gatherReads.MoveToImmutable(),
                 IndexReads = indexReads.MoveToImmutable(),
             });
             availableValues += outputSize;
@@ -194,7 +242,7 @@ public sealed partial class Circuit
             ValueCount = valueCount,
             WireOrder = UnsignedIndices.From(wireOrder),
             Width = width,
-            GatherSlotCount = 0,
+            GatherSlotCount = slotByGroup.Count,
         };
     }
 
@@ -204,7 +252,9 @@ public sealed partial class Circuit
         IReadOnlyList<Wire> roots,
         int sourceSize,
         IReadOnlyList<Operation> operations,
-        int width)
+        int width,
+        IReadOnlyDictionary<int, GatherPlan> gatherPlans,
+        IReadOnlyList<OneHotGroup> oneHotGroups)
     {
         var liveOperations = new bool[operations.Count];
         var pending = new List<Wire>(roots);
@@ -218,6 +268,15 @@ public sealed partial class Circuit
             var operationIndex = wire.Position - sourceSize;
             if (liveOperations[operationIndex]) continue;
             liveOperations[operationIndex] = true;
+            if (gatherPlans.TryGetValue(operationIndex, out var plan))
+            {
+                // A lowered sum does not read its product terms. It reads the bits of the group (for
+                // the index) and each candidate directly. A product that nothing else reads leaves
+                // the program.
+                foreach (var member in oneHotGroups[plan.GroupIndex].Members) pending.Add(member);
+                foreach (var candidate in plan.CandidateWires) pending.Add(candidate);
+                continue;
+            }
             var operation = operations[operationIndex];
             foreach (var term in operation.LeftTerms) pending.Add(term.Wire);
             foreach (var term in operation.GateTerms) pending.Add(term.Wire);
@@ -229,11 +288,12 @@ public sealed partial class Circuit
         return liveOperations;
     }
 
-    // The depth of each live operation from the values that it reads in the compiled program: an
+    // The depth of each live operation from the values that it reads in the compiled program: a
+    // lowered masked sum reads the bits of its group and its candidates, not its products, and an
     // index read reads its index form and its candidates. An operation comes after each value that
-    // it reads, so one pass in operation order is enough. Without gather lowering, this gives the
+    // it reads, so one pass in operation order is enough. Without gather plans, this gives the
     // build-time depths.
-    internal int[] ComputeCompiledDepths(bool[] liveOperations)
+    internal int[] ComputeCompiledDepths(bool[] liveOperations, IReadOnlyDictionary<int, GatherPlan> gatherPlans)
     {
         var depths = new int[OperationList.Count];
         int DepthOf(Wire wire) => wire.Position < SourceSize ? 0 : depths[wire.Position - SourceSize];
@@ -242,6 +302,13 @@ public sealed partial class Circuit
         {
             if (!liveOperations[operationIndex]) continue;
             var depth = 0;
+            if (gatherPlans.TryGetValue(operationIndex, out var plan))
+            {
+                foreach (var member in OneHotGroupList[plan.GroupIndex].Members) depth = Math.Max(depth, DepthOf(member));
+                foreach (var candidate in plan.CandidateWires) depth = Math.Max(depth, DepthOf(candidate));
+                depths[operationIndex] = depth + 1;
+                continue;
+            }
             var operation = OperationList[operationIndex];
             foreach (var term in operation.LeftTerms) depth = Math.Max(depth, DepthOf(term.Wire));
             foreach (var term in operation.GateTerms) depth = Math.Max(depth, DepthOf(term.Wire));

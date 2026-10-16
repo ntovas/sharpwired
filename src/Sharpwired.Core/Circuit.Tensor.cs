@@ -31,11 +31,11 @@ public sealed partial class Circuit
     }
 
     /// <summary>
-    /// Compile the roots and return a reusable evaluator of the program. The evaluator returns the
-    /// values of the roots in one array that the next call overwrites.
+    /// Compile the roots with gather lowering and return a reusable evaluator of the program. The
+    /// evaluator returns the values of the roots in one array that the next call overwrites.
     /// </summary>
     public TensorEvaluator CreateTensorEvaluator(IReadOnlyList<Wire> roots, bool recomputeDepths = false) =>
-        CreateTensorProgramEvaluator(CompileTensorProgram(roots, recomputeDepths));
+        CreateTensorProgramEvaluator(CompileTensorProgram(roots, lowerGathers: true, recomputeDepths: recomputeDepths));
 
     /// <summary>
     /// Return a reusable evaluator of a program that CompileTensorProgram already returned, for

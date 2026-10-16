@@ -8,13 +8,20 @@ internal static class Js
     // Math.fround.
     public static double F(double value) => (float)value;
 
-    // Assert Object.is(expected, actual).
-    public static void Is(double expected, double actual)
+    // Object.is(left, right): NaN equals NaN, and +0 differs from -0.
+    public static bool ObjectIs(double left, double right)
     {
-        if (double.IsNaN(expected) && double.IsNaN(actual)) return;
-        var same = expected == actual && (expected != 0 || double.IsNegative(expected) == double.IsNegative(actual));
-        Assert.True(same, $"expected {expected:R}, got {actual:R}");
+        if (double.IsNaN(left) && double.IsNaN(right)) return true;
+        return left == right && (left != 0 || double.IsNegative(left) == double.IsNegative(right));
     }
+
+    // Assert Object.is(expected, actual).
+    public static void Is(double expected, double actual) =>
+        Assert.True(ObjectIs(expected, actual), $"expected {expected:R}, got {actual:R}");
+
+    // Handwired sameNumericValue of gather-lowering.test.ts: left === right || Object.is(left, right).
+    // This is the agreement standard of a compiled backend: +0 equals -0, and NaN equals NaN.
+    public static bool SameNumericValue(double left, double right) => left == right || ObjectIs(left, right);
 
     // Assert toEqual on two number arrays: the same length, and Object.is for each element.
     public static void AllIs(IEnumerable<double> expected, IEnumerable<double> actual)
