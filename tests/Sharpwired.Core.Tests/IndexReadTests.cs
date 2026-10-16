@@ -555,15 +555,34 @@ public partial class IndexReadTests
             "contradicts");
     }
 
-    // 'validators reject malformed index read programs and circuits' (the validateCircuit part).
+    // 'validators reject malformed index read programs and circuits'. Handwired changes a structuredClone
+    // of the program. This port makes each changed copy with a with expression.
     [Fact]
     public void Validators_reject_malformed_index_read_circuits()
     {
         var circuit = new Circuit(8);
         circuit.AssumeRange(circuit.Source(0), 0, 5);
-        circuit.Reglu([(circuit.Source(1), 1)], 0, [(circuit.Source(2), 1)], 0);
+        var gate = circuit.Reglu([(circuit.Source(1), 1)], 0, [(circuit.Source(2), 1)], 0);
         var contiguousRead = circuit.IndexRead(circuit.Source(0), [circuit.Source(1), circuit.Source(2), circuit.Source(3), circuit.Source(4)]);
-        circuit.IndexRead(circuit.Source(0), [circuit.Source(5), circuit.Source(1), circuit.Source(7), circuit.Source(6)]);
+        var scatteredRead = circuit.IndexRead(circuit.Source(0), [circuit.Source(5), circuit.Source(1), circuit.Source(7), circuit.Source(6)]);
+        var program = circuit.CompileTensorProgram([gate, contiguousRead, scatteredRead]);
+        circuit.ValidateTensorProgram(program);
+        Action Corrupt(Func<TensorLayer, TensorLayer> change) =>
+            () => circuit.ValidateTensorProgram(program with { Layers = program.Layers.SetItem(0, change(program.Layers[0])) });
+        TensorLayer ChangeRead(TensorLayer layer, int read, Func<TensorIndexRead, TensorIndexRead> change) =>
+            layer with { IndexReads = layer.IndexReads.SetItem(read, change(layer.IndexReads[read])) };
+        var contiguousIndex = program.Layers[0].IndexReads.ToList().FindIndex(read => read.CandidatePositions.Count == 0);
+        var scatteredIndex = 1 - contiguousIndex;
+        Js.Throws(Corrupt(layer => ChangeRead(layer, 0, read => read with { IndexRow = layer.OutputSize })), "index row must follow the gate rows");
+        Js.Throws(Corrupt(layer => ChangeRead(layer, 1, read => read with { IndexRow = layer.IndexReads[0].IndexRow })), "index row must be unique");
+        Js.Throws(Corrupt(layer => ChangeRead(layer, 1, read => read with { Row = layer.IndexReads[0].Row })), "output row must be unique");
+        Js.Throws(Corrupt(layer => ChangeRead(layer, contiguousIndex, read => read with { CandidateBase = 7 })), "not available");
+        Js.Throws(Corrupt(layer => ChangeRead(layer, contiguousIndex, read => read with { CandidateStride = -2 })), "not available");
+        Js.Throws(
+            Corrupt(layer => ChangeRead(layer, scatteredIndex, read => read with { CandidatePositions = UnsignedIndices.From([5, 1, 8, 6]) })),
+            "not available");
+        Js.Throws(Corrupt(layer => ChangeRead(layer, scatteredIndex, read => read with { CandidateCount = 3 })), "size mismatch");
+        Js.Throws(Corrupt(layer => layer with { IndexReads = layer.IndexReads.RemoveAt(layer.IndexReads.Length - 1) }), "projection bias shape mismatch");
         var operationIndex = contiguousRead.Position - circuit.SourceSize;
         var operation = circuit.OperationList[operationIndex];
         var table = operation.IndexRead!.Table;

@@ -62,27 +62,27 @@ public class CircuitTests
         Js.Is(131, circuit.EvaluateReference([11, 13, 17])[3]);
     }
 
-    // 'a sum shared by many consumers stays one materialized wire' (builder part).
-    // Handwired counts the stored weights of the compiled program. This port counts the
-    // terms that the operations store, which the compiler copies into its weights.
+    // 'a sum shared by many consumers stays one materialized wire'.
+    // Each consumer reads the shared wire, so the stored weights of the compiled program grow
+    // linearly in n. A copy of the sum into each consumer would grow them quadratically.
     [Fact]
     public void A_sum_shared_by_many_consumers_stays_one_materialized_wire()
     {
-        static int SharedSumTerms(int n)
+        static int SharedSumWeights(int n)
         {
             var circuit = new Circuit(n + n);
             for (var wire = 0; wire < n; wire++) circuit.AssumeRange(Wire.FromPosition(wire), 0, 1);
             var shared = circuit.Affine(Enumerable.Range(0, n).Select(wire => new Term(Wire.FromPosition(wire), 1)).ToArray());
-            for (var item = 0; item < n; item++)
-            {
-                var output = circuit.Affine([(shared, 0.5), (Wire.FromPosition(n + item), 1)]);
-                Assert.Contains(circuit.Operations[output.Position - circuit.SourceSize].LeftTerms, term => term.Wire == shared);
-            }
-            return circuit.Operations.Sum(operation => operation.LeftTerms.Length + operation.GateTerms.Length);
+            var outputs = Enumerable.Range(0, n)
+                .Select(item => circuit.Affine([(shared, 0.5), (Wire.FromPosition(n + item), 1)]))
+                .ToArray();
+            var program = circuit.CompileTensorProgram(outputs);
+            return program.Layers.Sum(layer => layer.Weights.Length);
         }
 
-        Assert.True(SharedSumTerms(64) < 3 * SharedSumTerms(32));
-        Assert.True(SharedSumTerms(128) < 3 * SharedSumTerms(64));
+        // Doubling n must not quadruple the weights.
+        Assert.True(SharedSumWeights(64) < 3 * SharedSumWeights(32));
+        Assert.True(SharedSumWeights(128) < 3 * SharedSumWeights(64));
     }
 
     // 'wide affine sharing is independent of consumer order'.
@@ -171,6 +171,7 @@ public class CircuitTests
         Assert.Equal(1, alias.Position);
         Assert.Empty(circuit.Operations);
         Assert.Equal(2, circuit.Width);
+        Assert.Equal(2, circuit.CompileTensorProgram().Width);
     }
 
     // 'affine forms compose through affine producers'.

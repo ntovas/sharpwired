@@ -10,7 +10,7 @@ using System.Text;
 namespace Sharpwired.Core;
 
 /// <summary>Validators for circuits and the values that they compute.</summary>
-public static class Validation
+public static partial class Validation
 {
     /// <summary>
     /// Every integer within ±2^24 is an FP32 value, so an index form with a range strictly inside
