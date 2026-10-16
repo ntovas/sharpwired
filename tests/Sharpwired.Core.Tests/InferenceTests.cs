@@ -6,7 +6,6 @@ namespace Sharpwired.Core.Tests;
 public class InferenceTests
 {
     // comparison.test.ts 'grids are inferred through sums and products that cannot round'.
-    // The validateGrids assertion belongs to plan task 6.
     [Fact]
     public void Grids_are_inferred_through_sums_and_products_that_cannot_round()
     {
@@ -38,6 +37,7 @@ public class InferenceTests
         Assert.Equal(1.0, circuit.Grids[0]);
         Js.Throws(() => circuit.AssumeGrid(circuit.Source(1), 0.3), "power of two");
         Js.Throws(() => circuit.AssumeGrid(circuit.Source(1), 0), "power of two");
+        Js.Throws(() => circuit.ValidateGrids(circuit.EvaluateReference([100.5f, 0.25f, 0, 0])), "multiple of 1");
     }
 
     [Fact]

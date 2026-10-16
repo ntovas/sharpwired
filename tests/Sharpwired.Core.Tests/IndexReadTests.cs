@@ -7,7 +7,7 @@
 
 namespace Sharpwired.Core.Tests;
 
-public class IndexReadTests
+public partial class IndexReadTests
 {
     private const double LargestFloat32 = float.MaxValue;
     private const double SmallestSubnormalFloat32 = float.Epsilon;
@@ -80,7 +80,7 @@ public class IndexReadTests
     }
 
     // 'differential: equals the dense one-hot masked sum on random tables, at both ends and out of range'
-    // (reference part). Plan task 6 adds validateOneHotGroups on the dense values.
+    // (reference part).
     [Fact]
     public void Differential_equals_the_dense_one_hot_masked_sum_on_random_tables()
     {
@@ -121,6 +121,7 @@ public class IndexReadTests
                 Js.Is(expected == 0 ? 0 : expected, denseValue);
                 Assert.True(instructionValue == denseValue);
                 pair.Instruction.ValidateIndexReads(instructionReferences[sourceIndex]);
+                pair.Dense.ValidateOneHotGroups(denseReferences[sourceIndex]);
                 comparisons++;
             }
         }
@@ -161,7 +162,6 @@ public class IndexReadTests
     }
 
     // 'fractional indices: the read floors, while the ReLU one-hot interpolates' (reference part).
-    // Plan task 6 adds the validateOneHotGroups refusal on the dense values.
     [Fact]
     public void Fractional_indices_the_read_floors_while_the_ReLU_one_hot_interpolates()
     {
@@ -179,6 +179,7 @@ public class IndexReadTests
             Js.Is(rowHeights[lowerPosition], instructionReferences[sourceIndex][pair.InstructionRead.Position]);
             Js.Is(interpolated, pair.Dense.EvaluateReference(sources[sourceIndex])[pair.DenseRead.Position]);
             Js.Throws(() => pair.Instruction.ValidateIndexReads(instructionReferences[sourceIndex]), "index read wire");
+            Js.Throws(() => pair.Dense.ValidateOneHotGroups(pair.Dense.EvaluateReference(sources[sourceIndex])), "one-hot");
         }
         // The guide's example: 44 from the masked sum against 28 from the read.
         Js.Is(44, pair.Dense.EvaluateReference(sources[0])[pair.DenseRead.Position]);
@@ -448,7 +449,7 @@ public class IndexReadTests
     }
 
     // 'a range declared on the index wire counts, also when the builder copies a small affine index into the read'
-    // (reference part). Plan task 6 adds the inlineCircuit part.
+    // (reference part).
     [Fact]
     public void A_range_declared_on_the_index_wire_counts_also_when_the_builder_copies_a_small_affine_index_into_the_read()
     {
@@ -483,6 +484,15 @@ public class IndexReadTests
         Js.Throws(
             () => circuit.IndexReadAffine(form, 0, candidates, OutOfRange.Zero, OutOfRange.Zero, new NumericRange(0, Math.Pow(2, 25))),
             "index range");
+        // Inlining keeps the accepted range, although the target infers the copied form from undeclared cells again.
+        var parent = new Circuit(6);
+        var wireMap = parent.InlineCircuit(circuit, [.. Enumerable.Range(0, 6).Select(parent.Source)]);
+        Assert.Equal(new NumericRange(20, 55), parent.Ranges[wireMap[read.Position].Position]);
+        var parentReferences = EvaluateAll(parent, sources);
+        for (var sourceIndex = 0; sourceIndex < sources.Length; sourceIndex++)
+        {
+            Js.Is(references[sourceIndex][read.Position], parentReferences[sourceIndex][wireMap[read.Position].Position]);
+        }
 
         // A declared range narrows which candidates the read can reach, and operands with wide ranges don't matter.
         var wide = new Circuit(6);
@@ -553,8 +563,8 @@ public class IndexReadTests
     }
 
     // Sharpwired addition. Handwired reachableCandidates has no direct test: the 'proven bits' test of
-    // index-read.test.ts checks it through emitFirstActive (plan task 6). These cases are the reach
-    // cases of that test, with the candidates that each read can return.
+    // index-read.test.ts checks it through emitFirstActive (Emit_first_active_declares_a_one_hot_group_...
+    // below). These cases are the reach cases of that test, with the candidates that each read can return.
     [Fact]
     public void Reachable_candidates_follow_the_accepted_index_range_and_the_side_rules()
     {

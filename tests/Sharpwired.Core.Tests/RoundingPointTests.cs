@@ -1,6 +1,6 @@
 // Handwired source: src/runtime/numeric-ui-core.ts (markRoundingPoint, roundingPoints,
 // recordRoundingPoint) and tests/runtime/comparison.test.ts ('marking, and inlining keeps
-// records, grids and values'). The inlineCircuit part of that test belongs to plan task 6.
+// records, grids and values').
 
 namespace Sharpwired.Core.Tests;
 
@@ -18,11 +18,11 @@ public class RoundingPointTests
         Assert.Equal([new RoundingPoint(roundChain, RoundingPointKind.Marked)], child.RoundingPoints());
     }
 
-    // comparison.test.ts 'marking, and inlining keeps records, grids and values' (the child part).
-    // Handwired compares the child values with the inlined parent. Without inlining, this port
-    // compares the child values with the plain definitions.
+    // comparison.test.ts 'marking, and inlining keeps records, grids and values' (reference part).
+    // Handwired compares the child values with the inlined parent. This port also compares the child
+    // values with the plain definitions.
     [Fact]
-    public void Marking_keeps_its_record_next_to_comparison_records_and_the_comparison_bit_has_grid_1()
+    public void Marking_and_inlining_keeps_records_grids_and_values()
     {
         var child = new Circuit(3);
         child.AssumeRange(child.Source(0), 0, 4096);
@@ -46,9 +46,18 @@ public class RoundingPointTests
         Assert.Contains(RoundingPointKind.SignCascade, kinds.Values);
         Assert.Contains(RoundingPointKind.Boolean, kinds.Values);
         Assert.Equal([1.0 / 64, 1.0 / 64, 1.0], [child.Grids[0], child.Grids[1], child.Grids[roots[0].Position]]);
+        var parent = new Circuit(3);
+        var wireMap = parent.InlineCircuit(child, [parent.Source(1), parent.Source(0), parent.Source(2)]);
+        var parentKinds = parent.RoundingPoints().ToDictionary(point => point.Wire, point => point.Kind);
+        foreach (var (wire, kind) in child.RoundingPoints()) Assert.Equal(kind, parentKinds[wireMap[wire.Position]]);
+        Assert.Equal(RoundingPointKind.Marked, parentKinds[wireMap[roundChain.Position]]);
+        Assert.Equal([1.0 / 64, 1.0 / 64, 1.0], [parent.Grids[0], parent.Grids[1], parent.Grids[wireMap[roots[0].Position].Position]]);
+        parent.ValidateCircuit();
         foreach (var (a, b, c) in new[] { (5.0, 5.0, 0.3), (5 + 1.0 / 64, 5.0, -0.3), (0.0, 4096.0, 100.0), (4096.0, 0.0, Js.F(0.3)) })
         {
             var values = child.EvaluateReference([(float)a, (float)b, (float)c]);
+            var parentValues = parent.EvaluateReference([(float)b, (float)a, (float)c]);
+            foreach (var root in roots) Js.Is(values[root.Position], parentValues[wireMap[root.Position].Position]);
             var f = Js.F(c);
             Js.Is(a >= b ? 1 : 0, values[roots[0].Position]);
             Js.Is(a == b ? 1 : 0, values[roots[1].Position]);

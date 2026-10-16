@@ -4,8 +4,7 @@
 // validateCircuit part, and PHASE2-TENSOR-ASSERTIONS.md lists the tensor part. Handwired cost
 // reads compileTensorProgram([root]). Cost here counts the operations that the root reads, by
 // the findLiveOperations rule without gather plans, and the layers of their depths.
-// The validateGrids, inlineCircuit and backpropagateReference assertions belong to plan
-// tasks 6 and 7.
+// The backpropagateReference assertions belong to plan task 7.
 
 using System.Numerics;
 
@@ -417,7 +416,7 @@ public class ComparisonTests
         Js.Is(0, values[atLeastSeven.Position]);
     }
 
-    // grids: 'operands on a grid get integer bits that equal JavaScript' (without validateGrids).
+    // grids: 'operands on a grid get integer bits that equal JavaScript' (reference part).
     [Fact]
     public void Operands_on_a_grid_get_integer_bits_that_equal_JavaScript()
     {
@@ -440,6 +439,7 @@ public class ComparisonTests
             foreach (var (a, b) in pairs)
             {
                 var values = circuit.EvaluateReference(Pair(a, b));
+                circuit.ValidateGrids(values);
                 for (var index = 0; index < Relations.Length; index++)
                 {
                     if (values[bits[index].Position] != NativeCompare(a, Relations[index], b)) wrong++;
@@ -522,6 +522,70 @@ public class ComparisonTests
         Assert.True(wrongByMode[3] > 0);
         var normalPairs = cascadePairs.Where(pair => pair.A == pair.B || Math.Abs(Js.F(pair.A - pair.B)) >= SmallestNormal);
         Assert.Equal(0, CountWrong(cascade.Circuit, cascade.Bits, normalPairs, ExecutorMode.FlushSubnormals));
+    }
+
+    // grids: 'random circuits over grid sources hold the grids they infer'.
+    [Fact]
+    public void Random_circuits_over_grid_sources_hold_the_grids_they_infer()
+    {
+        var random = Js.CreateRandom(21);
+        double[] coefficients = [1, -1, 0.5, 2, 3, -0.25, 1.0 / 3, 64];
+        // Products grow ranges quickly, so a circuit can end with no provable grid. Count over all circuits.
+        var inferred = 0;
+        for (var circuitIndex = 0; circuitIndex < 40; circuitIndex++)
+        {
+            double[] sourceGrids = [1.0 / 64, 1.0 / 4, 1, Math.Pow(2, -10)];
+            var circuit = new Circuit(sourceGrids.Length);
+            for (var wire = 0; wire < sourceGrids.Length; wire++)
+            {
+                circuit.AssumeRange(Wire.FromPosition(wire), -512, 512);
+                circuit.AssumeGrid(Wire.FromPosition(wire), sourceGrids[wire]);
+            }
+            Wire PickWire() => Wire.FromPosition((int)Math.Floor(random() * circuit.Width));
+            Term[] PickTerms()
+            {
+                var length = 1 + (int)Math.Floor(random() * 3);
+                var terms = new Term[length];
+                for (var index = 0; index < length; index++)
+                {
+                    // JavaScript evaluates the wire before the coefficient.
+                    var wire = PickWire();
+                    terms[index] = new Term(wire, coefficients[(int)Math.Floor(random() * coefficients.Length)]);
+                }
+                return terms;
+            }
+            for (var operationIndex = 0; operationIndex < 30; operationIndex++)
+            {
+                var choice = (int)Math.Floor(random() * 4);
+                if (choice == 0)
+                {
+                    var terms = PickTerms();
+                    circuit.Affine(terms, Js.Round(random() * 8) / 8);
+                }
+                else if (choice == 1)
+                {
+                    circuit.RoundAffine(PickTerms());
+                }
+                else if (choice == 2)
+                {
+                    var leftTerms = PickTerms();
+                    var gateTerms = PickTerms();
+                    circuit.Reglu(leftTerms, 0, gateTerms, Js.Round(random() * 4) / 4);
+                }
+                else
+                {
+                    var left = PickWire();
+                    circuit.Multiply(left, PickWire());
+                }
+            }
+            inferred += circuit.Grids.Skip(circuit.SourceSize).Count(grid => grid is not null);
+            for (var sample = 0; sample < 30; sample++)
+            {
+                var source = sourceGrids.Select(grid => (float)(Js.Round((2 * random() - 1) * 512 / grid) * grid)).ToArray();
+                circuit.ValidateGrids(circuit.EvaluateReference(source));
+            }
+        }
+        Assert.True(inferred > 100, $"inferred {inferred} grids");
     }
 
     // backward pass: 'grid bits have slope 1 on fractional inputs, and atoms throw without

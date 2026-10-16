@@ -463,6 +463,37 @@ public class SpringMatrixTests
         Assert.True(rebased > 800, $"rebased {rebased}");
     }
 
+    // 'animated objects' / 'inlining keeps the values and the rounding points'.
+    [Fact]
+    public void Inlining_keeps_the_values_and_the_rounding_points()
+    {
+        var built = BuildObject(2, true, true);
+        var circuit = built.Circuit;
+        var target = new Circuit(circuit.SourceSize);
+        var wireMap = target.InlineCircuit(circuit, [.. Enumerable.Range(0, circuit.SourceSize).Select(target.Source)]);
+        var random = Js.CreateRandom(5);
+        for (var sample = 0; sample < 200; sample++)
+        {
+            var source = new float[circuit.SourceSize];
+            var springs = Enumerable.Range(0, 2).Select(_ =>
+            {
+                var matrix = Fp32Matrix(Constants[0], (int)Math.Floor(random() * 40));
+                var displacement = random() < 0.2 ? 0 : F(random() * 0.03);
+                var velocity = random() < 0.2 ? 0 : F((random() * 2 - 1) * 0.02);
+                var destinationDuringSteps = random() < 0.5 ? 0 : F(random() * 0.01);
+                return new SpringSample(matrix, displacement, velocity, 0, destinationDuringSteps);
+            }).ToList();
+            WriteSprings(source, springs);
+            source[built.SettleCheckCell] = random() < 0.5 ? 1 : 0;
+            var expected = circuit.EvaluateReference(source);
+            var actual = target.EvaluateReference(source);
+            foreach (var root in built.Roots) Js.Is(expected[root.Position], actual[wireMap[root.Position].Position]);
+        }
+        Assert.Equal(
+            circuit.RoundingPoints().Select(point => point.Kind).Order(),
+            target.RoundingPoints().Select(point => point.Kind).Order());
+    }
+
     // 'animated objects' / 'refuses settle check and snap wires outside 0..1, and objects without springs'.
     [Fact]
     public void Refuses_settle_check_and_snap_wires_outside_0_to_1_and_objects_without_springs()

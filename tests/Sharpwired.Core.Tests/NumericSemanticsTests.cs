@@ -1,8 +1,7 @@
 // Handwired source: tests/runtime/numeric-semantics.test.ts.
 // Each test name holds the Handwired test name. A test that compares with the
 // tensor evaluator keeps its reference-evaluator part here. PHASE2-TENSOR-ASSERTIONS.md
-// lists the tensor assertions. The assertions on inlineCircuit belong to the
-// InlineCircuit port (plan task 6).
+// lists the tensor assertions.
 
 namespace Sharpwired.Core.Tests;
 
@@ -10,32 +9,38 @@ public class NumericSemanticsTests
 {
     // 'explicit rounding survives consumers, duplicate terms, and circuit inlining' (reference part).
     [Fact]
-    public void Explicit_rounding_survives_consumers_and_duplicate_terms()
+    public void Explicit_rounding_survives_consumers_duplicate_terms_and_circuit_inlining()
     {
         var circuit = new Circuit(2);
         var sum = circuit.RoundAffine([(circuit.Source(0), 1), (circuit.Source(1), 1)]);
         var difference = circuit.Affine([(sum, 1), (circuit.Source(0), -1)]);
         var duplicate = circuit.RoundAffine([(circuit.Source(0), 1), (circuit.Source(0), 1), (circuit.Source(0), 1)]);
+        var parent = new Circuit(2);
+        var mapping = parent.InlineCircuit(circuit, [parent.Source(0), parent.Source(1)]);
         float[] source = [16_777_216, 1];
 
         var values = circuit.EvaluateReference(source);
         Js.Is(0, values[difference.Position]);
         Js.Is(Js.F(Js.F(source[0] + source[0]) + source[0]), values[duplicate.Position]);
         Assert.Equal(3, circuit.Operations[duplicate.Position - circuit.SourceSize].LeftTerms.Length);
+        Js.Is(0, parent.EvaluateReference(source)[mapping[difference.Position].Position]);
     }
 
-    // 'explicit term order survives source permutation during inlining' (the part without inlining).
+    // 'explicit term order survives source permutation during inlining' (reference part).
     [Fact]
-    public void Explicit_term_order_survives_and_a_reordered_sum_is_another_wire()
+    public void Explicit_term_order_survives_source_permutation_during_inlining()
     {
         var circuit = new Circuit(3);
         var sum = circuit.RoundAffine([(circuit.Source(0), 1), (circuit.Source(1), 1), (circuit.Source(2), 1)]);
+        var parent = new Circuit(3);
+        var mapping = parent.InlineCircuit(circuit, [parent.Source(0), parent.Source(2), parent.Source(1)]);
         float[] original = [16_777_216, 1, -16_777_216];
+        float[] permuted = [16_777_216, -16_777_216, 1];
         Js.Is(0, circuit.EvaluateReference(original)[sum.Position]);
-
-        var reordered = circuit.RoundAffine([(circuit.Source(0), 1), (circuit.Source(2), 1), (circuit.Source(1), 1)]);
-        Assert.NotEqual(sum, reordered);
-        Js.Is(1, circuit.EvaluateReference(original)[reordered.Position]);
+        Js.Is(0, parent.EvaluateReference(permuted)[mapping[sum.Position].Position]);
+        var reordered = parent.RoundAffine([(parent.Source(0), 1), (parent.Source(1), 1), (parent.Source(2), 1)]);
+        Assert.NotEqual(mapping[sum.Position], reordered);
+        Js.Is(1, parent.EvaluateReference(permuted)[reordered.Position]);
     }
 
     // 'range bounds include rounded endpoints and FP32 overflow'.
@@ -164,7 +169,7 @@ public class NumericSemanticsTests
         Assert.Equal(3, circuit.Constants[circuit.Constant(3).Position]);
     }
 
-    // 'a range declared after operations read the wire throws, unless the caller opts in' (the part without inlining).
+    // 'a range declared after operations read the wire throws, unless the caller opts in'.
     [Fact]
     public void A_range_declared_after_operations_read_the_wire_throws_unless_the_caller_opts_in()
     {
@@ -181,6 +186,14 @@ public class NumericSemanticsTests
         circuit.AssumeRange(timestep, 0, 0.032, allowExistingReaders: true);
         Js.Is(0, circuit.Ranges[timestep.Position].Minimum);
         Assert.Equal(OperationKind.Affine, circuit.Operations[distance.Position - circuit.SourceSize].Kind);
+        // A source circuit's declared ranges that land on target wires that already have readers.
+        var child = new Circuit(1);
+        child.AssumeRange(child.Source(0), 0, 1);
+        var parent = new Circuit(1);
+        parent.Multiply(parent.Source(0), parent.Source(0));
+        Js.Throws(() => parent.InlineCircuit(child, [parent.Source(0)]), "already read wire 0");
+        parent.InlineCircuit(child, [parent.Source(0)], allowExistingReaders: true);
+        Js.Is(1, parent.Ranges[0].Maximum);
     }
 
     // 'a grid declared after operations read the wire throws, unless the caller opts in'.
@@ -222,5 +235,52 @@ public class NumericSemanticsTests
         circuit.AssumeRange(y, 0, 1);
         circuit.Affine([(y, 1), (x, 2)]);
         Js.Throws(() => circuit.AssumeRange(x, 0, 0.5), "already read wire 0");
+    }
+    // 'validateNoNaN names the select whose unpicked side overflowed'.
+    [Fact]
+    public void Validate_no_NaN_names_the_select_whose_unpicked_side_overflowed()
+    {
+        var circuit = new Circuit(3);
+        var (gate, off, on) = (circuit.Source(0), circuit.Source(1), circuit.Source(2));
+        circuit.AssumeRange(gate, 0, 1);
+        circuit.AssumeRange(off, 0, 3.4e38);
+        circuit.AssumeRange(on, -100, 100);
+        var doubledOff = circuit.RoundAffine([(off, 2)]);
+        var output = circuit.Select(gate, doubledOff, on);
+        circuit.ValidateNoNaN(circuit.EvaluateReference([1, 3, 7]));
+        var overflowing = circuit.EvaluateReference([1, 3e38f, 7]);
+        Assert.True(float.IsNaN(overflowing[output.Position]));
+        var exception = Js.Throws(() => circuit.ValidateNoNaN(overflowing), "wire 6 is the first NaN");
+        Assert.Matches(
+            @"wire 6 is the first NaN: f\(left × max\(0, gate\)\) with left = 0 and gate = Infinity, in multiply\(wire 4 = 0, wire 3 = Infinity\), in select\(gate wire 0 = 1, off wire 3 = Infinity, on wire 2 = 7\)",
+            exception.Message);
+    }
+
+    // 'validateNoNaN with roots checks only the wires they read, and a NaN operand of a select or multiply gets no context'.
+    [Fact]
+    public void Validate_no_NaN_with_roots_checks_only_the_wires_they_read_and_a_NaN_operand_of_a_select_or_multiply_gets_no_context()
+    {
+        var circuit = new Circuit(3);
+        var (gate, width, scale) = (circuit.Source(0), circuit.Source(1), circuit.Source(2));
+        circuit.AssumeRange(gate, 0, 1);
+        circuit.AssumeRange(width, 0, 3.4e38);
+        circuit.AssumeRange(scale, 0, 2);
+        var doubled = circuit.RoundAffine([(width, 2)]);
+        // The side the gate doesn't pick overflows, so this select is NaN, and the roots below don't read it.
+        var unused = circuit.Select(gate, doubled, circuit.Constant(7));
+        // JS: width * 2 + width * -2, which is Infinity - Infinity at width 3e38.
+        var negated = circuit.RoundAffine([(width, -2)]);
+        var difference = circuit.RoundAffine([(doubled, 1), (negated, 1)]);
+        var picked = circuit.Select(gate, circuit.Constant(7), difference);
+        var scaled = circuit.Multiply(difference, scale);
+        var values = circuit.EvaluateReference([1, 3e38f, 1]);
+        Assert.All(new[] { unused, picked, scaled }, wire => Assert.True(float.IsNaN(values[wire.Position])));
+        var all = Js.Throws(() => circuit.ValidateNoNaN(values), "is the first NaN");
+        Assert.Matches(@"with left = 0 and gate = Infinity, in multiply\(.*\), in select\(", all.Message);
+        // The NaN comes from the sum on the side the gate picks, which is an operand of the select and of the multiply.
+        var differenceMessage = $"^wire {difference} is the first NaN: a sum of wire {doubled} = Infinity, wire {negated} = -Infinity$";
+        Assert.Matches(differenceMessage, Js.Throws(() => circuit.ValidateNoNaN(values, [picked]), "first NaN").Message);
+        Assert.Matches(differenceMessage, Js.Throws(() => circuit.ValidateNoNaN(values, [scaled]), "first NaN").Message);
+        circuit.ValidateNoNaN(values, [scale]);
     }
 }
