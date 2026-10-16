@@ -73,6 +73,69 @@ public class NumericSemanticsTests
         Assert.True(float.IsNaN(circuit.EvaluateReference([1, 0, 5, 3e38f])[output.Position]));
     }
 
+    // 'min and max ranges describe their arithmetic, not mathematical bounds' (reference part).
+    [Fact]
+    public void Min_and_max_ranges_describe_their_arithmetic_not_mathematical_bounds()
+    {
+        foreach (var emit in new Func<Circuit, Wire, Wire, Wire>[] { Macros.Minimum, Macros.Maximum })
+        {
+            var circuit = new Circuit(5);
+            circuit.AssumeOneHot([circuit.Source(0), circuit.Source(1)]);
+            circuit.AssumeRange(circuit.Source(2), 5, 5);
+            circuit.AssumeRange(circuit.Source(3), -3.4e38, 3.4e38);
+            circuit.AssumeRange(circuit.Source(4), -3.4e38, 3.4e38);
+            var extreme = emit(circuit, circuit.Source(3), circuit.Source(4));
+            var output = circuit.RoundAffine([
+                (circuit.Multiply(circuit.Source(2), circuit.Source(0)), 1),
+                (circuit.Multiply(extreme, circuit.Source(1)), 1),
+            ]);
+            Assert.True(float.IsNaN(circuit.EvaluateReference([1, 0, 5, 3e38f, -3e38f])[output.Position]));
+        }
+        var unit = new Circuit(2);
+        unit.AssumeRange(unit.Source(0), 1, 1);
+        unit.AssumeRange(unit.Source(1), Math.Pow(2, -25), Math.Pow(2, -25));
+        var minimum = unit.Minimum(unit.Source(0), unit.Source(1));
+        var value = unit.EvaluateReference([1, MathF.Pow(2, -25)])[minimum.Position];
+        Js.Is(0, value);
+        Assert.True(unit.Ranges[minimum.Position].Minimum <= value);
+    }
+
+    // 'the weaker min and max bounds hold across unit-interval FP32 values'.
+    [Fact]
+    public void The_weaker_min_and_max_bounds_hold_across_unit_interval_FP32_values()
+    {
+        var circuit = new Circuit(2);
+        circuit.AssumeRange(circuit.Source(0), 0, 1);
+        circuit.AssumeRange(circuit.Source(1), 0, 1);
+        var minimum = circuit.Minimum(circuit.Source(0), circuit.Source(1));
+        var maximum = circuit.Maximum(circuit.Source(0), circuit.Source(1));
+        uint[] edges = [0, 1, 0x007fffff, 0x00800000, 0x33000000, 0x3effffff, 0x3f000000, 0x3f000001, 0x3f7fffff, 0x3f800000];
+        void Check(uint left, uint right)
+        {
+            var values = circuit.EvaluateReference([BitConverter.UInt32BitsToSingle(left), BitConverter.UInt32BitsToSingle(right)]);
+            foreach (var wire in new[] { minimum, maximum })
+            {
+                Assert.True(values[wire.Position] >= circuit.Ranges[wire.Position].Minimum);
+                Assert.True(values[wire.Position] <= circuit.Ranges[wire.Position].Maximum);
+            }
+        }
+        foreach (var left in edges)
+        {
+            foreach (var right in edges) Check(left, right);
+        }
+        var seed = 317u;
+        var words = new uint[2];
+        for (var sample = 0; sample < 5_000; sample++)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                seed = unchecked(seed * 1_664_525 + 1_013_904_223);
+                words[index] = seed % 0x3f800001;
+            }
+            Check(words[0], words[1]);
+        }
+    }
+
     // 'selection preserves finite extreme operands and its intended derivative' (reference values).
     [Fact]
     public void Selection_preserves_finite_extreme_operands()
@@ -121,8 +184,6 @@ public class NumericSemanticsTests
     }
 
     // 'a grid declared after operations read the wire throws, unless the caller opts in'.
-    // Handwired builds the reader with emitCompare, which the Compare port (plan task 4) adds.
-    // This port reads the two wires with an affine difference.
     [Fact]
     public void A_grid_declared_after_operations_read_the_wire_throws_unless_the_caller_opts_in()
     {
@@ -132,7 +193,8 @@ public class NumericSemanticsTests
         circuit.AssumeRange(pointerX, 0, 1024);
         circuit.AssumeRange(windowLeft, 0, 1024);
         circuit.AssumeGrid(windowLeft, 1);
-        circuit.Affine([(pointerX, 1), (windowLeft, -1)]);
+        // pointerX has no grid, so Compare builds a sign cascade, and declaring the grid afterwards doesn't turn it into integer bits.
+        circuit.Compare(pointerX, Relation.GreaterOrEqual, windowLeft);
         Js.Throws(() => circuit.AssumeGrid(pointerX, 1.0 / 64), "already read wire 0 were built without a grid");
         // A finer grid than the wire already has changes nothing and doesn't throw.
         circuit.AssumeGrid(windowLeft, 1.0 / 64);

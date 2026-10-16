@@ -1,8 +1,7 @@
 // Handwired source: tests/runtime/macro-ranges.test.ts.
-// This file ports the cases that use only Circuit.Select, Circuit.Multiply and
-// Circuit.Reglu. Handwired emitSelect and emitMultiply call circuit.select and
-// circuit.multiply, and emitRelu(value) is circuit.reglu([], 1, [[value, 1]], 0).
-// The emitMaximum, emitMinimum and emitSpring cases belong to plan tasks 4 and 5.
+// Handwired emitSelect and emitMultiply call circuit.select and circuit.multiply, so this port
+// calls Circuit.Select and Circuit.Multiply. Macros.Relu, Macros.Maximum and Macros.Minimum port
+// emitRelu, emitMaximum and emitMinimum. The emitSpring cases belong to plan task 5.
 // Each helper also compares with the tensor evaluator in Handwired. PHASE2-TENSOR-ASSERTIONS.md
 // lists those assertions.
 
@@ -12,6 +11,32 @@ public class MacroRangesTests
 {
     // Widest finite range the circuit will accept as a source bound.
     private const double Big = 3.4e38;
+
+    // The shared generator of the file, as the module-level random of macro-ranges.test.ts.
+    // Only one test reads it, so the order of the tests does not change its values.
+    private static readonly Func<double> SharedRandom = Js.CreateRandom(0x5afe9a);
+
+    private static double SignedMagnitude(Func<double> next, double scale) => (next() * 2 - 1) * scale;
+
+    // max(a, b) expanded as b + relu(a - b), evaluated through the real circuit.
+    private static float EvaluateMaximum(double a, double b)
+    {
+        var circuit = new Circuit(2);
+        circuit.AssumeRange(circuit.Source(0), -Big, Big);
+        circuit.AssumeRange(circuit.Source(1), -Big, Big);
+        var result = circuit.Maximum(circuit.Source(0), circuit.Source(1));
+        return circuit.EvaluateReference([(float)a, (float)b])[result.Position];
+    }
+
+    // min(a, b) expanded as a - relu(a - b).
+    private static float EvaluateMinimum(double a, double b)
+    {
+        var circuit = new Circuit(2);
+        circuit.AssumeRange(circuit.Source(0), -Big, Big);
+        circuit.AssumeRange(circuit.Source(1), -Big, Big);
+        var result = circuit.Minimum(circuit.Source(0), circuit.Source(1));
+        return circuit.EvaluateReference([(float)a, (float)b])[result.Position];
+    }
 
     // select(gate, off, on) expanded as gate * on + (1 - gate) * off, two masked products.
     private static float EvaluateSelect(double gate, double off, double on)
@@ -42,11 +67,80 @@ public class MacroRangesTests
         circuit.AssumeRange(circuit.Source(1), 1, 1);
         var value = circuit.Source(0);
         var unit = circuit.Source(1);
-        var positive = circuit.Reglu([], 1, [(value, 1)], 0);
-        var aboveOne = circuit.Reglu([], 1, [(circuit.Affine([(value, 1), (unit, -1)]), 1)], 0);
+        var positive = circuit.Relu(value);
+        var aboveOne = circuit.Relu(circuit.Affine([(value, 1), (unit, -1)]));
         var result = circuit.Affine([(positive, 1), (aboveOne, -1)]);
         circuit.AssumeRange(result, 0, 1);
         return circuit.EvaluateReference([(float)v, 1])[result.Position];
+    }
+
+    // 'the known disparity failure: max(2**24, -1) loses one unit'.
+    [Fact]
+    public void The_known_disparity_failure_max_of_2_pow_24_and_minus_1_loses_one_unit()
+    {
+        Js.Is(16_777_215, EvaluateMaximum(Math.Pow(2, 24), -1));
+        Js.Is(16_777_216, Math.Max(Math.Pow(2, 24), -1));
+        Js.Is(Math.Max(Math.Pow(2, 24), -1) - 1, EvaluateMaximum(Math.Pow(2, 24), -1));
+    }
+
+    // 'the mirror disparity failure: min(2**24, -1) collapses to zero'.
+    [Fact]
+    public void The_mirror_disparity_failure_min_of_2_pow_24_and_minus_1_collapses_to_zero()
+    {
+        Js.Is(0, EvaluateMinimum(Math.Pow(2, 24), -1));
+        Js.Is(-1, Math.Min(Math.Pow(2, 24), -1));
+    }
+
+    // 'the first diverging magnitude for max(a, -1) is the integer a = 2**24'.
+    [Fact]
+    public void The_first_diverging_magnitude_for_max_of_a_and_minus_1_is_the_integer_2_pow_24()
+    {
+        Js.Is(Math.Pow(2, 24) - 1, EvaluateMaximum(Math.Pow(2, 24) - 1, -1));
+        Js.Is(16_777_215, EvaluateMaximum(Math.Pow(2, 24), -1));
+        Assert.NotEqual(Math.Max(Math.Pow(2, 24), -1), EvaluateMaximum(Math.Pow(2, 24), -1));
+        for (var a = Math.Pow(2, 24) - 64; a < Math.Pow(2, 24); a++)
+        {
+            Js.Is(a, EvaluateMaximum(a, -1));
+        }
+    }
+
+    // 'max and min stay exact for integer operands with |x| < 2**23'.
+    [Fact]
+    public void Max_and_min_stay_exact_for_integer_operands_below_2_pow_23()
+    {
+        for (var trial = 0; trial < 3_000; trial++)
+        {
+            var a = Js.Round(SignedMagnitude(SharedRandom, Math.Pow(2, 23) - 1));
+            var b = Js.Round(SignedMagnitude(SharedRandom, Math.Pow(2, 23) - 1));
+            Js.Is(Math.Max(a, b), EvaluateMaximum(a, b));
+            Js.Is(Math.Min(a, b), EvaluateMinimum(a, b));
+        }
+        Js.Is(Math.Pow(2, 23) - 1, EvaluateMaximum(Math.Pow(2, 23) - 1, -(Math.Pow(2, 23) - 1)));
+        Js.Is(-(Math.Pow(2, 23) - 1), EvaluateMinimum(Math.Pow(2, 23) - 1, -(Math.Pow(2, 23) - 1)));
+    }
+
+    // 'max and min are NOT exact for fractional operands even at small scale'.
+    [Fact]
+    public void Max_and_min_are_not_exact_for_fractional_operands_even_at_small_scale()
+    {
+        var a = Js.F(422.882_418_613_880_9);
+        var b = Js.F(-79.529_039_096_087_22);
+        Assert.NotEqual(Math.Max(a, b), EvaluateMaximum(a, b));
+        // toBeCloseTo(expected, 2): |expected - received| < 10^-2 / 2.
+        Assert.True(Math.Abs(Math.Max(a, b) - EvaluateMaximum(a, b)) < 0.005);
+    }
+
+    // 'the winner being the small operand stays exact even at huge disparity'.
+    [Fact]
+    public void The_winner_being_the_small_operand_stays_exact_even_at_huge_disparity()
+    {
+        for (var exponent = 10; exponent <= 40; exponent++)
+        {
+            var large = Js.F(Math.Pow(2, exponent));
+            Js.Is(large, EvaluateMaximum(-1, large));
+        }
+        Js.Is(0, EvaluateMinimum(Math.Pow(2, 24), -1));
+        Js.Is(-1, EvaluateMinimum(Math.Pow(2, 23), -1));
     }
 
     // 'clamp01 is exact through 2**24 then degrades at the binade boundaries'.

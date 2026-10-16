@@ -84,7 +84,7 @@ public class IndexReadTests
     [Fact]
     public void Differential_equals_the_dense_one_hot_masked_sum_on_random_tables()
     {
-        var random = CreateRandom(0x1dea);
+        var random = Js.CreateRandom(0x1dea);
         double[] extremes = [-0.0, 0, LargestFloat32, -LargestFloat32, SmallestSubnormalFloat32];
         var comparisons = 0;
         for (var trial = 0; trial < 240; trial++)
@@ -188,7 +188,7 @@ public class IndexReadTests
     [Fact]
     public void Duplicate_candidates_composed_index_forms_and_chained_reads_match_the_plain_definition()
     {
-        var random = CreateRandom(7);
+        var random = Js.CreateRandom(7);
         var start = Wire.FromPosition(0);
         var nextStarts = Wires(Enumerable.Range(1, 10));
         var payload = Wires(Enumerable.Range(11, 4));
@@ -262,7 +262,7 @@ public class IndexReadTests
         var reversed = circuit.IndexRead(circuit.Source(0), Wires(Enumerable.Reverse(values)));
         var everyOther = circuit.IndexRead(circuit.Source(0), Wires(values.Where((_, position) => position % 2 == 1)));
         var repeatedWire = circuit.IndexRead(circuit.Source(0), Wires(values[5], values[5], values[5]));
-        var random = CreateRandom(3);
+        var random = Js.CreateRandom(3);
         var shuffled = values.ToArray();
         for (var position = shuffled.Length - 1; position > 0; position--)
         {
@@ -599,12 +599,12 @@ public class IndexReadTests
         Assert.Equal(4, circuit.Depths[readOfRead.Position]);
     }
 
-    // Sharpwired addition: the CreateRandom port gives the values of the JavaScript createRandom.
+    // Sharpwired addition: the Js.CreateRandom port gives the values of the JavaScript createRandom.
     // The expected values come from node with the Handwired function text.
     [Fact]
     public void Create_random_gives_the_values_of_the_Handwired_generator()
     {
-        var random = CreateRandom(0x1dea);
+        var random = Js.CreateRandom(0x1dea);
         Assert.Equal(0.022467014146968722, random());
         Assert.Equal(0.26093018613755703, random());
         Assert.Equal(0.6365113609936088, random());
@@ -690,19 +690,6 @@ public class IndexReadTests
     private static float[] Source(double[] cells) => [.. cells.Select(cell => (float)cell)];
 
     private static Wire[] Wires(params IEnumerable<int> positions) => [.. positions.Select(Wire.FromPosition)];
-
-    // Handwired createRandom: the seeded hash of numeric-ui-core.test.ts, with the JavaScript
-    // 32-bit integer operations.
-    private static Func<double> CreateRandom(int seed) => () =>
-    {
-        unchecked
-        {
-            seed += 0x6d2b79f5;
-            var value = (seed ^ (int)((uint)seed >> 15)) * (1 | seed);
-            value = (value + (value ^ (int)((uint)value >> 7)) * (61 | value)) ^ value;
-            return (uint)(value ^ (int)((uint)value >> 14)) / 4_294_967_296.0;
-        }
-    };
 
     private static int RandomInteger(Func<double> random, int limit) => (int)Math.Floor(random() * limit);
 }

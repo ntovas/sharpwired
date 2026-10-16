@@ -1,7 +1,6 @@
 // Handwired source: src/runtime/numeric-ui-core.ts (markRoundingPoint, roundingPoints,
 // recordRoundingPoint) and tests/runtime/comparison.test.ts ('marking, and inlining keeps
-// records, grids and values'). The emitCompare and inlineCircuit parts of that test belong
-// to plan tasks 4 and 6.
+// records, grids and values'). The inlineCircuit part of that test belongs to plan task 6.
 
 namespace Sharpwired.Core.Tests;
 
@@ -17,6 +16,45 @@ public class RoundingPointTests
         child.MarkRoundingPoint(roundChain);
         Js.Throws(() => child.MarkRoundingPoint(child.Source(2)), "not a source cell");
         Assert.Equal([new RoundingPoint(roundChain, RoundingPointKind.Marked)], child.RoundingPoints());
+    }
+
+    // comparison.test.ts 'marking, and inlining keeps records, grids and values' (the child part).
+    // Handwired compares the child values with the inlined parent. Without inlining, this port
+    // compares the child values with the plain definitions.
+    [Fact]
+    public void Marking_keeps_its_record_next_to_comparison_records_and_the_comparison_bit_has_grid_1()
+    {
+        var child = new Circuit(3);
+        child.AssumeRange(child.Source(0), 0, 4096);
+        child.AssumeRange(child.Source(1), 0, 4096);
+        child.AssumeGrid(child.Source(0), 1.0 / 64);
+        child.AssumeGrid(child.Source(1), 1.0 / 64);
+        child.AssumeRange(child.Source(2), -100, 100);
+        var roundChain = child.RoundAffine([(child.Source(2), 1)], Math.Pow(2, 23) + Math.Pow(2, 22));
+        child.MarkRoundingPoint(roundChain);
+        Js.Throws(() => child.MarkRoundingPoint(child.Source(2)), "not a source cell");
+        Wire[] roots =
+        [
+            child.Compare(child.Source(0), Relation.GreaterOrEqual, child.Source(1)),
+            child.Compare(child.Source(0), Relation.Equal, child.Source(1), new CompareOptions { EndWithBoolean = true }),
+            child.Compare(child.Source(2), Relation.Less, child.Affine([], Js.F(0.3))),
+            child.MinimumExact(child.Source(2), child.Affine([], 1.5)),
+        ];
+        var kinds = child.RoundingPoints().ToDictionary(point => point.Wire, point => point.Kind);
+        Assert.Equal(RoundingPointKind.Marked, kinds[roundChain]);
+        Assert.Contains(RoundingPointKind.IntegerBit, kinds.Values);
+        Assert.Contains(RoundingPointKind.SignCascade, kinds.Values);
+        Assert.Contains(RoundingPointKind.Boolean, kinds.Values);
+        Assert.Equal([1.0 / 64, 1.0 / 64, 1.0], [child.Grids[0], child.Grids[1], child.Grids[roots[0].Position]]);
+        foreach (var (a, b, c) in new[] { (5.0, 5.0, 0.3), (5 + 1.0 / 64, 5.0, -0.3), (0.0, 4096.0, 100.0), (4096.0, 0.0, Js.F(0.3)) })
+        {
+            var values = child.EvaluateReference([(float)a, (float)b, (float)c]);
+            var f = Js.F(c);
+            Js.Is(a >= b ? 1 : 0, values[roots[0].Position]);
+            Js.Is(a == b ? 1 : 0, values[roots[1].Position]);
+            Js.Is(f < Js.F(0.3) ? 1 : 0, values[roots[2].Position]);
+            Js.Is(Math.Min(f, 1.5), values[roots[3].Position]);
+        }
     }
 
     [Fact]
