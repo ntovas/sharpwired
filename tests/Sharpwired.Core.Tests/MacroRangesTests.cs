@@ -1,7 +1,8 @@
 // Handwired source: tests/runtime/macro-ranges.test.ts.
 // Handwired emitSelect and emitMultiply call circuit.select and circuit.multiply, so this port
 // calls Circuit.Select and Circuit.Multiply. Macros.Relu, Macros.Maximum and Macros.Minimum port
-// emitRelu, emitMaximum and emitMinimum. The emitSpring cases belong to plan task 5.
+// emitRelu, emitMaximum and emitMinimum, and Macros.Spring and Macros.ClampZeroOne port emitSpring
+// and emitClampZeroOne.
 // Each helper also compares with the tensor evaluator in Handwired. PHASE2-TENSOR-ASSERTIONS.md
 // lists those assertions.
 
@@ -71,7 +72,16 @@ public class MacroRangesTests
         var aboveOne = circuit.Relu(circuit.Affine([(value, 1), (unit, -1)]));
         var result = circuit.Affine([(positive, 1), (aboveOne, -1)]);
         circuit.AssumeRange(result, 0, 1);
-        return circuit.EvaluateReference([(float)v, 1])[result.Position];
+        var value01 = circuit.EvaluateReference([(float)v, 1])[result.Position];
+        // Sharpwired: Handwired does not export emitClampZeroOne. Macros.ClampZeroOne is public, so
+        // this helper also checks that the macro gives the same value as the mirror above.
+        var macroCircuit = new Circuit(2);
+        macroCircuit.AssumeRange(macroCircuit.Source(0), -Big, Big);
+        macroCircuit.AssumeRange(macroCircuit.Source(1), 1, 1);
+        var macroResult = macroCircuit.ClampZeroOne(macroCircuit.Source(0), macroCircuit.Source(1));
+        Assert.Equal(new NumericRange(0, 1), macroCircuit.Ranges[macroResult.Position]);
+        Js.Is(value01, macroCircuit.EvaluateReference([(float)v, 1])[macroResult.Position]);
+        return value01;
     }
 
     // 'the known disparity failure: max(2**24, -1) loses one unit'.
@@ -204,6 +214,79 @@ public class MacroRangesTests
         Js.Is(16_777_216, EvaluateSelect(1, -9.99e30, 16_777_216));
         Js.Is(Js.F(3.141_59), EvaluateSelect(1, 1000, 3.141_59));
         Js.Is(Js.F(3.141_59), EvaluateSelect(1, 16_777_216, 3.141_59));
+    }
+
+    // emitSpring settled branch: the sources are position, destination, velocity, stiffness,
+    // damping, timestep, settleDistance, settleSpeed, settleDistanceScale, settleSpeedScale, unit.
+    private static Circuit BuildSpringCircuit(out SpringWires spring)
+    {
+        var circuit = new Circuit(11);
+        circuit.AssumeRange(circuit.Source(0), -1e6, 1e6);
+        circuit.AssumeRange(circuit.Source(1), -1e6, 1e6);
+        circuit.AssumeRange(circuit.Source(2), -1e6, 1e6);
+        circuit.AssumeRange(circuit.Source(3), 0, 1000);
+        circuit.AssumeRange(circuit.Source(4), 0, 1000);
+        circuit.AssumeRange(circuit.Source(5), 0, 1);
+        circuit.AssumeRange(circuit.Source(6), 0, 1e6);
+        circuit.AssumeRange(circuit.Source(7), 0, 1e6);
+        circuit.AssumeRange(circuit.Source(8), 0, 1e6);
+        circuit.AssumeRange(circuit.Source(9), 0, 1e6);
+        circuit.AssumeRange(circuit.Source(10), 1, 1);
+        var cells = Enumerable.Range(0, 11).Select(circuit.Source).ToArray();
+        spring = circuit.Spring(cells[0], cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8], cells[9], cells[10]);
+        return circuit;
+    }
+
+    private static (double Position, double Velocity, double Active) BuildSettledSpring(double initialPosition, double destination, double initialVelocity)
+    {
+        var circuit = BuildSpringCircuit(out var spring);
+        var position = initialPosition;
+        var velocity = initialVelocity;
+        var active = 1.0;
+        for (var frame = 0; frame < 240; frame++)
+        {
+            float[] source = [(float)position, (float)destination, (float)velocity, 200, 20, 0.05f, 0.5f, 0.5f, 1000, 1000, 1];
+            var reference = circuit.EvaluateReference(source);
+            position = reference[spring.Position.Position];
+            velocity = reference[spring.Velocity.Position];
+            active = reference[spring.Active.Position];
+        }
+        return (position, velocity, active);
+    }
+
+    // 'emitSpring settled branch' / 'a settled spring snaps position to destination and velocity to zero exactly'.
+    [Fact]
+    public void A_settled_spring_snaps_position_to_destination_and_velocity_to_zero_exactly()
+    {
+        foreach (var (start, destination) in new (double, double)[] { (100, 0), (5, 42), (-30, -7), (0, 250) })
+        {
+            var settled = BuildSettledSpring(start, destination, 0);
+            // Settled means active rounds to 0, so position = select(0, destination, position) =
+            // destination and velocity = multiply(0, velocity) = 0, both bit-exact.
+            Js.Is(0, settled.Active);
+            Js.Is(Js.F(destination), settled.Position);
+            Js.Is(0, settled.Velocity);
+        }
+    }
+
+    // 'emitSpring settled branch' / 'a spring released with initial velocity still settles exactly'.
+    [Fact]
+    public void A_spring_released_with_initial_velocity_still_settles_exactly()
+    {
+        var settled = BuildSettledSpring(5, 42, -3);
+        Js.Is(0, settled.Active);
+        Js.Is(42, settled.Position);
+        Js.Is(0, settled.Velocity);
+    }
+
+    // Sharpwired: the cost that execution-model.md#in-the-program states for emitSpring, 46
+    // operations in 33 layers for one spring, counted as ComparisonTests.Cost counts it.
+    [Fact]
+    public void Spring_costs_46_operations_in_33_layers()
+    {
+        var circuit = BuildSpringCircuit(out var spring);
+        Assert.Equal((46, 33), ComparisonTests.Cost(circuit, [spring.Position, spring.Velocity, spring.Active]));
+        circuit.ValidateCircuit();
     }
 
     // 'emitMultiply equals fround(a * b) across signs and magnitudes'.

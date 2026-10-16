@@ -111,7 +111,7 @@ public class ComparisonTests
 
     // The operations that the root reads, directly or through other operations, as Handwired
     // findLiveOperations marks them without gather plans.
-    private static SortedSet<int> LiveOperations(Circuit circuit, IEnumerable<Wire> roots)
+    internal static SortedSet<int> LiveOperations(Circuit circuit, IEnumerable<Wire> roots)
     {
         var live = new SortedSet<int>();
         var pending = new Stack<Wire>(roots);
@@ -134,9 +134,12 @@ public class ComparisonTests
 
     // The operation count and the layer count of the program for one root: one layer for each
     // depth of a live operation, as compileTensorProgram without recomputeDepths builds it.
-    private static (int Operations, int Layers) Cost(Circuit circuit, Wire root)
+    internal static (int Operations, int Layers) Cost(Circuit circuit, Wire root) => Cost(circuit, [root]);
+
+    // The same count for the program of several roots, as compileTensorProgram(roots) builds it.
+    internal static (int Operations, int Layers) Cost(Circuit circuit, IEnumerable<Wire> roots)
     {
-        var live = LiveOperations(circuit, [root]);
+        var live = LiveOperations(circuit, roots);
         return (live.Count, live.Select(operationIndex => circuit.Operations[operationIndex].Depth).Distinct().Count());
     }
 
