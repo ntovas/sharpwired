@@ -404,8 +404,10 @@ The Handwired tests of `cells.test.ts` and `prefix-networks.test.ts` also call t
 | RA.2 | Each new comment and doc in ASD-STE100 |
 | RA.3 | The green `dotnet test` run at the end of each task |
 
-## Open questions
+## Decisions
 
-1. Gather lowering can change the sign of an exactly zero result (execution-model.md, "One-hot groups and gathers", and the Handwired test "a result that is exactly zero may carry the other sign of zero"). A strict `Js.Is` check on a gather-lowered program fails on such a wire. The plan uses `Js.Is` for the modes without gather lowering, and `Js.SameNumericValue` (`==`, or both NaN) for the modes with gather lowering, as the Handwired seeded gather test does. The controller must approve this exception to R2.4.
-2. The HandwiredOS test of gather-lowering.test.ts needs `src/handwiredos/window-manager.ts`. Sharpwired has no port of HandwiredOS. The plan does not port the test. The controller must approve this exclusion, or name a replacement test.
-3. `TensorEvaluator.Evaluate` and `PackedValues` return writable `float[]` instances that the next call overwrites, as Handwired does. A read-only type (`ReadOnlySpan<float>` or `ReadOnlyMemory<float>`) cannot show the same-instance property that the Handwired tests check. The plan uses `float[]`. The controller can choose a read-only type instead, and the two Handwired identity assertions then change.
+The controller decided the open questions of the draft on 2026-10-17.
+
+1. Value agreement. Handwired states the agreement standard for compiled backends at gather-lowering.test.ts:43-48: `left === right || Object.is(left, right)`. This treats +0 and -0 as equal and NaN as equal to NaN. `Js.SameNumericValue` implements this rule. Use it where a Handwired test uses that standard, in every compile mode. Use `Js.Is` where the Handwired test uses `toBe` or `toEqual`. R2.4 means equality under the Handwired standard.
+2. The HandwiredOS test (gather-lowering.test.ts:1220) needs `src/handwiredos/window-manager.ts`, which is outside the first scope. Replace it with a test that builds a circuit with the same properties: finite pixel ranges, the stacking order as 6 one-hot groups, and sums that do not lower. Assert the same facts as the Handwired test: 6 declared groups and a gather read count of 0. Name the Handwired test in a comment.
+3. `TensorEvaluator.Evaluate` and `PackedValues` return `float[]`, and the next call overwrites them, as in Handwired. Document this in the XML comment.
