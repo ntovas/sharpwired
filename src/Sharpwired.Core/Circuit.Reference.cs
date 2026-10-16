@@ -190,10 +190,10 @@ public sealed partial class Circuit
         }
         if (indexGradient == IndexGradient.BackwardDifference && double.IsFinite(indexValue))
         {
-            // This is what the backward pass gives a ReLU one-hot masked sum at an integer index i,
-            // with bits built from relu(i - j + 1) - relu(i - j): the ReLU at its corner gets the
-            // slope 0, so the index receives read(i) - read(i - 1), with the same rule outside the
-            // table. The difference is a float64 value, as in Handwired.
+            // The backward pass gives this gradient to a ReLU one-hot masked sum at an integer index
+            // i, with the bits relu(i - j + 1) - relu(i - j). The ReLU at its corner gets the slope 0.
+            // So the index receives read(i) - read(i - 1), with the same rule outside the table. The
+            // difference is a float64 value, as in Handwired.
             var floorIndex = Math.Floor(indexValue);
             var difference = (double)ReadIndexedValue(values, read, floorIndex) - ReadIndexedValue(values, read, floorIndex - 1);
             AccumulateTermGradients(gradients, operation.GateTerms.AsSpan(), (float)(outputGradient * difference));

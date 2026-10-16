@@ -66,7 +66,7 @@ public class ValidationTests
         static Circuit Build(Func<Circuit, Operation> operation)
         {
             var circuit = new Circuit(3);
-            circuit.OperationList.Add(operation(circuit));
+            ReferenceEvaluatorTests.AppendOperation(circuit, operation(circuit));
             return circuit;
         }
 

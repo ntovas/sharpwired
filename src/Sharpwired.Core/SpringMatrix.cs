@@ -1,8 +1,8 @@
 // Handwired source: src/runtime/host-timing.ts (SpringConstants, SpringMatrix,
 // identitySpringMatrix, springStepMatrix, multiplySpringMatrices, springMatrixPower,
 // springMatrixBound, and the stepMs and maxStepsPerFrame values of defaultSpringClockConfig).
-// This file holds float64 host arithmetic only. It builds no operations. Frame planning
-// (advanceFrame, quantizeFrameTiming, countSpringSteps, the clock configuration) is phase 3.
+// This file holds float64 host arithmetic only. It builds no operations. Phase 3 ports the plan
+// of the frames (advanceFrame, quantizeFrameTiming, countSpringSteps, the clock configuration).
 
 namespace Sharpwired.Core;
 
@@ -68,7 +68,8 @@ public readonly record struct SpringMatrix(
         left[2] * right[1] + left[3] * right[3]);
 
     /// <summary>
-    /// matrix^count by repeated squaring, for example the spring matrix of 4 steps is
+    /// matrix^count. The function squares the matrix again and again, and multiplies the squares
+    /// that the bits of count select. For example, the spring matrix of 4 steps is
     /// SpringMatrixPower(SpringStepMatrix(constants), 4). Every power of one matrix commutes, so
     /// the result is the same real matrix as count single steps, within float64 rounding.
     /// </summary>

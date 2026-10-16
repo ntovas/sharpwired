@@ -15,9 +15,9 @@ public sealed partial class Circuit
     /// cells, the range and grid of each operation, the one-hot groups, the rounding points and the
     /// comparison bits. A multiply or select record builds again through Multiply or Select, and an
     /// index read keeps the index range that the source circuit accepted. allowExistingReaders
-    /// applies to the declared ranges and grids that land on wires that operations of this circuit
-    /// already read, for example a timestep that springs read before the source circuit declares it
-    /// nonnegative.
+    /// applies to a declared range or grid that moves to a wire that operations of this circuit
+    /// already read. For example, springs read a timestep, and then the source circuit declares the
+    /// timestep nonnegative.
     /// </remarks>
     public Wire[] InlineCircuit(Circuit source, IReadOnlyList<Wire> sourceWires, bool allowExistingReaders = false)
     {
@@ -96,8 +96,8 @@ public sealed partial class Circuit
             }
             wireMap.Add(wire);
         }
-        // Declared one-hot groups survive the inlining: the property is about runtime values, and
-        // the mapped wires carry the same values.
+        // Declared one-hot groups stay after the inlining: the property is about runtime values, and
+        // the mapped wires hold the same values.
         foreach (var group in source.OneHotGroupList)
         {
             AssumeOneHot([.. group.Members.Select(member => wireMap[member.Position])], group.AllowAllZero, allowExistingReaders);

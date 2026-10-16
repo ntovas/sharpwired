@@ -257,10 +257,10 @@ public sealed partial class Circuit
     }
 
     /// <summary>
-    /// Append an affine, ReGLU or boolean operation. Without preserveRounding, the builder drops
-    /// zero coefficients, sorts and merges the terms, folds constant wires into the bias, composes
-    /// small affine producers, folds a constant gate, and returns an existing wire for an identity
-    /// or for an expression that it already built.
+    /// Append an affine, ReGLU or boolean operation. Without preserveRounding, the builder changes
+    /// the forms: it drops zero coefficients, sorts and merges the terms, and folds constant wires
+    /// into the bias. It also composes small affine producers and folds a constant gate. It returns
+    /// an existing wire for an identity or for an expression that it already built.
     /// </summary>
     public Wire Append(
         OperationKind kind,
@@ -434,9 +434,9 @@ public sealed partial class Circuit
         return (Math.Min(grid, Fp32.LargestGrid), magnitude);
     }
 
-    // The grid of the result of an operation: an affine sum takes the grid of its form, a ReGLU
-    // product the product of the grids of both forms while the product stays within 2^24 grid
-    // steps, and a boolean atom returns 0 or 1.
+    // The grid of the result of an operation. An affine sum takes the grid of its form. A ReGLU
+    // takes the product of the grids of both forms, while the product stays within 2^24 grid
+    // steps. A boolean atom returns 0 or 1, so its grid is 1.
     internal static double? InferOperationGrid(
         OperationKind kind,
         ImmutableArray<Term> leftTerms,

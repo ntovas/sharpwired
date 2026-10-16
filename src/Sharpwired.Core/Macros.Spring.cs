@@ -83,8 +83,8 @@ public sealed record AnimatedObjectOptions(Wire SettleCheck)
 /// This is not state, so the rounding does not accumulate.
 /// </param>
 /// <param name="Settled">
-/// 1 when this evaluation checks settling and each spring is within both thresholds, or when each
-/// displacement and velocity is ±0, for example after a snap.
+/// 1 when the settle check of this evaluation is 1 and each spring is within both thresholds, or
+/// when each displacement and velocity is ±0, for example after a snap.
 /// </param>
 /// <param name="Active">
 /// 1 while the object moves: not settled and not snapped. A host stops the clock when the active

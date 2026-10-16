@@ -107,7 +107,7 @@ public class ReferenceEvaluatorTests
         OutOfRange below,
         OutOfRange above)
     {
-        circuit.OperationList.Add(new Operation
+        AppendOperation(circuit, new Operation
         {
             Kind = OperationKind.Index,
             LeftTerms = [],
@@ -117,5 +117,29 @@ public class ReferenceEvaluatorTests
             Depth = 1,
             IndexRead = new IndexReadInstruction(table, below, above, new NumericRange(-1, 2)),
         });
+    }
+
+    // Append an operation that the builder does not make, for example an index read with a NaN
+    // index form, and one entry to each list that has one entry for each wire. The new wire has
+    // the depth of the operation, no constant value, an open range, no grid and no exact bit. The
+    // wires that the operation reads get a reader.
+    internal static void AppendOperation(Circuit circuit, Operation operation)
+    {
+        circuit.OperationList.Add(operation);
+        circuit.DepthList.Add(operation.Depth);
+        circuit.ConstantList.Add(null);
+        circuit.RangeList.Add(NumericRange.Unknown);
+        circuit.GridList.Add(null);
+        circuit.ExactBitList.Add(false);
+        circuit.HasReaderList.Add(false);
+        IEnumerable<Wire> readWires = [
+            .. operation.LeftTerms.Select(term => term.Wire),
+            .. operation.GateTerms.Select(term => term.Wire),
+            .. operation.IndexRead?.Table.Candidates ?? []];
+        foreach (var wire in readWires.Where(wire => wire.Position < circuit.Width)) circuit.HasReaderList[wire.Position] = true;
+        var width = circuit.Width;
+        Assert.All(
+            [circuit.DepthList.Count, circuit.ConstantList.Count, circuit.RangeList.Count, circuit.GridList.Count, circuit.ExactBitList.Count, circuit.HasReaderList.Count],
+            count => Assert.Equal(width, count));
     }
 }

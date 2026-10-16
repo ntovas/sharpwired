@@ -9,7 +9,7 @@ Reference source: `$REF = /private/tmp/claude-502/-Users-g-ntovas-source-sharpwi
 - Port behavior exactly. Each FP32 step casts to `float`, as `Math.fround` does in Handwired. Compute float64 parts (range bounds, `floor` of an index) in `double`, as Handwired does.
 - Each operation keeps the Handwired term order, so that the reference evaluator gives bit-identical values.
 - Keep Handwired error conditions. Throw `InvalidOperationException` or `ArgumentException` with a message that names the same fact as the Handwired message.
-- TDD: write the failing xUnit test first, run it, see it fail, then implement.
+- TDD (test-driven development): write the failing xUnit test first. Run the test and see it fail. Then write the implementation.
 - Do not implement the tensor compiler or the tensor evaluator in phase 1. A Handwired test that compares with the tensor evaluator is ported with the reference evaluator only. List each such test in `tests/Sharpwired.Core.Tests/PHASE2-TENSOR-ASSERTIONS.md` (file, test name, the tensor assertion that phase 2 adds).
 - No `TODO`, no stub, no skipped test.
 

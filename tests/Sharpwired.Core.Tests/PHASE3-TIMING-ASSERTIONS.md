@@ -21,3 +21,11 @@ Phase 1 ports the float64 spring matrix functions of Handwired `src/runtime/host
 | spring-matrix.test.ts | springs along frame-time traces, with presses between frames / a 3 s stall snaps every object onto its destination once, no frame runs more than 300 steps, and the committed tables stay bit-identical across frame rates | none | The whole test. |
 | spring-matrix.test.ts | springs along frame-time traces, with presses between frames / moved to 65,536, 131,072 and 1,048,576 px, both policies settle like float64 springs and stop animating, and stored displacements stay within 5e-4 px of float64 up to 131,072 px | none | The whole test. |
 | spring-matrix.test.ts | springs along frame-time traces, with presses between frames / ui.md's order, applying presses and then catching up, differs across frame rates in float64 | none | The whole test. It does not call `advanceFrame`, but it builds no circuit: it compares the float64 frame order of ui.md (`runUiMdOrder`) at 10, 30 and 60 fps with 120 fps. It belongs with the host frame order of phase 3. |
+
+## Phase 1 review items
+
+| Handwired file | Handwired item | Sharpwired item | What phase 3 adds |
+| --- | --- | --- | --- |
+| cells.test.ts:106 | inlineCircuit repeats an exact bit on the wire that the bit lands on, and builds the operations that it builds without the declaration | none | The whole test. It declares the inner `enabled` cell with `inputBit` in a `SourceTable` (R3.1), so it needs the cell functions. |
+| host-timing.ts:196 | `springMatrixBound(constants, config = defaultSpringClockConfig)` | `SpringMatrix.SpringMatrixBound(constants, stepMs, maxStepsPerFrame)` | An overload that takes a `SpringClockConfig`, after phase 3 ports `SpringClockConfig`. |
+| docs/design.md:20 | (no Handwired item) | `SpringMatrix.cs` and the spring macros are in Sharpwired.Core | A decision on where the spring matrix functions live. `docs/design.md` puts them in Sharpwired.Timing. Phase 1 put them in Sharpwired.Core, because the spring macro tests need them. Phase 3 moves them to Sharpwired.Timing, or changes `docs/design.md`. |

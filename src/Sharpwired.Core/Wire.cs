@@ -59,9 +59,9 @@ public enum OutOfRange
 }
 
 /// <summary>
-/// Why an operation is a rounding point, that is, an operation whose evaluation, term
-/// order or operand wires carry meaning. A backend that reorders, fuses or copies sums,
-/// or evaluates sums in float64, must keep these points.
+/// Why an operation is a rounding point, that is, an operation whose result depends on its
+/// evaluation, its term order or its operand wires. A backend that reorders, fuses or copies
+/// sums, or evaluates sums in float64, must keep these points.
 /// </summary>
 public enum RoundingPointKind
 {
