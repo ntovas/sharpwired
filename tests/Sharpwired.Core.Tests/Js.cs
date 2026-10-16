@@ -16,6 +16,15 @@ internal static class Js
         Assert.True(same, $"expected {expected:R}, got {actual:R}");
     }
 
+    // Assert toEqual on two number arrays: the same length, and Object.is for each element.
+    public static void AllIs(IEnumerable<double> expected, IEnumerable<double> actual)
+    {
+        var expectedValues = expected.ToArray();
+        var actualValues = actual.ToArray();
+        Assert.Equal(expectedValues.Length, actualValues.Length);
+        for (var index = 0; index < expectedValues.Length; index++) Is(expectedValues[index], actualValues[index]);
+    }
+
     // Math.round: the nearest integer, and the integer above at a half. A negative value that
     // rounds to 0 gives -0.
     public static double Round(double value)

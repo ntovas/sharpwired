@@ -6,6 +6,7 @@
 // composeAffineTerms, foldConstantTerms, normalizeTerms).
 
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Text;
 
 namespace Sharpwired.Core;
@@ -30,6 +31,17 @@ public sealed partial class Circuit
     internal readonly List<bool> HasReaderList;
     internal readonly List<OneHotGroup> OneHotGroupList = [];
 
+    // Read-only views of the lists, made at the first read, so that a caller cannot cast a list
+    // property back to the list that the circuit changes.
+    private ReadOnlyCollection<Operation>? operationsView;
+    private ReadOnlyCollection<int>? depthsView;
+    private ReadOnlyCollection<double?>? constantsView;
+    private ReadOnlyCollection<NumericRange>? rangesView;
+    private ReadOnlyCollection<double?>? gridsView;
+    private ReadOnlyCollection<bool>? exactBitsView;
+    private ReadOnlyCollection<bool>? hasReadersView;
+    private ReadOnlyCollection<OneHotGroup>? oneHotGroupsView;
+
     public Circuit(int sourceSize)
     {
         if (sourceSize < 0) throw new ArgumentException($"the source size must be a nonnegative integer, got {sourceSize}");
@@ -47,29 +59,29 @@ public sealed partial class Circuit
     /// <summary>The number of wires: the source cells and the operations.</summary>
     public int Width => SourceSize + OperationList.Count;
 
-    public IReadOnlyList<Operation> Operations => OperationList;
+    public IReadOnlyList<Operation> Operations => operationsView ??= OperationList.AsReadOnly();
 
     /// <summary>The depth of each wire: 0 for a source cell, one more than the deepest input for an operation.</summary>
-    public IReadOnlyList<int> Depths => DepthList;
+    public IReadOnlyList<int> Depths => depthsView ??= DepthList.AsReadOnly();
 
     /// <summary>The value of each constant wire, that is, an affine operation with no terms. Null for the other wires.</summary>
-    public IReadOnlyList<double?> Constants => ConstantList;
+    public IReadOnlyList<double?> Constants => constantsView ??= ConstantList.AsReadOnly();
 
-    public IReadOnlyList<NumericRange> Ranges => RangeList;
+    public IReadOnlyList<NumericRange> Ranges => rangesView ??= RangeList.AsReadOnly();
 
     /// <summary>
     /// The power of two that every value of a wire is a multiple of, or null when it is not known.
     /// Declared with AssumeGrid, or inferred for sums and products that cannot round.
     /// </summary>
-    public IReadOnlyList<double?> Grids => GridList;
+    public IReadOnlyList<double?> Grids => gridsView ??= GridList.AsReadOnly();
 
     /// <summary>True for a wire that AssumeBit declares to hold exactly 0 or 1.</summary>
-    public IReadOnlyList<bool> ExactBits => ExactBitList;
+    public IReadOnlyList<bool> ExactBits => exactBitsView ??= ExactBitList.AsReadOnly();
 
     /// <summary>True for a wire that an operation reads, so that a late declaration can be refused.</summary>
-    public IReadOnlyList<bool> HasReaders => HasReaderList;
+    public IReadOnlyList<bool> HasReaders => hasReadersView ??= HasReaderList.AsReadOnly();
 
-    public IReadOnlyList<OneHotGroup> OneHotGroups => OneHotGroupList;
+    public IReadOnlyList<OneHotGroup> OneHotGroups => oneHotGroupsView ??= OneHotGroupList.AsReadOnly();
 
     /// <summary>
     /// Declare the range of the values of a wire. A declaration does not change the operations

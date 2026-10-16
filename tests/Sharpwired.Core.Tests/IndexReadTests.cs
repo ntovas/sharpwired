@@ -367,9 +367,9 @@ public partial class IndexReadTests
         Assert.Equal(Wire.FromPosition(4), circuit.IndexRead(nine, table));
         Assert.Equal(Wire.FromPosition(1), circuit.IndexReadAffine([(three, -1)], 1, table, OutOfRange.Clamp, OutOfRange.Zero));
         var beyond = circuit.IndexRead(nine, table, OutOfRange.Zero);
-        Assert.Equal(0, circuit.Constants[beyond.Position]);
+        Js.Is(0, circuit.Constants[beyond.Position]!.Value);
         var belowZero = circuit.IndexReadAffine([(three, 1)], -5, table, OutOfRange.Zero, OutOfRange.Clamp);
-        Assert.Equal(0, circuit.Constants[belowZero.Position]);
+        Js.Is(0, circuit.Constants[belowZero.Position]!.Value);
     }
 
     // 'the builder refuses reads that break the contract'.

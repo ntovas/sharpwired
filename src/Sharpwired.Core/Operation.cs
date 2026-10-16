@@ -25,13 +25,60 @@ public enum OperationKind
 /// The record of the operation that a circuit method expanded. The backward pass uses it to
 /// differentiate the whole operation, and the builder uses it in the expression key.
 /// </summary>
-public abstract record MacroRecord;
+/// <remarks>
+/// Only Sharpwired.Core can derive from this class, so the code that switches over the records
+/// knows every record. A C# record type cannot have this limit, because a record that is not
+/// sealed must have a public or protected copy constructor. So the records are classes with
+/// value equality.
+/// </remarks>
+public abstract class MacroRecord
+{
+    private protected MacroRecord()
+    {
+    }
+}
 
-/// <summary>The record of Circuit.Multiply.</summary>
-public sealed record MultiplyMacro(Wire Left, Wire Right) : MacroRecord;
+/// <summary>The record of Circuit.Multiply. Two records with the same wires are equal.</summary>
+public sealed class MultiplyMacro(Wire left, Wire right) : MacroRecord, IEquatable<MultiplyMacro>
+{
+    public Wire Left { get; } = left;
 
-/// <summary>The record of Circuit.Select.</summary>
-public sealed record SelectMacro(Wire Gate, Wire Off, Wire On) : MacroRecord;
+    public Wire Right { get; } = right;
+
+    public static bool operator ==(MultiplyMacro? left, MultiplyMacro? right) => Equals(left, right);
+
+    public static bool operator !=(MultiplyMacro? left, MultiplyMacro? right) => !Equals(left, right);
+
+    public bool Equals(MultiplyMacro? other) => other is not null && Left == other.Left && Right == other.Right;
+
+    public override bool Equals(object? obj) => Equals(obj as MultiplyMacro);
+
+    public override int GetHashCode() => HashCode.Combine(Left, Right);
+
+    public override string ToString() => $"MultiplyMacro {{ Left = {Left}, Right = {Right} }}";
+}
+
+/// <summary>The record of Circuit.Select. Two records with the same wires are equal.</summary>
+public sealed class SelectMacro(Wire gate, Wire off, Wire on) : MacroRecord, IEquatable<SelectMacro>
+{
+    public Wire Gate { get; } = gate;
+
+    public Wire Off { get; } = off;
+
+    public Wire On { get; } = on;
+
+    public static bool operator ==(SelectMacro? left, SelectMacro? right) => Equals(left, right);
+
+    public static bool operator !=(SelectMacro? left, SelectMacro? right) => !Equals(left, right);
+
+    public bool Equals(SelectMacro? other) => other is not null && Gate == other.Gate && Off == other.Off && On == other.On;
+
+    public override bool Equals(object? obj) => Equals(obj as SelectMacro);
+
+    public override int GetHashCode() => HashCode.Combine(Gate, Off, On);
+
+    public override string ToString() => $"SelectMacro {{ Gate = {Gate}, Off = {Off}, On = {On} }}";
+}
 
 /// <summary>
 /// One distinct candidates array, registered once for each circuit. Later reads of the same

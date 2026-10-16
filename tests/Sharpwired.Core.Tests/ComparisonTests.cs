@@ -372,7 +372,7 @@ public class ComparisonTests
         var constantBit = circuit.Compare(seven, Relation.Greater, circuit.Affine([], 3));
         Assert.Equal(1, circuit.Constants[constantBit.Position]);
         Assert.Equal(1, circuit.Constants[circuit.Compare(circuit.Source(0), Relation.Equal, circuit.Source(0)).Position]);
-        Assert.Equal(0, circuit.Constants[circuit.Compare(circuit.Source(0), Relation.Less, circuit.Source(0)).Position]);
+        Js.Is(0, circuit.Constants[circuit.Compare(circuit.Source(0), Relation.Less, circuit.Source(0)).Position]!.Value);
     }
 
     // sign cascade: 'refuses open ranges, overflowing differences and unknown relations'.
@@ -626,7 +626,7 @@ public class ComparisonTests
         circuit.AssumeRange(circuit.Source(0), -1000, 1000);
         circuit.AssumeGrid(circuit.Source(0), 1);
         var atLeastFive = circuit.Compare(circuit.Source(0), Relation.GreaterOrEqual, circuit.Affine([], 5));
-        Assert.Equal([0f, 0f, 1f, 0f, 0f], new[] { 3f, 4f, 4.5f, 5f, 6f }.Select(value => GradientsAt(circuit, atLeastFive, [value])[0]));
+        Js.AllIs([0, 0, 1, 0, 0], new[] { 3f, 4f, 4.5f, 5f, 6f }.Select(value => (double)GradientsAt(circuit, atLeastFive, [value])[0]));
         Js.Is(0.5, circuit.EvaluateReference([4.5f])[atLeastFive.Position]);
         // Sharpwired addition: the forward values at the inputs where Handwired reads the gradients.
         Assert.Equal([0.0, 0.0, 0.5, 1.0, 1.0], new[] { 3f, 4f, 4.5f, 5f, 6f }.Select(value => (double)circuit.EvaluateReference([value])[atLeastFive.Position]));

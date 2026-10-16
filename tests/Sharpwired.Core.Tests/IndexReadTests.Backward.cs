@@ -25,16 +25,16 @@ public partial class IndexReadTests
         Js.Throws(() => circuit.BackpropagateReference(values, OutputGradients(values)), "indexGradient");
         var zeroGradients = circuit.BackpropagateReference(values, OutputGradients(values), indexGradient: IndexGradient.Zero);
         // Both reads select candidate 1, so its gradient adds, like a scatter-add.
-        Assert.Equal([0f, 0f, 4f, 0f], zeroGradients[..4]);
+        Js.AllIs([0, 0, 4, 0], zeroGradients[..4].Select(value => (double)value));
         var differenceGradients = circuit.BackpropagateReference(values, OutputGradients(values), indexGradient: IndexGradient.BackwardDifference);
-        Assert.Equal([3 * (20 - 10) + (20 - 10), 0f, 4f, 0f], differenceGradients[..4]);
+        Js.AllIs([3 * (20 - 10) + (20 - 10), 0, 4, 0], differenceGradients[..4].Select(value => (double)value));
         // Past the end, the 'zero' read selects nothing and the clamped read selects the last candidate.
         var pastEnd = circuit.EvaluateReference([4, 10, 20, 40]);
         var pastEndGradients = circuit.BackpropagateReference(pastEnd, OutputGradients(pastEnd), indexGradient: IndexGradient.BackwardDifference);
-        Assert.Equal([0f, 0f, 0f, 1f], pastEndGradients[..4]);
+        Js.AllIs([0, 0, 0, 1], pastEndGradients[..4].Select(value => (double)value));
         var atEnd = circuit.EvaluateReference([3, 10, 20, 40]);
         var atEndGradients = circuit.BackpropagateReference(atEnd, OutputGradients(atEnd), indexGradient: IndexGradient.BackwardDifference);
-        Assert.Equal([3 * (0 - 40) + (40 - 40), 0f, 0f, 1f], atEndGradients[..4]);
+        Js.AllIs([3 * (0 - 40) + (40 - 40), 0, 0, 1], atEndGradients[..4].Select(value => (double)value));
         // A zero output gradient never reaches the read, so it does not throw.
         circuit.BackpropagateReference(values, new float[values.Length]);
     }
