@@ -1,12 +1,12 @@
 // Handwired source: tests/runtime/index-read.test.ts (the cases with inlineCircuit, emitArgmax,
 // emitFirstActive and validateOneHotGroups). Each test name holds the Handwired test name.
-// PHASE2-TENSOR-ASSERTIONS.md lists the compile-mode and gather assertions of these tests.
+// Handwired checkEveryCompileMode is TensorChecks.EveryCompileMode with CompileModes.IndexRead.
 
 namespace Sharpwired.Core.Tests;
 
 public partial class IndexReadTests
 {
-    // 'inlining carries index reads, and the inlined circuit agrees with the original' (reference part).
+    // 'inlining carries index reads, and the inlined circuit agrees with the original'.
     [Fact]
     public void Inlining_carries_index_reads_and_the_inlined_circuit_agrees_with_the_original()
     {
@@ -28,20 +28,65 @@ public partial class IndexReadTests
             var parentSource = new float[5];
             for (var childWire = 0; childWire < sourceWires.Length; childWire++) parentSource[sourceWires[childWire]] = childSource[childWire];
             var childValues = child.EvaluateReference(childSource);
-            var parentValues = EvaluateAll(parent, [parentSource])[0];
+            Wire[] parentRoots = [wireMap[readSource.Position], wireMap[readComputed.Position]];
+            var parentValues = TensorChecks.EveryCompileMode(parent, parentRoots, [parentSource])[0];
             Js.Is(childValues[readSource.Position], parentValues[wireMap[readSource.Position].Position]);
             Js.Is(childValues[readComputed.Position], parentValues[wireMap[readComputed.Position].Position]);
         }
     }
 
-    // 'random circuits mixing index reads, products, selects and gathers agree in every compile mode'
-    // (reference part: each read equals the plain definition, and validateIndexReads passes).
+    // 'recomputed depths: a lowered gather read stops waiting for the products it replaced'.
+    [Fact]
+    public void Recomputed_depths_a_lowered_gather_read_stops_waiting_for_the_products_it_replaced()
+    {
+        const int ScoreCount = 5;
+        var circuit = new Circuit(2 * ScoreCount + 1);
+        var unit = Wire.FromPosition(2 * ScoreCount);
+        circuit.AssumeRange(unit, 1, 1);
+        var scores = Wires(Enumerable.Range(0, ScoreCount));
+        var values = Wires(Enumerable.Range(ScoreCount, ScoreCount));
+        foreach (var score in scores) circuit.AssumeRange(score, 0, 1);
+        foreach (var value in values) circuit.AssumeRange(value, -100, 100);
+        var selected = circuit.Argmax(scores, unit).Selected;
+        var selectedValue = circuit.RoundAffine([.. selected.Select((bit, item) => new Term(circuit.Multiply(bit, values[item]), 1))]);
+        var downstream = circuit.RoundAffine([(selectedValue, 2)], 1);
+        // The compiled program skips depths with no live operation, so the removed products only
+        // cost a layer while another live operation shares their depth.
+        var deepestBit = selected.Aggregate((deepest, bit) => circuit.Depths[bit.Position] > circuit.Depths[deepest.Position] ? bit : deepest);
+        var bitCopy = circuit.RoundAffine([(deepestBit, 3)]);
+        Wire[] roots = [downstream, bitCopy];
+        var buildTimeProgram = circuit.CompileTensorProgram(roots);
+        var buildTimeCounts = TensorChecks.ProgramCounts(buildTimeProgram);
+        var recomputedCounts = TensorChecks.ProgramCounts(circuit.CompileTensorProgram(roots, lowerGathers: true, recomputeDepths: true));
+        Assert.Equal(1, buildTimeCounts.GatherReads);
+        Assert.Equal(buildTimeCounts.Layers - 1, recomputedCounts.Layers);
+        Assert.Equal(buildTimeCounts.LiveOperations, recomputedCounts.LiveOperations);
+        // Without bitCopy, the compiler already skips the empty depth, and both give the same layer count.
+        Assert.Equal(
+            TensorChecks.ProgramCounts(circuit.CompileTensorProgram([downstream])).Layers,
+            TensorChecks.ProgramCounts(circuit.CompileTensorProgram([downstream], lowerGathers: true, recomputeDepths: true)).Layers);
+        // The default is off.
+        TensorChecks.AssertSameProgram(buildTimeProgram, circuit.CompileTensorProgram(roots, lowerGathers: true, recomputeDepths: false));
+        var random = Js.CreateRandom(11);
+        var sources = Enumerable.Range(0, 40).Select(_ =>
+        {
+            var source = new float[circuit.SourceSize];
+            foreach (var score in scores) source[score.Position] = RandomInteger(random, 5) / 4f;
+            foreach (var value in values) source[value.Position] = (float)((random() * 2 - 1) * 100);
+            source[unit.Position] = 1;
+            return source;
+        }).ToArray();
+        TensorChecks.EveryCompileMode(circuit, [.. roots, selectedValue], sources);
+    }
+
+    // 'random circuits mixing index reads, products, selects and gathers agree in every compile mode'.
     [Fact]
     public void Random_circuits_mixing_index_reads_products_selects_and_gathers_read_the_plain_definition()
     {
         var random = Js.CreateRandom(0x51de);
         double[] coefficients = [1.0 / 3, -0.7, 2, -1, 12_345.6789, 0.1];
         var indexReadsChecked = 0;
+        var loweredGatherReads = 0;
         for (var circuitIndex = 0; circuitIndex < 120; circuitIndex++)
         {
             var integerCellCount = 2 + RandomInteger(random, 3);
@@ -139,9 +184,9 @@ public partial class IndexReadTests
                     anyWires.Add(wire);
                 }
             }
-            // Handwired picks the roots of the tensor program here. The reference part keeps the draws.
             var roots = anyWires.Where(wire => wire.Position >= sourceSize && random() < 0.6).ToList();
             if (roots.Count == 0) roots.Add(anyWires[^1]);
+            loweredGatherReads += TensorChecks.ProgramCounts(circuit.CompileTensorProgram(roots)).GatherReads;
             double[] extremes = [double.PositiveInfinity, double.NegativeInfinity, -0.0, LargestFloat32, SmallestSubnormalFloat32];
             var sources = Enumerable.Range(0, 6).Select(_ =>
             {
@@ -154,7 +199,7 @@ public partial class IndexReadTests
                 source[unit.Position] = 1;
                 return source;
             }).ToArray();
-            foreach (var values in EvaluateAll(circuit, sources))
+            foreach (var values in TensorChecks.EveryCompileMode(circuit, roots, sources))
             {
                 circuit.ValidateIndexReads(values);
                 foreach (var intent in intents)
@@ -165,18 +210,15 @@ public partial class IndexReadTests
                         intent.Below,
                         intent.Above);
                     var actual = values[intent.Wire.Position];
-                    // Object.is: every NaN is the same value, and -0 differs from +0.
-                    var same = double.IsNaN(expected)
-                        ? float.IsNaN(actual)
-                        : expected == actual && double.IsNegative(expected) == float.IsNegative(actual);
                     Assert.True(
-                        same,
+                        Js.ObjectIs(expected, actual),
                         $"circuit {circuitIndex}: read {intent.Wire} got {actual}, expected {expected}");
                     indexReadsChecked++;
                 }
             }
         }
         Assert.True(indexReadsChecked > 2000, $"checked {indexReadsChecked} reads");
+        Assert.True(loweredGatherReads > 20, $"{loweredGatherReads} lowered gather reads");
     }
 
     // 'proven bits' / 'emitFirstActive declares a one-hot group over comparison bits and index reads of
@@ -251,8 +293,7 @@ public partial class IndexReadTests
     }
 
     // 'proven bits' / 'gather lowering gives the same values as the dense compile over random circuits
-    // whose selections read comparison bits and index reads of bits' (reference part: every declared
-    // group and every index read holds on the reference values).
+    // whose selections read comparison bits and index reads of bits'.
     [Fact]
     public void Random_circuits_whose_selections_read_comparison_bits_and_index_reads_of_bits_hold_their_groups()
     {
@@ -261,6 +302,7 @@ public partial class IndexReadTests
         var groupsOverComparisonsOrReads = 0;
         var undeclaredSelections = 0;
         var readsOnlyThroughASide = 0;
+        var loweredGatherReads = 0;
         var sourcesChecked = 0;
         for (var circuitIndex = 0; circuitIndex < 80; circuitIndex++)
         {
@@ -360,9 +402,9 @@ public partial class IndexReadTests
                     roots.Add(circuit.Select(gate, off, Pick(values)));
                 }
             }
-            // Handwired picks the roots of the tensor program here. The reference part keeps the draws.
             if (roots.Count == 0) roots.Add(values[^1]);
             roots.AddRange(bits.Where(_ => random() < 0.3).ToList());
+            loweredGatherReads += TensorChecks.ProgramCounts(circuit.CompileTensorProgram(roots)).GatherReads;
             var sources = Enumerable.Range(0, 8).Select(_ =>
             {
                 var source = new float[13];
@@ -379,8 +421,9 @@ public partial class IndexReadTests
                 foreach (var wire in valueCells) source[wire] = (float)((random() * 2 - 1) * 100);
                 return source;
             }).ToArray();
-            // Every declared group holds on the reference values.
-            foreach (var evaluated in EvaluateAll(circuit, sources))
+            // Every compile mode, with and without gather lowering, gives the reference value, and
+            // every declared group holds on the values.
+            foreach (var evaluated in TensorChecks.EveryCompileMode(circuit, roots, sources))
             {
                 circuit.ValidateOneHotGroups(evaluated);
                 circuit.ValidateIndexReads(evaluated);
@@ -390,6 +433,7 @@ public partial class IndexReadTests
         Assert.Equal(640, sourcesChecked);
         Assert.True(groupsOverComparisonsOrReads > 50, $"{groupsOverComparisonsOrReads} groups over comparisons or reads");
         Assert.True(undeclaredSelections > 10, $"{undeclaredSelections} undeclared selections");
+        Assert.True(loweredGatherReads > 50, $"{loweredGatherReads} lowered gather reads");
         // Measured in Handwired: 46 reads whose index range reaches only past one end of the table.
         Assert.True(readsOnlyThroughASide > 20, $"{readsOnlyThroughASide} reads only through a side");
     }

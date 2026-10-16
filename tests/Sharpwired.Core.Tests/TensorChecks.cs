@@ -1,5 +1,6 @@
-// Handwired source: the test helpers programCounts of tests/runtime/index-read.test.ts and
-// tests/runtime/spring-matrix.test.ts, gatherStatistics and loweredWires of
+// Handwired source: the test helpers programCounts and checkEveryCompileMode of
+// tests/runtime/index-read.test.ts and tests/runtime/spring-matrix.test.ts, checkTensorAgreement and
+// cost of tests/runtime/comparison.test.ts, gatherStatistics and loweredWires of
 // tests/runtime/gather-lowering.test.ts, and the toEqual comparison of two compiled programs.
 
 namespace Sharpwired.Core.Tests;
@@ -10,8 +11,118 @@ internal sealed record ProgramCountsResult(int LiveOperations, int Layers, int S
 // The counts of Handwired gatherStatistics.
 internal sealed record GatherStatisticsResult(int ReadCount, int ComputeCount, int SlotCount, int StoredWeightCount, int GatherBytes);
 
+// The compile modes of Handwired checkEveryCompileMode. Each Handwired test file has its own list.
+internal enum CompileModes
+{
+    // index-read.test.ts: 5 compile modes, and createTensorEvaluator with and without recomputeDepths.
+    IndexRead,
+
+    // spring-matrix.test.ts: 4 compile modes, and createTensorEvaluator without recomputeDepths.
+    SpringMatrix,
+}
+
 internal static class TensorChecks
 {
+    private static readonly (string Label, Func<Circuit, IReadOnlyList<Wire>, TensorProgram> Compile)[] IndexReadModes =
+    [
+        ("gather lowering, build-time depths", (circuit, roots) => circuit.CompileTensorProgram(roots)),
+        ("no gather lowering", (circuit, roots) => circuit.CompileTensorProgram(roots, lowerGathers: false)),
+        ("gather lowering, recomputed depths", (circuit, roots) => circuit.CompileTensorProgram(roots, lowerGathers: true, recomputeDepths: true)),
+        ("no gather lowering, recomputed depths", (circuit, roots) => circuit.CompileTensorProgram(roots, lowerGathers: false, recomputeDepths: true)),
+        ("every wire as a root", (circuit, _) => circuit.CompileTensorProgram()),
+    ];
+
+    private static readonly (string Label, Func<Circuit, IReadOnlyList<Wire>, TensorProgram> Compile)[] SpringMatrixModes =
+    [
+        ("gather lowering, build-time depths", (circuit, roots) => circuit.CompileTensorProgram(roots)),
+        ("no gather lowering", (circuit, roots) => circuit.CompileTensorProgram(roots, lowerGathers: false)),
+        ("recomputed depths", (circuit, roots) => circuit.CompileTensorProgram(roots, lowerGathers: true, recomputeDepths: true)),
+        ("every wire as a root", (circuit, _) => circuit.CompileTensorProgram()),
+    ];
+
+    // Handwired checkEveryCompileMode. Compile the circuit in each mode, validate each program, and
+    // check that each program gives the reference value on each wire of wireOrder for each source.
+    // Then check the reusable evaluators on the roots. The comparison is Object.is (Js.ObjectIs), as
+    // index-read.test.ts:84 and :96 and spring-matrix.test.ts:93 and :104 compare. The helper puts
+    // back the previous TensorProgram of the circuit, and returns the reference values.
+    public static float[][] EveryCompileMode(
+        Circuit circuit, IReadOnlyList<Wire> roots, IReadOnlyList<float[]> sources, CompileModes modes = CompileModes.IndexRead)
+    {
+        circuit.ValidateCircuit();
+        var references = sources.Select(source => circuit.EvaluateReference(source)).ToArray();
+        foreach (var (label, compile) in modes == CompileModes.IndexRead ? IndexReadModes : SpringMatrixModes)
+        {
+            var program = compile(circuit, roots);
+            circuit.ValidateTensorProgram(program);
+            var previousProgram = circuit.TensorProgram;
+            circuit.TensorProgram = program;
+            for (var sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
+            {
+                var tensorValues = circuit.EvaluateTensor(sources[sourceIndex]);
+                foreach (var wire in program.WireOrder)
+                {
+                    Assert.True(
+                        Js.ObjectIs(references[sourceIndex][wire], tensorValues[wire]),
+                        $"{label}: wire {wire} got {tensorValues[wire]:R}, reference {references[sourceIndex][wire]:R}");
+                }
+            }
+            circuit.TensorProgram = previousProgram;
+        }
+        bool[] recomputeOptions = modes == CompileModes.IndexRead ? [false, true] : [false];
+        foreach (var recomputeDepths in recomputeOptions)
+        {
+            var evaluator = circuit.CreateTensorEvaluator(roots, recomputeDepths);
+            for (var sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
+            {
+                var outputs = evaluator.Evaluate(sources[sourceIndex]);
+                for (var rootIndex = 0; rootIndex < roots.Count; rootIndex++)
+                {
+                    var expected = references[sourceIndex][roots[rootIndex].Position];
+                    Assert.True(
+                        Js.ObjectIs(expected, outputs[rootIndex]),
+                        $"reusable evaluator (recomputeDepths {recomputeDepths}): root {roots[rootIndex]} got {outputs[rootIndex]:R}, reference {expected:R}");
+                }
+            }
+        }
+        return references;
+    }
+
+    // Handwired checkTensorAgreement of comparison.test.ts. Validate the circuit. Then, with and
+    // without gather lowering, compile the roots, validate the program, and check that the tensor
+    // evaluator gives the reference value on each wire of wireOrder. The comparison is Object.is
+    // (Js.ObjectIs), as comparison.test.ts:249 compares. At the end, TensorProgram is null.
+    public static void TensorAgreement(Circuit circuit, IReadOnlyList<Wire> roots, IEnumerable<float[]> sources)
+    {
+        circuit.ValidateCircuit();
+        var sourceList = sources.ToList();
+        foreach (var lowerGathers in new[] { true, false })
+        {
+            var program = circuit.CompileTensorProgram(roots, lowerGathers);
+            circuit.ValidateTensorProgram(program);
+            circuit.TensorProgram = program;
+            foreach (var source in sourceList)
+            {
+                var reference = circuit.EvaluateReference(source);
+                var tensor = circuit.EvaluateTensor(source);
+                foreach (var wire in program.WireOrder)
+                {
+                    Assert.True(
+                        Js.ObjectIs(reference[wire], tensor[wire]),
+                        $"lowerGathers {lowerGathers}: wire {wire}: tensor {tensor[wire]:R}, reference {reference[wire]:R}");
+                }
+            }
+        }
+        circuit.TensorProgram = null;
+    }
+
+    // Handwired cost of comparison.test.ts: the live operations (valueCount - sourceSize) and the
+    // layers of compileTensorProgram([root]).
+    public static (int Operations, int Layers) Cost(Circuit circuit, Wire root)
+    {
+        var program = circuit.CompileTensorProgram([root]);
+        return (program.ValueCount - circuit.SourceSize, program.Layers.Length);
+    }
+
     // Handwired programCounts: the live operations, the layers, and the stored weights, gather reads
     // and index reads summed over the layers.
     public static ProgramCountsResult ProgramCounts(TensorProgram program)

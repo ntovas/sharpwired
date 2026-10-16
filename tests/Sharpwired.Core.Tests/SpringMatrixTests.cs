@@ -2,8 +2,8 @@
 // Each test name holds the Handwired test name. Handwired evaluates with createTensorEvaluator
 // and checkEveryCompileMode. This port evaluates with the reference evaluator and keeps the
 // validateCircuit part of checkEveryCompileMode. PHASE2-TENSOR-ASSERTIONS.md lists the tensor
-// parts, and PHASE3-TIMING-ASSERTIONS.md lists the host timing and advanceFrame tests. Cost
-// counts the live operations and their layers, as ComparisonTests.Cost does.
+// parts, and PHASE3-TIMING-ASSERTIONS.md lists the host timing and advanceFrame tests. The costs
+// read TensorChecks.ProgramCounts of the compiled program, as Handwired programCounts does.
 
 namespace Sharpwired.Core.Tests;
 
@@ -125,7 +125,8 @@ public class SpringMatrixTests
     public void Applying_a_spring_matrix_equals_float64_Euler_steps_and_the_cost_is_pinned()
     {
         var (circuit, next) = BuildMatrixCircuit();
-        Assert.Equal((14, 3), ComparisonTests.Cost(circuit, [next.Displacement, next.Velocity]));
+        var counts = TensorChecks.ProgramCounts(circuit.CompileTensorProgram([next.Displacement, next.Velocity]));
+        Assert.Equal((14, 3), (counts.LiveOperations, counts.Layers));
         var random = Js.CreateRandom(3);
         var worstDisplacement = 0.0;
         var worstVelocity = 0.0;
@@ -251,7 +252,8 @@ public class SpringMatrixTests
         (int, int) Counts(int springCount, bool separate, bool withSnap)
         {
             var built = BuildObject(springCount, separate, withSnap);
-            return ComparisonTests.Cost(built.Circuit, built.Roots);
+            var counts = TensorChecks.ProgramCounts(built.Circuit.CompileTensorProgram(built.Roots));
+            return (counts.LiveOperations, counts.Layers);
         }
         Assert.Equal((29, 11), Counts(1, false, false));
         Assert.Equal((30, 12), Counts(1, true, false));

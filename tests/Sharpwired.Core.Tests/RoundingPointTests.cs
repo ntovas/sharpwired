@@ -18,7 +18,7 @@ public class RoundingPointTests
         Assert.Equal([new RoundingPoint(roundChain, RoundingPointKind.Marked)], child.RoundingPoints());
     }
 
-    // comparison.test.ts 'marking, and inlining keeps records, grids and values' (reference part).
+    // comparison.test.ts 'marking, and inlining keeps records, grids and values'.
     // Handwired compares the child values with the inlined parent. This port also compares the child
     // values with the plain definitions.
     [Fact]
@@ -64,6 +64,8 @@ public class RoundingPointTests
             Js.Is(f < Js.F(0.3) ? 1 : 0, values[roots[2].Position]);
             Js.Is(Math.Min(f, 1.5), values[roots[3].Position]);
         }
+        Wire[] parentRoots = [.. roots.Select(root => wireMap[root.Position])];
+        TensorChecks.TensorAgreement(parent, parentRoots, [[5, 5, 0.3f], [0, 17, -2]]);
     }
 
     [Fact]

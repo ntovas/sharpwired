@@ -1,9 +1,6 @@
 // Handwired source: tests/runtime/comparison.test.ts.
-// Each test name holds the Handwired test name. Handwired checkTensorAgreement compiles the
-// circuit and compares the tensor evaluator with the reference evaluator. This port keeps the
-// validateCircuit part, and PHASE2-TENSOR-ASSERTIONS.md lists the tensor part. Handwired cost
-// reads compileTensorProgram([root]). Cost here counts the operations that the root reads, by
-// the findLiveOperations rule without gather plans, and the layers of their depths.
+// Each test name holds the Handwired test name. Handwired checkTensorAgreement is
+// TensorChecks.TensorAgreement, and Handwired cost is TensorChecks.Cost.
 
 using System.Numerics;
 
@@ -105,40 +102,6 @@ public class ComparisonTests
             }
         }
         return pairs;
-    }
-
-    // The operations that the root reads, directly or through other operations, as Handwired
-    // findLiveOperations marks them without gather plans.
-    internal static SortedSet<int> LiveOperations(Circuit circuit, IEnumerable<Wire> roots)
-    {
-        var live = new SortedSet<int>();
-        var pending = new Stack<Wire>(roots);
-        while (pending.Count > 0)
-        {
-            var wire = pending.Pop();
-            if (wire.Position < circuit.SourceSize) continue;
-            var operationIndex = wire.Position - circuit.SourceSize;
-            if (!live.Add(operationIndex)) continue;
-            var operation = circuit.Operations[operationIndex];
-            foreach (var term in operation.LeftTerms) pending.Push(term.Wire);
-            foreach (var term in operation.GateTerms) pending.Push(term.Wire);
-            if (operation.IndexRead is { } read)
-            {
-                foreach (var candidate in read.Table.Candidates) pending.Push(candidate);
-            }
-        }
-        return live;
-    }
-
-    // The operation count and the layer count of the program for one root: one layer for each
-    // depth of a live operation, as compileTensorProgram without recomputeDepths builds it.
-    internal static (int Operations, int Layers) Cost(Circuit circuit, Wire root) => Cost(circuit, [root]);
-
-    // The same count for the program of several roots, as compileTensorProgram(roots) builds it.
-    internal static (int Operations, int Layers) Cost(Circuit circuit, IEnumerable<Wire> roots)
-    {
-        var live = LiveOperations(circuit, roots);
-        return (live.Count, live.Select(operationIndex => circuit.Operations[operationIndex].Depth).Distinct().Count());
     }
 
     // Every finite float is an integer times a power of two, so BigInteger gives exact sums and products.
@@ -317,7 +280,7 @@ public class ComparisonTests
                     rounded += CountRoundedOperations(circuit, values, stageOperations);
                 }
                 Assert.Equal((minimum, endWithBoolean, 0, 0), (minimum, endWithBoolean, wrong, rounded));
-                circuit.ValidateCircuit();
+                TensorChecks.TensorAgreement(circuit, bits, pairs.Where((_, index) => index % 5 == 0).Select(pair => Pair(pair.A, pair.B)));
             }
         }
     }
@@ -327,12 +290,12 @@ public class ComparisonTests
     public void Sign_cascade_costs_for_operands_within_0_to_16384_and_the_stage_count_for_the_largest_bound()
     {
         var (circuit, bits) = BuildPairCircuit(0, 16_384);
-        Assert.Equal([(16, 15), (15, 14), (16, 15), (15, 14), (28, 14)], bits.Select(bit => Cost(circuit, bit)));
+        Assert.Equal([(16, 15), (15, 14), (16, 15), (15, 14), (28, 14)], bits.Select(bit => TensorChecks.Cost(circuit, bit)));
         var rounding = BuildPairCircuit(0, 16_384, endWithBoolean: true);
-        Assert.Equal([(15, 13), (14, 13), (15, 13), (14, 13), (25, 13)], rounding.Bits.Select(bit => Cost(rounding.Circuit, bit)));
+        Assert.Equal([(15, 13), (14, 13), (15, 13), (14, 13), (25, 13)], rounding.Bits.Select(bit => TensorChecks.Cost(rounding.Circuit, bit)));
         // Operands within ±largestFinite / 2: 12 stages, 11 of them clamps.
         var largest = BuildPairCircuit(-Js.F(LargestFinite / 2), Js.F(LargestFinite / 2));
-        Assert.Equal((1 + 3 + 10 * 2 + 1, 1 + 11 * 2 + 1), Cost(largest.Circuit, largest.Bits[1]));
+        Assert.Equal((1 + 3 + 10 * 2 + 1, 1 + 11 * 2 + 1), TensorChecks.Cost(largest.Circuit, largest.Bits[1]));
     }
 
     // Sharpwired addition: the stage plan of the planSignCascade comment, and the 12-stage limit.
@@ -354,7 +317,7 @@ public class ComparisonTests
         var zero = circuit.Affine([], 0);
         var positive = circuit.Compare(circuit.Source(0), Relation.Greater, zero);
         var notNegative = circuit.Compare(zero, Relation.LessOrEqual, circuit.Source(0));
-        Assert.Equal((15, 14), Cost(circuit, positive));
+        Assert.Equal((15, 14), TensorChecks.Cost(circuit, positive));
         foreach (var value in new[] { 0, -0.0, SmallestSubnormal, -SmallestSubnormal, 1, -16_384, NextDown(16_384) })
         {
             var values = circuit.EvaluateReference([(float)value]);
@@ -419,7 +382,7 @@ public class ComparisonTests
         Js.Is(0, values[atLeastSeven.Position]);
     }
 
-    // grids: 'operands on a grid get integer bits that equal JavaScript' (reference part).
+    // grids: 'operands on a grid get integer bits that equal JavaScript'.
     [Fact]
     public void Operands_on_a_grid_get_integer_bits_that_equal_JavaScript()
     {
@@ -449,7 +412,7 @@ public class ComparisonTests
                 }
             }
             Assert.Equal(0, wrong);
-            circuit.ValidateCircuit();
+            TensorChecks.TensorAgreement(circuit, bits, pairs.Take(200).Select(pair => Pair(pair.A, pair.B)));
         }
     }
 
@@ -458,9 +421,9 @@ public class ComparisonTests
     public void Costs_mixed_grids_thresholds_and_the_fallback_to_the_cascade()
     {
         var (circuit, bits) = BuildPairCircuit(-8192, 8192, 1.0 / 64);
-        Assert.Equal([(2, 2), (2, 2), (2, 2), (2, 2), (3, 2)], bits.Select(bit => Cost(circuit, bit)));
+        Assert.Equal([(2, 2), (2, 2), (2, 2), (2, 2), (3, 2)], bits.Select(bit => TensorChecks.Cost(circuit, bit)));
         var rounding = BuildPairCircuit(-8192, 8192, 1.0 / 64, endWithBoolean: true);
-        Assert.Equal([(1, 1), (1, 1), (1, 1), (1, 1), (3, 2)], rounding.Bits.Select(bit => Cost(rounding.Circuit, bit)));
+        Assert.Equal([(1, 1), (1, 1), (1, 1), (1, 1), (3, 2)], rounding.Bits.Select(bit => TensorChecks.Cost(rounding.Circuit, bit)));
         // A 1/64 grid against a 1/4 grid resolves on the finer grid, and a constant threshold on the grid folds into the bias.
         var mixed = new Circuit(2);
         mixed.AssumeRange(mixed.Source(0), 0, 4096);
@@ -469,7 +432,7 @@ public class ComparisonTests
         mixed.AssumeGrid(mixed.Source(1), 1.0 / 4);
         var pointerPastEdge = mixed.Compare(mixed.Source(0), Relation.Greater, mixed.Source(1));
         var pointerPastHalf = mixed.Compare(mixed.Source(0), Relation.GreaterOrEqual, mixed.Affine([], 7.5));
-        Assert.Equal([(2, 2), (2, 2)], new[] { Cost(mixed, pointerPastEdge), Cost(mixed, pointerPastHalf) });
+        Assert.Equal([(2, 2), (2, 2)], new[] { TensorChecks.Cost(mixed, pointerPastEdge), TensorChecks.Cost(mixed, pointerPastHalf) });
         foreach (var (pointer, edge) in new[] { (10.0, 10.0), (10 + 1.0 / 64, 10.0), (7.5 - 1.0 / 64, 0.0), (7.5, 4096.0), (4096.0, 4096.0) })
         {
             var values = mixed.EvaluateReference(Pair(pointer, edge));
@@ -478,13 +441,13 @@ public class ComparisonTests
         }
         // f(0.3) is on a grid of 2^-25, so operands up to 16,384 are too many grid steps: the cascade takes over.
         var threshold = mixed.Affine([], Js.F(0.3));
-        Assert.Equal((15, 14), Cost(mixed, mixed.Compare(mixed.Source(0), Relation.GreaterOrEqual, threshold)));
+        Assert.Equal((15, 14), TensorChecks.Cost(mixed, mixed.Compare(mixed.Source(0), Relation.GreaterOrEqual, threshold)));
         // Operands within 0..2^17 on a 1/64 grid fit 2^24 grid steps; 0..2^18 does not.
-        Assert.Equal((2, 2), Cost(BuildPairCircuit(0, Math.Pow(2, 17), 1.0 / 64).Circuit, Wire.FromPosition(3)));
+        Assert.Equal((2, 2), TensorChecks.Cost(BuildPairCircuit(0, Math.Pow(2, 17), 1.0 / 64).Circuit, Wire.FromPosition(3)));
         var wide = BuildPairCircuit(0, Math.Pow(2, 18), 1.0 / 64);
-        Assert.Equal((15, 14), Cost(wide.Circuit, wide.Bits[1]));
+        Assert.Equal((15, 14), TensorChecks.Cost(wide.Circuit, wide.Bits[1]));
         var wideRounding = BuildPairCircuit(0, Math.Pow(2, 18), 1.0 / 64, endWithBoolean: true);
-        Assert.True(Cost(wideRounding.Circuit, wideRounding.Bits[1]).Operations > 1);
+        Assert.True(TensorChecks.Cost(wideRounding.Circuit, wideRounding.Bits[1]).Operations > 1);
     }
 
     // grids: 'grid bits need no FP32 rounding; atoms do; subnormal values matter only to the cascade'.
@@ -662,14 +625,17 @@ public class ComparisonTests
                     }
                     var bit = circuit.Compare(circuit.Source(0), relation, circuit.Source(1), new CompareOptions { EndWithBoolean = endWithBoolean });
                     var recorded = circuit.RoundingPoints().ToDictionary(point => point.Wire, point => point.Kind);
-                    foreach (var operationIndex in LiveOperations(circuit, [bit]))
+                    var program = circuit.CompileTensorProgram([bit]);
+                    for (var packed = circuit.SourceSize; packed < program.ValueCount; packed++)
                     {
-                        var operation = circuit.Operations[operationIndex];
+                        var wire = Wire.FromPosition(program.WireOrder[packed]);
+                        var operation = circuit.Operations[wire.Position - circuit.SourceSize];
                         // Operands within 0..4096 on a 1/64 grid are 2^18 grid steps, so each grid comparison builds integer bits.
                         var expected = operation.Kind == OperationKind.Boolean
                             ? RoundingPointKind.Boolean
                             : grid is null ? RoundingPointKind.SignCascade : RoundingPointKind.IntegerBit;
-                        Assert.Equal(expected, recorded[Wire.FromPosition(circuit.SourceSize + operationIndex)]);
+                        Assert.True(recorded.TryGetValue(wire, out var kind), $"wire {wire} has no record");
+                        Assert.Equal(expected, kind);
                     }
                     // The only operation without a record is the score that the atom of a strict rounding stage copies in.
                     var unrecorded = grid is null && endWithBoolean && relation is Relation.Greater or Relation.Less ? 1 : 0;
@@ -704,7 +670,7 @@ public class ComparisonTests
         var mixedMagnitudes = circuit.EvaluateReference(Pair(Js.F(1000.37), Js.F(0.3)));
         Js.Is(Js.F(0.3), mixedMagnitudes[minimum.Position]);
         Assert.NotEqual(Js.F(0.3), mixedMagnitudes[drifting.Position]);
-        circuit.ValidateCircuit();
+        TensorChecks.TensorAgreement(circuit, [minimum, maximum], pairs.Take(50).Select(pair => Pair(pair.A, pair.B)));
 
         var clampCircuit = new Circuit(3);
         clampCircuit.AssumeRange(clampCircuit.Source(0), -100, 100);

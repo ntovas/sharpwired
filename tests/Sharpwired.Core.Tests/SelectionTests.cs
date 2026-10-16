@@ -3,7 +3,7 @@
 // emitArgmax rows of docs/execution-model.md#macro-contracts. Each test name holds the Handwired
 // test name. Handwired evaluates these circuits with the tensor evaluator. This port uses the
 // reference evaluator, and PHASE2-TENSOR-ASSERTIONS.md lists the tensor assertions. The layer
-// bounds count the depths of the live operations, as ComparisonTests.Cost does.
+// bounds read the layers of the compiled program, as Handwired reads tensorProgram.layers.length.
 
 namespace Sharpwired.Core.Tests;
 
@@ -51,7 +51,7 @@ public class SelectionTests
             var values = circuit.EvaluateReference(source);
             Assert.Equal(OneHot(CandidateCount, winner), ValuesAt(values, selected));
         }
-        Assert.True(ComparisonTests.Cost(circuit, selected).Layers <= 5 * (int)Math.Ceiling(Math.Log2(CandidateCount)) + 1);
+        Assert.True(TensorChecks.ProgramCounts(circuit.CompileTensorProgram(selected)).Layers <= 5 * (int)Math.Ceiling(Math.Log2(CandidateCount)) + 1);
     }
 
     // numeric-ui-core.test.ts 'argmax resolves continuous scores through a balanced tree'.
@@ -72,7 +72,8 @@ public class SelectionTests
             Assert.Equal(OneHot(CandidateCount, winnerIndex), ValuesAt(values, winner.Selected));
             Assert.True(Math.Abs(values[winner.Score.Position] - Js.F(scores[winnerIndex])) < 1e-6);
         }
-        Assert.True(ComparisonTests.Cost(circuit, [.. winner.Selected, winner.Score]).Layers <= 6 * (int)Math.Ceiling(Math.Log2(CandidateCount)));
+        var layers = TensorChecks.ProgramCounts(circuit.CompileTensorProgram([.. winner.Selected, winner.Score])).Layers;
+        Assert.True(layers <= 6 * (int)Math.Ceiling(Math.Log2(CandidateCount)));
     }
 
     // numeric-ui-core.test.ts 'argmax breaks exact ties toward the lower-indexed candidate'.

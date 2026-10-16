@@ -289,12 +289,13 @@ public class MacroRangesTests
     }
 
     // Sharpwired: the cost that execution-model.md#in-the-program states for emitSpring, 46
-    // operations in 33 layers for one spring, counted as ComparisonTests.Cost counts it.
+    // operations in 33 layers for one spring, read from compileTensorProgram([position, velocity, active]).
     [Fact]
     public void Spring_costs_46_operations_in_33_layers()
     {
         var circuit = BuildSpringCircuit(out var spring);
-        Assert.Equal((46, 33), ComparisonTests.Cost(circuit, [spring.Position, spring.Velocity, spring.Active]));
+        var counts = TensorChecks.ProgramCounts(circuit.CompileTensorProgram([spring.Position, spring.Velocity, spring.Active]));
+        Assert.Equal((46, 33), (counts.LiveOperations, counts.Layers));
         circuit.ValidateCircuit();
     }
 
