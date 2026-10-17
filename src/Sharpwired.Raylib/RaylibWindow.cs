@@ -77,12 +77,16 @@ public static class RaylibWindow
         }
     }
 
-    // Draw the last commands again and read the frame buffer before EndDrawing swaps it. Raylib
-    // TakeScreenshot keeps only the file name of a path, so this method exports the image itself.
+    // Draw the last commands again and read the frame buffer before EndDrawing swaps it. Raylib keeps
+    // each shape in its render batch, and only ClearBackground writes to the frame buffer at once. So
+    // DrawRenderBatchActive must draw the batch before LoadImageFromScreen reads the buffer. Without it,
+    // the image holds only the background. Raylib TakeScreenshot keeps only the file name of a path, so
+    // this method exports the image itself.
     private static void SaveScreenshot(Rgba background, IReadOnlyList<DrawCommand> commands, string path)
     {
         Raylib_cs.Raylib.BeginDrawing();
         Draw(background, commands);
+        Rlgl.DrawRenderBatchActive();
         var image = Raylib_cs.Raylib.LoadImageFromScreen();
         Raylib_cs.Raylib.EndDrawing();
         try
