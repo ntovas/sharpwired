@@ -37,9 +37,10 @@ public partial class GatherLoweringTests(ITestOutputHelper output)
     private static int RandomInteger(Func<double> random, int limit) => (int)Math.Floor(random() * limit);
 
     // 'seeded circuits' / 'seeded circuits with gathers match the reference on every wire'.
-    // Thousands of seeded circuits with one-hot groups of each origin (source bits declared before or
-    // after the reads, Argmax, FirstActive), masked reads in each orientation that Multiply builds,
-    // chained gathers, deduplicated reads, decoy sums that must not lower, and downstream consumers.
+    // Thousands of seeded circuits with one-hot groups of each origin: source bits declared before or
+    // after the reads, Argmax, and FirstActive. The circuits have masked reads in each orientation
+    // that Multiply builds, chained gathers and deduplicated reads. They also have decoy sums that
+    // must not lower, and downstream consumers.
     // Each wire of each circuit is compared across the reference evaluator, the program with gather
     // lowering, and the program without gather lowering.
     [Fact]
@@ -187,9 +188,9 @@ public partial class GatherLoweringTests(ITestOutputHelper output)
                         if (readWireSet.Add(sum)) readWires.Add(sum);
                     }
                     // Some reads join the value pool, where later picks can chain on them. Only sums
-                    // with finite stored ranges can join: a read built before the declaration of its
-                    // group has a range from bits with no bound, and the finiteness rule refuses such
-                    // a wire as the candidate of a later gather.
+                    // with finite stored ranges can join. A read built before the declaration of its
+                    // group has a range from bits with no bound. The finiteness rule refuses such a
+                    // wire as the candidate of a later gather.
                     var sumRange = circuit.Ranges[sum.Position];
                     if (RandomInteger(random, 3) == 0 && double.IsFinite(sumRange.Minimum) && double.IsFinite(sumRange.Maximum))
                     {
@@ -241,9 +242,9 @@ public partial class GatherLoweringTests(ITestOutputHelper output)
             circuit.ValidateTensorProgram(lowered);
             circuit.ValidateTensorProgram(plain);
             var statistics = TensorChecks.GatherStatistics(lowered);
-            // Each built read lowers, and no decoy lowers. Other operations can also lower (a
-            // mixed-sign multiply against a group of size 1 is itself a complete masked read), and
-            // the comparison of each wire below checks them.
+            // Each built read lowers, and no decoy lowers. Other operations can also lower. For
+            // example, a mixed-sign multiply against a group of size 1 is itself a complete masked
+            // read. The comparison of each wire below checks them.
             var loweredWireSet = TensorChecks.LoweredWires(lowered);
             foreach (var read in readWires)
             {

@@ -8,8 +8,9 @@ namespace Sharpwired.Core.Tests;
 public partial class GatherLoweringTests
 {
     // FP32 extremes inside the declared ranges: the largest finite float, the smallest normal, a
-    // subnormal, -0, and integers at 2^24, where FP32 integers stop being exact. The gather must give
-    // each stored value bit for bit, because f(1 × value) = value for each finite value.
+    // subnormal, -0, and integers at 2^24. Above 2^24, FP32 does not hold each integer exactly.
+    // The gather must give each stored value bit for bit, because f(1 × value) = value for each
+    // finite value.
     private static readonly double[] Extremes =
     [
         3.4028234663852886e38,
@@ -48,8 +49,8 @@ public partial class GatherLoweringTests
         }
     }
 
-    // Handwired buildLibraryCircuit: slotCount items, readCount value fields for each item, a one-hot
-    // selection over the items, and one masked sum for each field, all over source cells.
+    // Handwired buildLibraryCircuit: slotCount items and readCount value fields for each item. A
+    // one-hot selection over the items, and one masked sum for each field, all over source cells.
     private static (Circuit Circuit, Wire[] Reads, Func<int, int, int> ValueCell) BuildLibraryCircuit(int slotCount, int readCount)
     {
         var circuit = new Circuit(slotCount + slotCount * readCount);
@@ -107,8 +108,9 @@ public partial class GatherLoweringTests
                 Assert.Equal(circuit.SourceSize + readCount, lowered.ValueCount);
                 Assert.Equal(circuit.SourceSize + readCount + slotCount * readCount, plain.ValueCount);
 
-                // The parts that stay proportional to N: the shared bit table (N entries) and one
-                // candidate table for each read (N entries each), as index tables, not FP32 weights.
+                // The parts that stay proportional to N are index tables, not FP32 weights. They are
+                // the shared bit table (N entries) and one candidate table for each read (N entries
+                // each).
                 Assert.True(loweredStats.GatherBytes > 0);
                 Assert.True(loweredStats.GatherBytes <= 4 * slotCount * (readCount + 1) + 16 * readCount + 4);
             }
@@ -144,10 +146,11 @@ public partial class GatherLoweringTests
     }
 
     // Replaces 'HandwiredOS' / 'window-manager declares its stacking order as 6 one-hot groups, and
-    // none of its sums lowers'. The circuit copies the form of window-manager.ts with 3 windows:
-    // pixel cells with finite ranges, the stacking order as a 3 × 3 permutation matrix that the
-    // source table declares as 6 one-hot groups (3 ranks, then 3 windows, as cells.ts permutation
-    // does), the frontmost-window selection of emitFrontmost, and the stack update. Each masked sum
+    // none of its sums lowers'. The circuit copies the form of window-manager.ts with 3 windows.
+    // It has pixel cells with finite ranges. It has the stacking order as a 3 × 3 permutation
+    // matrix. The source table declares the matrix as 6 one-hot groups: 3 ranks, then 3 windows, as
+    // cells.ts permutation does. It also has the frontmost-window selection of emitFrontmost, and
+    // the stack update. Each masked sum
     // over a group of 3 has 3 terms, and the builder copies such a sum into each operation that reads
     // it. So the sum operations are not live, and no live sum lowers.
     [Fact]
@@ -257,8 +260,8 @@ public partial class GatherLoweringTests
         Assert.Equal(TensorChecks.GatherStatistics(dense).StoredWeightCount, statistics.StoredWeightCount);
         Assert.Equal(dense.ValueCount, program.ValueCount);
         Assert.Equal(dense.Layers.Length, program.Layers.Length);
-        // Sharpwired addition: the circuit has sum operations that the gather plan recognizes, so
-        // the test fails if the builder stops copying the 3-term sums into their readers.
+        // Sharpwired addition: the circuit has sum operations that the gather plan recognizes. So
+        // the test fails if the builder no longer copies the 3-term sums into their readers.
         Assert.NotEmpty(Circuit.PlanGatherLowering(circuit));
     }
 }

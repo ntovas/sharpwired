@@ -295,7 +295,7 @@ public partial class IndexReadTests
     // 'proven bits' / 'gather lowering gives the same values as the dense compile over random circuits
     // whose selections read comparison bits and index reads of bits'.
     [Fact]
-    public void Random_circuits_whose_selections_read_comparison_bits_and_index_reads_of_bits_hold_their_groups()
+    public void Gather_lowering_gives_the_same_values_as_the_dense_compile_over_random_circuits_whose_selections_read_comparison_bits_and_index_reads_of_bits()
     {
         var random = Js.CreateRandom(0xb175);
         Relation[] relations = [Relation.Greater, Relation.GreaterOrEqual, Relation.Less, Relation.LessOrEqual, Relation.Equal];
@@ -306,8 +306,9 @@ public partial class IndexReadTests
         var sourcesChecked = 0;
         for (var circuitIndex = 0; circuitIndex < 80; circuitIndex++)
         {
-            // Integer cells within -6..6 on a grid of 1, pointer cells within ±512 on a 1/64
-            // grid, widths within 0..4,096 with no grid, fractions within 0..1, and values within ±100.
+            // Integer cells are within -6..6 on a grid of 1. Pointer cells are within ±512 on a 1/64
+            // grid. Widths are within 0..4,096 with no grid. Fractions are within 0..1, and values
+            // are within ±100.
             int[] integerCells = [0, 1, 2];
             int[] pointerCells = [3, 4];
             int[] widthCells = [5, 6];
@@ -357,8 +358,8 @@ public partial class IndexReadTests
                     // A table of bits, sometimes with a fraction, read at an integer cell with random sides.
                     var table = Enumerable.Range(0, 1 + RandomInteger(random, 5)).Select(_ => random() < 0.15 ? Pick(unitWires) : Pick(bits)).ToArray();
                     var indexCell = Pick(integerCells);
-                    // Biases within -9..9 over integer cells within -6..6, so some reads reach
-                    // their table only through a side, for example bias 9 over a table of 2 bits.
+                    // Biases within -9..9 over integer cells within -6..6. So some reads reach their
+                    // table only through a side, for example bias 9 over a table of 2 bits.
                     var bias = RandomInteger(random, 19) - 9;
                     var below = random() < 0.5 ? OutOfRange.Clamp : OutOfRange.Zero;
                     var above = random() < 0.5 ? OutOfRange.Clamp : OutOfRange.Zero;

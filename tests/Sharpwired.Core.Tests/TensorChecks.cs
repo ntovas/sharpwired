@@ -1,7 +1,7 @@
-// Handwired source: the test helpers programCounts and checkEveryCompileMode of
-// tests/runtime/index-read.test.ts and tests/runtime/spring-matrix.test.ts, checkTensorAgreement and
-// cost of tests/runtime/comparison.test.ts, gatherStatistics and loweredWires of
-// tests/runtime/gather-lowering.test.ts, and the toEqual comparison of two compiled programs.
+// Handwired source: these test helpers. programCounts and checkEveryCompileMode of
+// tests/runtime/index-read.test.ts and tests/runtime/spring-matrix.test.ts. checkTensorAgreement and
+// cost of tests/runtime/comparison.test.ts. gatherStatistics and loweredWires of
+// tests/runtime/gather-lowering.test.ts. The toEqual comparison of two compiled programs.
 
 namespace Sharpwired.Core.Tests;
 
@@ -40,8 +40,8 @@ internal static class TensorChecks
         ("every wire as a root", (circuit, _) => circuit.CompileTensorProgram()),
     ];
 
-    // Handwired checkEveryCompileMode. Compile the circuit in each mode, validate each program, and
-    // check that each program gives the reference value on each wire of wireOrder for each source.
+    // Handwired checkEveryCompileMode. Compile the circuit in each mode, and validate each program.
+    // Check that each program gives the reference value on each wire of wireOrder for each source.
     // Then check the reusable evaluators on the roots. The comparison is Object.is (Js.ObjectIs), as
     // index-read.test.ts:84 and :96 and spring-matrix.test.ts:93 and :104 compare. The helper puts
     // back the previous TensorProgram of the circuit, and returns the reference values.
@@ -88,7 +88,7 @@ internal static class TensorChecks
     }
 
     // Handwired checkTensorAgreement of comparison.test.ts. Validate the circuit. Then, with and
-    // without gather lowering, compile the roots, validate the program, and check that the tensor
+    // without gather lowering, compile the roots and validate the program. Check that the tensor
     // evaluator gives the reference value on each wire of wireOrder. The comparison is Object.is
     // (Js.ObjectIs), as comparison.test.ts:249 compares. At the end, TensorProgram is null.
     public static void TensorAgreement(Circuit circuit, IReadOnlyList<Wire> roots, IEnumerable<float[]> sources)

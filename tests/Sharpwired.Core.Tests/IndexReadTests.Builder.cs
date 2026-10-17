@@ -91,7 +91,8 @@ public partial class IndexReadTests
         // An index cell with no declared range, and one declared past -2^24.
         Js.Throws(() => circuit.IndexRead(circuit.Source(0), [circuit.Source(3)]), "index range");
         Js.Throws(() => circuit.IndexRead(circuit.Source(2), [circuit.Source(3)]), "index range");
-        // Both endpoints must lie strictly inside ±2^24: 0..2^24 - 1 builds, and adding 1 reaches 2^24.
+        // Both endpoints must lie strictly inside ±2^24: 0..2^24 - 1 builds. A bias of 1 moves the
+        // upper endpoint to 2^24, and the read throws.
         Assert.Equal(Wire.FromPosition(4), circuit.IndexRead(circuit.Source(1), [circuit.Source(3)]));
         Js.Throws(
             () => circuit.IndexReadAffine([(circuit.Source(1), 1)], 1, [circuit.Source(3)], OutOfRange.Clamp, OutOfRange.Clamp),
@@ -228,7 +229,7 @@ public partial class IndexReadTests
     }
 
     // Sharpwired addition, from indexReadAffine: the read is one deeper than its deepest candidate
-    // and its deepest index operand, and it has no grid and no constant.
+    // and its deepest index operand. The read has no grid and no constant.
     [Fact]
     public void An_index_read_is_one_deeper_than_its_deepest_candidate_and_index_operand()
     {

@@ -24,9 +24,10 @@ public class InlineTests
         var program = parent.CompileTensorProgram([output]);
         parent.TensorProgram = program;
         Js.Is(10, parent.EvaluateTensor([2, 3])[output.Position]);
+        Js.Is(10, parent.EvaluateReference([2, 3])[output.Position]);
     }
 
-    // Sharpwired addition: the mapping covers the source cells and then each operation, and it must
+    // Sharpwired addition: the mapping covers the source cells and then each operation. It must
     // have one wire for each source cell of the inlined circuit.
     [Fact]
     public void The_wire_map_starts_with_the_source_wires_and_the_mapping_must_cover_every_source_cell()
@@ -83,7 +84,7 @@ public class InlineTests
         Assert.Equal(1, parent.Grids[0]);
     }
 
-    // Sharpwired addition: multiply and select records rebuild through Multiply and Select, so the
+    // Sharpwired addition: multiply and select records rebuild through Multiply and Select. So the
     // parent keeps the records, and the inner operations share the wires of the rebuilt macros.
     [Fact]
     public void Multiply_and_select_records_rebuild_as_macros()
@@ -161,7 +162,7 @@ public class InlineTests
     }
 
     // Sharpwired addition: a marked affine can fold into a source cell of the parent, for example
-    // when its terms map to one wire, and a source cell has no operation to record.
+    // when its terms map to one wire. A source cell has no operation to record.
     [Fact]
     public void A_marked_affine_that_folds_into_a_source_cell_keeps_no_record()
     {

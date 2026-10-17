@@ -115,9 +115,10 @@ public class TensorCompilerTests
         }
     }
 
-    // Sharpwired addition, from compileTensorProgram: the projection rows of a layer are the outputs in
-    // operation order, then one gate row for each ReGLU, then one index row for each index read. An
-    // index read output row stores no weights and the bias 0. The columns follow the packed positions.
+    // Sharpwired addition, from compileTensorProgram. The projection rows of a layer are first the
+    // outputs in operation order. Then come one gate row for each ReGLU and one index row for each
+    // index read. An index read output row stores no weights and the bias 0. The columns follow the
+    // packed positions.
     [Fact]
     public void A_layer_stores_the_outputs_then_the_gate_rows_then_the_index_rows()
     {
@@ -161,8 +162,8 @@ public class TensorCompilerTests
         Assert.Empty(second.CandidatePositions);
     }
 
-    // Sharpwired addition, from packCandidateTable: evenly spaced candidates store a base and a stride
-    // (also a negative stride, and the stride 0 of one repeated wire or of one candidate), and other
+    // Sharpwired addition, from packCandidateTable: evenly spaced candidates store a base and a
+    // stride. The stride can be negative, or 0 for one repeated wire or for one candidate. Other
     // tables store one position for each candidate. Reads of one table share one positions array.
     [Fact]
     public void Candidate_tables_store_a_base_and_a_stride_or_positions_shared_by_every_read()

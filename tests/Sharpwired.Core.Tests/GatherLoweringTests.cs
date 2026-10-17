@@ -106,7 +106,7 @@ public partial class GatherLoweringTests
     public void Signed_values_lower_through_the_mixed_sign_product_pair()
     {
         // The group is declared after the products, so the ranges of the bits are unknown when
-        // Multiply runs, and Multiply builds its mixed-sign form: two ReGLU arms and their difference.
+        // Multiply runs. So Multiply builds its mixed-sign form: two ReGLU arms and their difference.
         const int SlotCount = 6;
         var circuit = new Circuit(SlotCount * 2);
         var bits = Enumerable.Range(0, SlotCount).Select(circuit.Source).ToArray();
@@ -384,7 +384,7 @@ public partial class GatherLoweringTests
         // A 0..1 range admits fractional values, so this selection is not a proven one-hot and stays undeclared.
         circuit.FirstActive(gate, scores);
         Assert.Single(circuit.OneHotGroups);
-        // Boolean atoms give exact bits, and the range of the unit wire pins it to 1, so this
+        // Boolean atoms give exact bits, and the range of the unit wire keeps it at 1. So this
         // selection is a proven one-hot or all zeros, and FirstActive declares it.
         var bits = scores.Select(circuit.Boolean).ToArray();
         var selected = circuit.FirstActive(unit, bits);
@@ -399,7 +399,7 @@ public partial class GatherLoweringTests
     public void Fractional_first_active_selections_never_lower_a_masked_sum()
     {
         // The preconditions of FirstActive only bound its inputs to 0..1, and fractional scores are
-        // legal: candidates [0.5, 0] route the mass 0.25 to each output, so the selection is not a
+        // legal. Candidates [0.5, 0] send the mass 0.25 to each output, so the selection is not a
         // one-hot. In Handwired, a declaration without a condition once lowered this read to a gather
         // that returned 50, while the reference evaluator computes 75.
         var circuit = new Circuit(5);
@@ -442,9 +442,9 @@ public partial class GatherLoweringTests
     [Fact]
     public void Candidates_with_unbounded_declared_ranges_are_refused_in_every_orientation()
     {
-        // A range that admits Infinity breaks the exactness argument: with an infinite value and its
-        // bit at 0, the reference computes f(Infinity × 0) = NaN, and the whole sum is NaN, while a
-        // gather skips that product and returns the selected value.
+        // A range that admits Infinity breaks the exactness argument. Take an infinite value with its
+        // bit at 0. The reference computes f(Infinity × 0) = NaN, and the whole sum is NaN. A gather
+        // skips that product and returns the selected value.
         const double Infinity = double.PositiveInfinity;
         (Circuit Circuit, Wire Read) BuildRead(bool declareBitsFirst, double minimum, double maximum)
         {
@@ -525,8 +525,8 @@ public partial class GatherLoweringTests
     {
         // The agreement standard of the lowering is ===, which ValidateTensorEvaluation also uses,
         // and === treats +0 and -0 as equal. The reference adds the signed zeros of each product in
-        // wire order, while the gather adds only the selected contribution, so an exactly zero
-        // result can be +0 on one side and -0 on the other.
+        // wire order. The gather adds only the selected contribution. So an exactly zero result can
+        // be +0 on one side and -0 on the other.
         (Circuit Circuit, Wire Read) BuildRead(bool allowAllZero)
         {
             var circuit = new Circuit(4);

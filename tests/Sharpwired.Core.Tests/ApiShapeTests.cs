@@ -1,5 +1,5 @@
-// Handwired source: no Handwired case. These tests check the C# shape of the public types: the
-// rules that TypeScript types give Handwired, for example that a number is not a Wire.
+// Handwired source: no Handwired case. These tests check the C# shape of the public types. They
+// check the rules that TypeScript types give Handwired, for example that a number is not a Wire.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -21,7 +21,7 @@ public class ApiShapeTests
         Assert.Empty(typeof(Wire).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
     }
 
-    // Only Sharpwired.Core can derive from MacroRecord, so the switch over the macro records in
+    // Only Sharpwired.Core can derive from MacroRecord. So the switch over the macro records in
     // DescribeFirstNaN and the backward pass covers every record that a caller can make.
     [Fact]
     public void MacroRecord_has_no_public_or_protected_constructor()
@@ -55,7 +55,7 @@ public class ApiShapeTests
         Assert.Equal(2, circuit.Operations.Count);
     }
 
-    // A caller cannot change a compiled program through a property of a program type: each list is
+    // A caller cannot change a compiled program through a property of a program type. Each list is
     // an ImmutableArray<T> or an UnsignedIndices, and no program type has a public field.
     [Fact]
     public void The_program_types_expose_no_writable_array()

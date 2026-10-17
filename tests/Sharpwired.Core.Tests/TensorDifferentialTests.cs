@@ -1,8 +1,8 @@
 // Handwired source: no single Handwired test. Spec item R2.4: seeded random programs give equal
 // values in the reference evaluator and in the tensor evaluator. The compile modes are the 5 modes of
 // checkEveryCompileMode in tests/runtime/index-read.test.ts. The comparison follows Decision 1 of the
-// phase 2 plan: Object.is in the modes without gather lowering, and sameNumericValue of
-// tests/runtime/gather-lowering.test.ts in the modes with gather lowering, because a gather can change
+// phase 2 plan. The modes without gather lowering use Object.is. The modes with gather lowering use
+// sameNumericValue of tests/runtime/gather-lowering.test.ts. The reason is that a gather can change
 // the sign of an exactly zero result (docs/execution-model.md, "One-hot groups and gathers").
 
 using Xunit.Abstractions;
@@ -79,8 +79,8 @@ public class TensorDifferentialTests(ITestOutputHelper output)
 
     private static int RandomInteger(Func<double> random, int limit) => (int)Math.Floor(random() * limit);
 
-    // R2.4. 600 seeded circuits of 4 to 12 source cells and 20 to 60 builder calls, 4 source tables
-    // for each circuit, and 1 to 5 roots. Each compile mode must give the reference value on each
+    // R2.4. 600 seeded circuits of 4 to 12 source cells and 20 to 60 builder calls. Each circuit has
+    // 4 source tables and 1 to 5 roots. Each compile mode must give the reference value on each
     // wire of wireOrder, and both reusable evaluators must give the reference value on each root.
     // ValidateTensorEvaluation also runs on each evaluation with no NaN reference value.
     [Fact]
@@ -190,11 +190,16 @@ public class TensorDifferentialTests(ITestOutputHelper output)
         output.WriteLine($"[differential] rounding points: {pointCounts}");
         output.WriteLine($"[differential] builder calls: {callCounts}");
 
-        // The coverage floors are half of the counts of the first run: comparedWires 1,213,156,
-        // gatherReads 2,724, indexReads 2,481, nanWires 574, negativeZeroWires 24,363,
-        // tensorEvaluationChecks 11,883, operations Affine 66,034, Reglu 72,801, Boolean 8,333 and
-        // Index 1,617, rounding points IntegerBit 1,445 and SignCascade 52,042. Each builder call
-        // ran at least 1,188 times.
+        // The coverage floors are half of the counts of the first run. The counts are comparedWires
+        // 1,213,156, gatherReads 2,724, indexReads 2,481, nanWires 574, negativeZeroWires 24,363 and
+        // tensorEvaluationChecks 11,883. The operation counts are Affine 66,034, Reglu 72,801,
+        // Boolean 8,333 and Index 1,617. The rounding point counts are IntegerBit 1,445 and
+        // SignCascade 52,042. Each other builder call ran at least 1,188 times. GroupMaskedSum counts
+        // only the calls that build an operation: 795.
+        // gatherSignDifferences counts the wires where a gather gives the other sign of zero. The
+        // measured count is 0. A gather can change the sign only of a zero result, through the zero
+        // terms that the dense sum adds and the gather skips. These random circuits made no such
+        // result, so no floor applies.
         Assert.True(comparedWires >= 606_578, $"comparedWires {comparedWires}");
         Assert.True(gatherReads >= 1_362, $"gatherReads {gatherReads}");
         Assert.True(indexReads >= 1_240, $"indexReads {indexReads}");
@@ -207,10 +212,11 @@ public class TensorDifferentialTests(ITestOutputHelper output)
         Assert.True(operationKinds[(int)OperationKind.Index] >= 808, $"Index {operationKinds[(int)OperationKind.Index]}");
         Assert.True(roundingPointKinds[(int)RoundingPointKind.IntegerBit] >= 722, $"IntegerBit {roundingPointKinds[(int)RoundingPointKind.IntegerBit]}");
         Assert.True(roundingPointKinds[(int)RoundingPointKind.SignCascade] >= 26_021, $"SignCascade {roundingPointKinds[(int)RoundingPointKind.SignCascade]}");
-        foreach (var call in Enum.GetValues<BuilderCall>())
+        foreach (var call in Enum.GetValues<BuilderCall>().Where(call => call != BuilderCall.GroupMaskedSum))
         {
             Assert.True(builderCalls[(int)call] >= 594, $"builder call {call}: {builderCalls[(int)call]}");
         }
+        Assert.True(builderCalls[(int)BuilderCall.GroupMaskedSum] >= 397, $"builder call GroupMaskedSum: {builderCalls[(int)BuilderCall.GroupMaskedSum]}");
     }
 
     // Build one random circuit. The result holds the circuit, the source cells, the source groups,
@@ -300,7 +306,8 @@ public class TensorDifferentialTests(ITestOutputHelper output)
         for (var call = 0; call < callCount; call++)
         {
             var kind = (BuilderCall)RandomInteger(random, builderCalls.Length);
-            builderCalls[(int)kind]++;
+            // GroupMaskedSum counts itself below, only when it builds an operation.
+            if (kind != BuilderCall.GroupMaskedSum) builderCalls[(int)kind]++;
             switch (kind)
             {
                 case BuilderCall.Affine:
@@ -402,7 +409,9 @@ public class TensorDifferentialTests(ITestOutputHelper output)
                         var group = Pick(groups);
                         var members = GroupMembers(circuit, group);
                         var candidates = members.Select(_ => random() < 0.5 ? Pick(wires) : Pick(Where(IsNonNegative))).ToArray();
+                        var width = circuit.Width;
                         wires.Add(MaskedSum(circuit, random, members, candidates));
+                        if (circuit.Width > width) builderCalls[(int)kind]++;
                         break;
                     }
                 case BuilderCall.InlineCircuit:
@@ -431,9 +440,9 @@ public class TensorDifferentialTests(ITestOutputHelper output)
     private static Wire[] GroupMembers(Circuit circuit, SourceGroup group) =>
         [.. Enumerable.Range(group.Start, group.Size).Select(circuit.Source)];
 
-    // A sum of bit × value products with a random bias. Each product has a random orientation: the
-    // two operand orders of Multiply, a ReGLU with the bit in the gate, and a ReGLU with the bit in
-    // the left form. The last orientation is a masked read only for a nonnegative value.
+    // A sum of bit × value products with a random bias. Each product has a random orientation of
+    // four. Two orientations are the two operand orders of Multiply. The other two are a ReGLU with
+    // the bit in the gate, and a ReGLU with the bit in the left form. The last orientation is a masked read only for a nonnegative value.
     private static Wire MaskedSum(Circuit circuit, Func<double> random, IReadOnlyList<Wire> bits, IReadOnlyList<Wire> values)
     {
         var terms = new Term[bits.Count];
@@ -474,8 +483,8 @@ public class TensorDifferentialTests(ITestOutputHelper output)
         return child;
     }
 
-    // One source table. Each cell gets a value in its declared range: a random value, an end of the
-    // range, ±0, the smallest subnormal or the largest FP32 value in the range. A cell with no bound
+    // One source table. Each cell gets a value in its declared range. The value is a random value, an
+    // end of the range, ±0, the smallest subnormal, or the largest FP32 value in the range. A cell with no bound
     // can also get ±Infinity. Each group gets a valid one-hot, or all zeros where the group allows it.
     private static float[] CreateSource(Func<double> random, Cell[] cells, List<SourceGroup> groups)
     {

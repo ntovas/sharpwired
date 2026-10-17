@@ -4,7 +4,8 @@
 // Handwired tests evaluate with the tensor evaluator and the program that Handwired compiles. The
 // one-hot checks use Js.AllIs, because Handwired compares with assert.deepEqual of node:assert/strict
 // or with toEqual, and both compare each number with Object.is. The layer bounds read the layers
-// of the compiled program, as Handwired reads tensorProgram.layers.length.
+// of the compiled program, as Handwired reads tensorProgram.layers.length. The reference checks of
+// phase 1 stay next to the tensor checks.
 
 namespace Sharpwired.Core.Tests;
 
@@ -70,6 +71,7 @@ public class SelectionTests
             foreach (var hit in hits) source[hit + 1] = 1;
             var values = circuit.EvaluateTensor(source);
             Js.AllIs(OneHot(CandidateCount, winner), ValuesAt(values, selected));
+            Js.AllIs(OneHot(CandidateCount, winner), ValuesAt(circuit.EvaluateReference(source), selected));
         }
         Assert.True(program.Layers.Length <= 5 * (int)Math.Ceiling(Math.Log2(CandidateCount)) + 1);
     }
@@ -90,9 +92,13 @@ public class SelectionTests
         ];
         foreach (var (scores, winnerIndex) in cases)
         {
-            var values = circuit.EvaluateTensor([.. scores.Select(score => (float)score), 1]);
+            float[] source = [.. scores.Select(score => (float)score), 1];
+            var values = circuit.EvaluateTensor(source);
             Js.AllIs(OneHot(CandidateCount, winnerIndex), ValuesAt(values, winner.Selected));
             Assert.True(Math.Abs(values[winner.Score.Position] - Js.F(scores[winnerIndex])) < 1e-6);
+            var reference = circuit.EvaluateReference(source);
+            Js.AllIs(OneHot(CandidateCount, winnerIndex), ValuesAt(reference, winner.Selected));
+            Assert.True(Math.Abs(reference[winner.Score.Position] - Js.F(scores[winnerIndex])) < 1e-6);
         }
         Assert.True(program.Layers.Length <= 6 * (int)Math.Ceiling(Math.Log2(CandidateCount)));
     }
@@ -102,7 +108,8 @@ public class SelectionTests
     public void Argmax_breaks_exact_ties_toward_the_lower_indexed_candidate()
     {
         // patterns.md, "findIndex when passing items can be anywhere": equal scores resolve to the
-        // left (lower) candidate, like a loop that replaces the best only on a strictly larger score.
+        // left (lower) candidate. A loop that replaces the best only on a strictly larger score does
+        // the same.
         // The 0.5 ± 2^-24 comparison constants give this. A plain 0.5 comparison sends some ties, for
         // example 0.3 against 0.3, to the right.
         var (circuit, winner) = BuildArgmaxCircuit(4);
@@ -111,6 +118,7 @@ public class SelectionTests
         {
             var values = circuit.EvaluateTensor([tie, tie, tie, tie, 1]);
             Js.AllIs([1.0, 0, 0, 0], ValuesAt(values, winner.Selected));
+            Js.AllIs([1.0, 0, 0, 0], ValuesAt(circuit.EvaluateReference([tie, tie, tie, tie, 1]), winner.Selected));
         }
     }
 
@@ -221,7 +229,7 @@ public class SelectionTests
         }
     }
 
-    // execution-model.md#macro-contracts, emitArgmax: the band is not transitive, so the tree picks
+    // execution-model.md#macro-contracts, emitArgmax: the band is not transitive. So the tree picks
     // index 1 of [0, 0.5, 0.5 + 2^-24, 0.5 + 2^-23], where a loop picks index 3. Argmax always
     // declares its selection as a one-hot group.
     [Fact]
@@ -312,7 +320,7 @@ public class SelectionTests
     // random-hardened.test.ts 'hardened random verification' / 'non-dyadic macro circuits preserve every
     // live FP32 wire'. Handwired calls validateTensorEvaluation, which compares each wire of wireOrder
     // with ===. This port also compares the tensor value with the reference value on each wire of
-    // wireOrder with Js.ObjectIs, so that the sign of zero must also agree.
+    // wireOrder with Js.ObjectIs. So the sign of zero must also agree.
     [Fact]
     public void Non_dyadic_macro_circuits_preserve_every_live_FP32_wire()
     {

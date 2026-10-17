@@ -1,15 +1,15 @@
 // Handwired source: src/runtime/numeric-ui-core.ts validateTensorProgram and validateTensorEvaluation.
 // Handwired has no test for most of their messages. Each ValidateTensorProgram test here changes one
-// field of a compiled program with a with expression, and checks that ValidateTensorProgram refuses
-// the copy with the Handwired message. index-read.test.ts 'validators reject malformed index read
-// programs and circuits' is in IndexReadTests.
+// field of a compiled program with a with expression. Then it checks that ValidateTensorProgram
+// refuses the copy with the Handwired message. IndexReadTests holds index-read.test.ts 'validators
+// reject malformed index read programs and circuits'.
 
 namespace Sharpwired.Core.Tests;
 
 public class TensorValidationTests
 {
-    // Two layers. Layer 0: an affine (row 0), a ReGLU (row 1, gate row 4), an index read (row 2,
-    // index row 5) and a boolean atom (row 3), over the inputs 0..3. Layer 1: a ReGLU that reads the
+    // Two layers. Layer 0 reads the inputs 0..3. Its rows are an affine (row 0) and a ReGLU (row 1,
+    // gate row 4). Then an index read (row 2, index row 5) and a boolean atom (row 3). Layer 1: a ReGLU that reads the
     // packed values 4, 5 and 6.
     private static (Circuit Circuit, TensorProgram Program) Build()
     {
@@ -298,9 +298,9 @@ public class TensorValidationTests
         return circuit;
     }
 
-    // A program with gathers. Layer 0: the sum p and the input of the boolean atom. Layer 1, in operation order: the gather reads read
-    // and second (one group, so one slot), the ReGLU gated, the boolean atom decision and the affine
-    // plain, which stores a weight.
+    // A program with gathers. Layer 0: the sum p and the input of the boolean atom. Layer 1, in
+    // operation order: the gather reads read and second (one group, so one slot), and the ReGLU
+    // gated. Then the boolean atom decision, and the affine plain, which stores a weight.
     private static (Circuit Circuit, TensorProgram Program, int[] Rows) BuildGathers()
     {
         var circuit = new Circuit(4);

@@ -135,7 +135,7 @@ public class ComparisonTests
     }
 
     // The operations among operationIndices whose FP32 result differs from the exact result of their
-    // arithmetic on the same FP32 inputs. For a ReGLU product only the result counts, for example a
+    // arithmetic on the same FP32 inputs. For a ReGLU product only the result counts. For example, a
     // gate sum of -1 + 2^-100 rounds to -1, but the ReLU returns 0 for both.
     private static int CountRoundedOperations(Circuit circuit, float[] values, IReadOnlyList<int> operationIndices)
     {
@@ -249,10 +249,11 @@ public class ComparisonTests
             foreach (var endWithBoolean in new[] { false, true })
             {
                 var (circuit, bits) = BuildPairCircuit(minimum, maximum, endWithBoolean: endWithBoolean);
-                // Every operation that Compare built, except two kinds that can round by design: the
-                // kept difference, which reads the two operand cells, for example f(16384 - 2^-20) is
-                // 16384 but keeps the sign, and the score that a final boolean atom reads, which only
-                // has to be on the correct side of 0.5. So the check covers the affine
+                // Every operation that Compare built, except two kinds that can round by design. The
+                // first kind is the kept difference, which reads the two operand cells. For example,
+                // f(16384 - 2^-20) is 16384 but keeps the sign. The second kind is the score that a
+                // final boolean atom reads. That score only has to be on the correct side of 0.5.
+                // So the check covers the affine
                 // x - relu(x - limit) of each clamp stage, which the cascade needs to be exact.
                 var atomOperands = circuit.Operations
                     .Where(operation => operation.Kind == OperationKind.Boolean)
@@ -350,7 +351,7 @@ public class ComparisonTests
         var unrangedCircuit = new Circuit(2);
         unrangedCircuit.AssumeRange(unrangedCircuit.Source(0), 0, 1);
         Js.Throws(() => unrangedCircuit.Compare(unrangedCircuit.Source(0), Relation.GreaterOrEqual, unrangedCircuit.Source(1)), "finite declared ranges");
-        // A wire compared with itself folds to a constant only with a finite declared range: a product
+        // A wire compared with itself folds to a constant only with a finite declared range. A product
         // of undeclared cells can be NaN, for example Infinity × 0, and NaN >= NaN is false.
         var productCircuit = new Circuit(2);
         var product = productCircuit.Multiply(productCircuit.Source(0), productCircuit.Source(1));
