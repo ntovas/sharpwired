@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/Toggle.Builder/Toggle.Builder.csproj" />
     <Project Path="samples/Toggle.CSharp/Toggle.CSharp.csproj" />
+    <Project Path="samples/Toggle.FSharp/Toggle.FSharp.fsproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Sharpwired.Annotations/Sharpwired.Annotations.csproj" />
@@ -21,5 +22,6 @@
     <Project Path="tests/Sharpwired.Timing.Tests/Sharpwired.Timing.Tests.csproj" />
     <Project Path="tests/Toggle.Builder.Tests/Toggle.Builder.Tests.csproj" />
     <Project Path="tests/Toggle.CSharp.Tests/Toggle.CSharp.Tests.csproj" />
+    <Project Path="tests/Toggle.FSharp.Tests/Toggle.FSharp.Tests.csproj" />
   </Folder>
 </Solution>

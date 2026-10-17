@@ -122,15 +122,20 @@ internal sealed partial class OperationLowering
         return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
     }
 
-    // One block: the gates of its phis that an operation reads (not the phis of a loop header, which
-    // hold the loop state), its operations in IL order, and the literals of its branch. After each
-    // step, a value past the FP32 range is refused (LoopForms.cs).
+    // One block: the gates of its phis that an operation reads or that have two or more readers (not
+    // the phis of a loop header, which hold the loop state), its operations in IL order, and the
+    // literals of its branch. After each step, a value past the FP32 range is refused (LoopForms.cs).
+    // A phi with one reader that is a branch or a phi does not emit here: it is a partial result of
+    // an && or || chain (F# Debug IL), and its reader merges it into one AND or OR (gate rule 4). A
+    // phi with two readers emits here also when only branches and phis read it, as an affine form
+    // with two uses emits at its definition. So the F# IL, where branches read a bool local, gives
+    // the same operation order as the C# IL, where the IL "and" reads it.
     private void LowerBlock(SsaBlock block)
     {
         currentBlock = block.Block.Index;
         if (ssa.Graph.LoopAt(currentBlock) is null)
         {
-            foreach (var phi in block.Phis.Where(phi => operationUses.GetValueOrDefault(phi) > 0))
+            foreach (var phi in block.Phis.Where(phi => operationUses.GetValueOrDefault(phi) > 0 || uses.GetValueOrDefault(phi) >= 2))
             {
                 EmitResults(gates.PhiValue(phi), phi.IlOffset);
                 CheckRanges(phi.IlOffset);

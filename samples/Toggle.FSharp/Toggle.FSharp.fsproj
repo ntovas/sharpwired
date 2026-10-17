@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The toggle switch as a plain F# function. The project references only Sharpwired.Annotations,
+       so the plain function runs without the IL translator. -->
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Toggle.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -182,4 +182,33 @@ public class FSharpInputTests
         expected.AssertSameOperations(translated);
         AssertMatchesPlain(translated, 911, ZeroSign.Exact);
     }
+
+    // A gate with two readers emits at its merge block, also when no IL operation reads it (only
+    // branches and phis). So its Select comes before the operations of the next statement, as in
+    // the C# IL, where the IL and reads the gate.
+    [Fact]
+    public void A_gate_with_two_readers_emits_at_its_merge_block_when_only_branches_read_it()
+    {
+        var expected = new ExpectedProgram(Cell.InputBit(), Cell.InputBit(), Cell.InputBit(), Cell.InputBit(), Hundred, Hundred, Hundred);
+        var (c, a, b, d) = (expected.Cells[0], expected.Cells[1], expected.Cells[2], expected.Cells[3]);
+        var (x, y, z) = (expected.Cells[4], expected.Cells[5], expected.Cells[6]);
+        var circuit = expected.Circuit;
+        Wire InsideBox(Wire first, Wire second)
+        {
+            var c1 = circuit.Compare(first, Relation.GreaterOrEqual, circuit.Constant(0));
+            var c2 = circuit.Compare(first, Relation.Less, circuit.Constant(10));
+            var c3 = circuit.Compare(second, Relation.GreaterOrEqual, circuit.Constant(0));
+            var c4 = circuit.Compare(second, Relation.Less, circuit.Constant(10));
+            return circuit.Reglu([], 1, [(c1, 1), (c2, 1), (c3, 1), (c4, 1)], -3);
+        }
+
+        var g = circuit.Select(c, a, InsideBox(x, y));
+        var inside = InsideBox(z, y);
+        circuit.Reglu([], 1, [(b, 1), (g, 1), (inside, 1)], -2);
+        var notD = circuit.Affine([(d, -1)], 1);
+        circuit.Reglu([], 1, [(g, 1), (notD, 1)], -1);
+        var translated = Translate("sharedGate");
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlain(translated, 913, ZeroSign.Exact);
+    }
 }

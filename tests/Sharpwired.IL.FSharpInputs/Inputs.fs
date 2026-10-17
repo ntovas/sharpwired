@@ -93,6 +93,16 @@ module Translation =
     let armedInside (armed: bool) ([<Range(-100.0, 100.0)>] x: float32) ([<Range(-100.0, 100.0)>] y: float32) =
         armed && insideBox x y
 
+    // No IL operation reads the gate g. Two branches read it in Release. In Debug, a phi of the first
+    // && chain and a branch read it. The F# toggle has the same shape (armedAfterDown).
+    [<Handwired>]
+    let sharedGate (c: bool) (a: bool) (b: bool) (d: bool) ([<Range(-100.0, 100.0)>] x: float32) ([<Range(-100.0, 100.0)>] y: float32)
+        ([<Range(-100.0, 100.0)>] z: float32) =
+        let g = if c then insideBox x y else a
+        let first = b && g && insideBox z y
+        let second = g && not d
+        struct (first, second)
+
     // The refusals.
 
     [<MethodImpl(MethodImplOptions.NoInlining)>]

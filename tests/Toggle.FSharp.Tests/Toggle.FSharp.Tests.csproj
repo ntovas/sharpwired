@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- The same JIT settings as Sharpwired.Core.Tests, so that the FP32 behavior of the tests is the
+         same. The plain toggle is in Toggle.FSharp, which compiles in the configuration of the test
+         run, so "dotnet test" translates the Debug IL and "dotnet test -c Release" the Release IL. -->
+    <Optimize>true</Optimize>
+    <TieredCompilation>false</TieredCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Sharpwired.Core.Tests\Js.cs" Link="Js.cs" />
+    <Compile Include="..\Sharpwired.Core.Tests\TensorChecks.cs" Link="TensorChecks.cs" />
+    <Compile Include="..\Toggle.Builder.Tests\ToggleTrace.cs" Link="ToggleTrace.cs" />
+    <Compile Include="..\Toggle.Builder.Tests\ToggleReference.cs" Link="ToggleReference.cs" />
+    <Compile Include="..\Toggle.CSharp.Tests\TranslatedToggleChecks.cs" Link="TranslatedToggleChecks.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Toggle.CSharp gives the C# toggle for the comparison of the two translated operation lists, and
+         CSharpToggle.Build, which maps the cell paths and output paths of a translated step to a
+         BuiltToggle. The two plain toggles have the same paths. -->
+    <ProjectReference Include="..\..\samples\Toggle.FSharp\Toggle.FSharp.fsproj" />
+    <ProjectReference Include="..\..\samples\Toggle.CSharp\Toggle.CSharp.csproj" />
+    <ProjectReference Include="..\..\samples\Toggle.Builder\Toggle.Builder.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.IL\Sharpwired.IL.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Core\Sharpwired.Core.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Cells\Sharpwired.Cells.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Timing\Sharpwired.Timing.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Raylib\Sharpwired.Raylib.csproj" />
+  </ItemGroup>
+
+</Project>

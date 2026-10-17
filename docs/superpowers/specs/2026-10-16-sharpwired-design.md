@@ -44,11 +44,11 @@ This checklist is the definition of done. Each phase owns the items under it.
 
 ### Phase 4: the IL translator
 
-- [ ] R4.1 `[Handwired]` methods in C# and in F# translate to a `Circuit`.
-- [ ] R4.2 Types: `float`, `int`, `bool`, structs and records of these, fixed-length arrays. Attributes: `[Range]`, `[Grid]`, `[Event]`, `[State]`, `[OneHot]`, `[MaxIterations]`.
-- [ ] R4.3 Steps: IL decode, control-flow graph, SSA (static single assignment) form, inlining, loop lowering in three forms, branch to select conversion, operation lowering, `Hw` intrinsics.
-- [ ] R4.4 A refused construct gives an error with the source file and line from the PDB (program database).
-- [ ] R4.5 The toggle as a plain C# method and as a plain F# function. The translated programs equal the plain methods over the scripted trace.
+- [x] R4.1 `[Handwired]` methods in C# and in F# translate to a `Circuit`.
+- [x] R4.2 Types: `float`, `int`, `bool`, structs and records of these, fixed-length arrays. Attributes: `[Range]`, `[Grid]`, `[Event]`, `[State]`, `[OneHot]`, `[MaxIterations]`.
+- [x] R4.3 Steps: IL decode, control-flow graph, SSA (static single assignment) form, inlining, loop lowering in three forms, branch to select conversion, operation lowering, `Hw` intrinsics.
+- [x] R4.4 A refused construct gives an error with the source file and line from the PDB (program database).
+- [x] R4.5 The toggle as a plain C# method and as a plain F# function. The translated programs equal the plain methods over the scripted trace.
 
 ### Phase 5: the WebGPU backend
 
