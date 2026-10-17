@@ -2,9 +2,11 @@
 // Each test name holds the Handwired test name. Each test evaluates with createTensorEvaluator
 // where Handwired does, and calls TensorChecks.EveryCompileMode with CompileModes.SpringMatrix
 // where Handwired calls checkEveryCompileMode. The inlining test and the backward pass test use
-// the reference evaluator, as Handwired does. PHASE3-TIMING-ASSERTIONS.md lists the host timing
-// and advanceFrame tests. The costs read TensorChecks.ProgramCounts of the compiled program, as
-// Handwired programCounts does.
+// the reference evaluator, as Handwired does. The costs read TensorChecks.ProgramCounts of the
+// compiled program, as Handwired programCounts does. The 'host timing' tests, with the float64
+// spring matrix test, are in tests/Sharpwired.Timing.Tests/HostTimingTests.cs.
+
+using Sharpwired.Timing;
 
 namespace Sharpwired.Core.Tests;
 
@@ -558,42 +560,5 @@ public class SpringMatrixTests
         circuit.AssumeRange(settleCheck, 0, 1);
         Js.Throws(() => circuit.AnimatedObject([], new AnimatedObjectOptions(settleCheck)), "at least one spring");
         Js.Throws(() => circuit.AnimatedObject([spring], new AnimatedObjectOptions(settleCheck) { Snap = cells[6] }), "within 0..1");
-    }
-
-    // 'host timing' / 'spring matrices: powers by squaring equal repeated Euler steps, and the
-    // declared bound covers every FP32 entry the host writes' (the matrix part).
-    // PHASE3-TIMING-ASSERTIONS.md lists the validateSpringClockConfig part.
-    [Fact]
-    public void Spring_matrices_powers_by_squaring_equal_repeated_Euler_steps_and_the_declared_bound_covers_every_FP32_entry()
-    {
-        foreach (var constants in Constants)
-        {
-            var step = SpringMatrix.SpringStepMatrix(constants);
-            var euler = EulerSteps(constants, 3, -7, 1);
-            Assert.True(Math.Abs(step[0] * 3 + step[1] * -7 - euler.Displacement) < 1e-12);
-            Assert.True(Math.Abs(step[2] * 3 + step[3] * -7 - euler.Velocity) < 1e-12);
-            var bound = SpringMatrix.SpringMatrixBound(constants);
-            var repeated = SpringMatrix.Identity;
-            var largest = 1.0;
-            for (var steps = 0; steps <= 300; steps++)
-            {
-                if (steps > 0) repeated = SpringMatrix.MultiplySpringMatrices(repeated, step);
-                var power = SpringMatrix.SpringMatrixPower(step, steps);
-                for (var index = 0; index < 4; index++)
-                {
-                    var entry = power[index];
-                    Assert.True(Math.Abs(entry - repeated[index]) < 1e-12);
-                    Assert.True(Math.Abs(F(entry)) <= bound);
-                    largest = Math.Max(largest, Math.Abs(entry));
-                }
-            }
-            Assert.True(bound < largest * (1 + 1e-5));
-        }
-        // toBeCloseTo(10.36, 2): |expected - received| < 10^-2 / 2.
-        Assert.True(Math.Abs(SpringMatrix.SpringMatrixBound(new SpringConstants(650, 45)) - 10.36) < 0.005);
-        Js.Throws(() => SpringMatrix.SpringMatrixBound(new SpringConstants(1e7, 0)), "overflows");
-        Js.Throws(() => SpringMatrix.SpringStepMatrix(new SpringConstants(-1, 0)), "nonnegative");
-        // Handwired passes the count 1.5. A C# count is an int, so this port passes -1.
-        Js.Throws(() => SpringMatrix.SpringMatrixPower(SpringMatrix.Identity, -1), "nonnegative integer");
     }
 }

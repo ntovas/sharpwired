@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sharpwired.Core/Sharpwired.Core.csproj" />
+    <Project Path="src/Sharpwired.Timing/Sharpwired.Timing.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharpwired.Core.Tests/Sharpwired.Core.Tests.csproj" />
+    <Project Path="tests/Sharpwired.Timing.Tests/Sharpwired.Timing.Tests.csproj" />
   </Folder>
 </Solution>

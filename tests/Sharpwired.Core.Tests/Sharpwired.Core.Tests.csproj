@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sharpwired.Core\Sharpwired.Core.csproj" />
+    <!-- The spring macro tests write the float64 spring matrices of Sharpwired.Timing as host values. -->
+    <ProjectReference Include="..\..\src\Sharpwired.Timing\Sharpwired.Timing.csproj" />
   </ItemGroup>
 
 </Project>

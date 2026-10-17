@@ -14,7 +14,7 @@ public readonly record struct SpringWires(Wire Position, Wire Velocity, Wire Act
 /// <summary>
 /// The 4 cells of a spring matrix that the host writes before each evaluation, one time for
 /// each stiffness and damping pair, for example
-/// SpringMatrix.SpringMatrixPower(SpringMatrix.SpringStepMatrix(new(290, 30)), steps):
+/// Sharpwired.Timing.SpringMatrix.SpringMatrixPower(SpringMatrix.SpringStepMatrix(new(290, 30)), steps):
 /// displacement' = m[0] × displacement + m[1] × velocity and
 /// velocity' = m[2] × displacement + m[3] × velocity.
 /// </summary>
@@ -154,7 +154,7 @@ public static partial class Macros
     /// <summary>
     /// The displacement of one spring from its destination and its velocity after each step that
     /// the matrix describes, for example all 4 ms steps of one evaluation. The matrix cells need
-    /// finite declared ranges, for example ±SpringMatrix.SpringMatrixBound(constants), so that a
+    /// finite declared ranges, for example ±Sharpwired.Timing.SpringMatrix.SpringMatrixBound(constants), so that a
     /// host that writes an overflowing matrix fails the source range check. Each product is a
     /// Circuit.Multiply, so the backward pass differentiates whole products, also at a matrix
     /// entry of exactly 0. The result is f(f(m0 × e) + f(m1 × v)) and f(f(m2 × e) + f(m3 × v)) for

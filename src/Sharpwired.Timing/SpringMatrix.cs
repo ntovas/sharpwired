@@ -1,10 +1,11 @@
 // Handwired source: src/runtime/host-timing.ts (SpringConstants, SpringMatrix,
 // identitySpringMatrix, springStepMatrix, multiplySpringMatrices, springMatrixPower,
-// springMatrixBound, and the stepMs and maxStepsPerFrame values of defaultSpringClockConfig).
-// This file holds float64 host arithmetic only. It builds no operations. Phase 3 ports the plan
-// of the frames (advanceFrame, quantizeFrameTiming, countSpringSteps, the clock configuration).
+// springMatrixBound(constants, stepMs, maxStepsPerFrame), springMatrixBound(constants, config),
+// and the stepMs and maxStepsPerFrame values of defaultSpringClockConfig).
+// This file holds float64 host arithmetic only. It builds no operations. Phase 1 put it in
+// Sharpwired.Core. Phase 3 moved it to Sharpwired.Timing with the rest of host-timing.ts.
 
-namespace Sharpwired.Core;
+namespace Sharpwired.Timing;
 
 /// <summary>The stiffness and the damping of a spring. Both must be finite and nonnegative.</summary>
 public readonly record struct SpringConstants(double Stiffness, double Damping);
@@ -105,8 +106,20 @@ public readonly record struct SpringMatrix(
             foreach (var entry in power.ToArray()) bound = Math.Max(bound, Math.Abs(entry));
         }
         // Rounding is monotone, so f(entry) <= f(bound) for every |entry| <= bound.
-        var declared = Fp32.Round(bound * (1 + 1e-6));
+        // The cast to float is Math.fround: it rounds to the nearest FP32 value, ties to even.
+        var declared = (double)(float)(bound * (1 + 1e-6));
         if (!double.IsFinite(declared)) throw new ArgumentException("the spring matrix overflows FP32 within maxStepsPerFrame steps");
         return declared;
+    }
+
+    /// <summary>
+    /// Handwired springMatrixBound(constants, config): the bound of
+    /// SpringMatrixBound(constants, stepMs, maxStepsPerFrame) with config.StepMs and
+    /// config.MaxStepsPerFrame. The function does not validate the configuration, as Handwired.
+    /// </summary>
+    public static double SpringMatrixBound(SpringConstants constants, SpringClockConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return SpringMatrixBound(constants, config.StepMs, config.MaxStepsPerFrame);
     }
 }
