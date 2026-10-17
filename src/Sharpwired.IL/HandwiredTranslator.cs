@@ -1,6 +1,6 @@
 // No Handwired source. Handwired has no translator. The entry points of the plan, section "Public
 // API", Sharpwired.IL: TranslateFunction and TranslateStep, with TranslatedFunction and
-// TranslatedStep. A translation checks the method, walks the cells (CellLayout.cs), decodes the IL,
+// TranslatedStep, and TranslateRecurrent (Recurrent.cs). A translation checks the method, walks the cells (CellLayout.cs), decodes the IL,
 // builds the CFG and the SSA form, lowers the operations (OperationLowering.cs), emits the output
 // leaves at the return in walk order, pairs each state cell with its next value, and finishes the
 // source table. The translator caches nothing between calls. The evaluator of a TranslatedFunction
@@ -91,6 +91,17 @@ public static class HandwiredTranslator
         return new TranslatedStep(method, layout, finished, cells, outputs, nextShape, outputShape);
     }
 
+    /// <summary>
+    /// Translates a static [Handwired] method with one loop with no maximum (plan, question 5, form 3)
+    /// into a prefix, a step program and a suffix (Recurrent.cs). The loop must run on each call, at
+    /// the top level of the method. Throws <see cref="ArgumentException"/> for a method with no such loop.
+    /// </summary>
+    public static RecurrentFunction TranslateRecurrent(MethodInfo method)
+    {
+        CheckMethod(method);
+        return RecurrentTranslator.Translate(method);
+    }
+
     // The output leaves emit at the return, so a value past the FP32 range among them has the location of the return.
     private static void CheckRanges(Emitter emitter, SourceLocation location)
     {
@@ -141,14 +152,15 @@ public static class HandwiredTranslator
 /// <summary>The program of a [Handwired] method: input and event cells, and one output wire for each return leaf.</summary>
 public sealed class TranslatedFunction
 {
-    private readonly MethodInfo method;
-    private readonly CellLayout layout;
-    private readonly OutputShape shape;
+    // Null for the prefix and the suffix of a step program, which have no plain method of their own.
+    private readonly MethodInfo? method;
+    private readonly CellLayout? layout;
+    private readonly OutputShape? shape;
 
     private readonly ImmutableArray<LoopOverflow> overflows;
 
     internal TranslatedFunction(
-        MethodInfo method, CellLayout layout, FinishedTable table, ImmutableArray<NamedWire> inputs, ImmutableArray<NamedWire> outputs, OutputShape shape,
+        MethodInfo? method, CellLayout? layout, FinishedTable table, ImmutableArray<NamedWire> inputs, ImmutableArray<NamedWire> outputs, OutputShape? shape,
         ImmutableArray<LoopOverflow> overflows)
     {
         this.method = method;
@@ -182,9 +194,18 @@ public sealed class TranslatedFunction
     /// </summary>
     public TranslatedEvaluator CreateEvaluator() => new(Table, Outputs, overflows);
 
-    /// <summary>Runs the plain method by reflection on the leaves of the source table, and returns the output leaves.</summary>
+    /// <summary>
+    /// Runs the plain method by reflection on the leaves of the source table, and returns the output
+    /// leaves. The prefix and the suffix of a step program have no plain method: use
+    /// <see cref="RecurrentFunction.EvaluatePlain"/>.
+    /// </summary>
     public float[] EvaluatePlain(ReadOnlySpan<float> source)
     {
+        if (method is null || layout is null || shape is null)
+        {
+            throw new InvalidOperationException("a part of a step program has no plain method; use RecurrentFunction.EvaluatePlain");
+        }
+
         Table.Validator.Validate(source);
         var leaves = new List<float>(Outputs.Length);
         PlainInvoker.Read(shape, PlainInvoker.Invoke(method, layout, source), leaves);

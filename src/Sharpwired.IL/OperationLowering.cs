@@ -59,13 +59,15 @@ internal sealed partial class OperationLowering
     /// Lowers the operations of a method and returns its return value with the IL offset of its last
     /// ret instruction. Throws <see cref="TranslationException"/> for a refused construct. The entry
     /// condition is the bit that is 1 when the caller runs the call (null: the method runs on each
-    /// evaluation). The loop overflow bits read it.
+    /// evaluation). The loop overflow bits read it. A recurrent context selects a part of a method
+    /// with a loop of form 3 (RecurrentLowering.cs).
     /// </summary>
     public static (Value Value, int IlOffset) Lower(
         DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack,
-        Func<ScalarValue>? entryCondition = null)
+        Func<ScalarValue>? entryCondition = null, RecurrentContext? recurrent = null)
     {
-        var lowering = new OperationLowering(method, ssa, emitter, arguments, callStack, entryCondition);
+        var lowering = new OperationLowering(method, ssa, emitter, arguments, callStack, entryCondition) { recurrent = recurrent };
+        lowering.SetInputs();
         return lowering.Run();
     }
 
@@ -110,6 +112,11 @@ internal sealed partial class OperationLowering
         // Each edge outside a loop goes forward in IL order (ControlFlowGraph), so the block order is
         // a topological order. A loop is unrolled at its first block.
         LowerRegion([.. ssa.Blocks.Select(block => block.Block.Index)], null);
+        if (recurrent is { Part: RecurrentPart.Prefix or RecurrentPart.Step })
+        {
+            return (Zero, 0);
+        }
+
         var returnType = method.Method is MethodInfo info ? info.ReturnType : typeof(void);
         return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
     }

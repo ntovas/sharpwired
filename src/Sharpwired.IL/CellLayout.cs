@@ -357,7 +357,7 @@ internal sealed class CellLayout
         return leaf;
     }
 
-    private static double NearestToZero(NumericRange range, double? grid)
+    internal static double NearestToZero(NumericRange range, double? grid)
     {
         // The initial table holds FP32 values, so the value is the FP32 value inside the range.
         var step = grid ?? 0;

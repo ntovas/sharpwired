@@ -21,9 +21,10 @@
 // - [MaxIterations(N)] limits the copies of a loop with a runtime active bit to N copies of its
 //   body. The bit "the loop needs one more copy" after copy N, AND the entry condition of the loop,
 //   is the overflow bit of the loop.
-// - A loop with a runtime continue bit whose copy shrinks no interval, and no [MaxIterations], has no
-//   maximum (form 3, plan task 6). A loop with two exit blocks, with no exit, or with more than 65536
-//   copies of its body is refused.
+// - A loop with a runtime continue bit whose copy shrinks no interval of a wire from before the
+//   loop, and no [MaxIterations], has no maximum (form 3, RecurrentLowering.cs). A fact on a wire of
+//   the loop is not progress, because the next copy compares a new wire. A loop with two exit
+//   blocks, with no exit, or with more than 65536 copies of its body is refused.
 // - An emitted operation whose range passes FP32, while the wires that it reads have finite
 //   ranges, is refused (in loops and in straight-line code).
 // - The lowering changes a local array in place, so a store in a loop copy is accepted only when
@@ -80,7 +81,7 @@ internal sealed partial class OperationLowering
         var offset = ssa.Graph.Blocks[currentBlock].StartOffset;
         return copy is { } current
             ? And(And(current.Entry, current.Active), gates.Reach(current.Loop.Header, currentBlock, offset))
-            : And(entryCondition?.Invoke() ?? One, gates.Reach(0, currentBlock, offset));
+            : And(entryCondition?.Invoke() ?? One, gates.Reach(TopStart, currentBlock, offset));
     }
 
     // AND of two bits, with the constants folded.
@@ -109,7 +110,12 @@ internal sealed partial class OperationLowering
 
         foreach (var index in order)
         {
-            if (handled.Contains(index) || (only is not null && !only.Contains(index)))
+            if (recurrent is { Stopped: true })
+            {
+                break;
+            }
+
+            if (handled.Contains(index) || (only is not null && !only.Contains(index)) || (enclosing is null && SkipsBlock(index)))
             {
                 continue;
             }
@@ -173,6 +179,12 @@ internal sealed partial class OperationLowering
     // Unrolls one loop (forms 1 and 2), and sets the values that the code after the loop reads.
     private void Unroll(NaturalLoop loop)
     {
+        if (recurrent is { Part: not RecurrentPart.Probe } marked && loop.Header == marked.Header)
+        {
+            LowerRecurrent(loop);
+            return;
+        }
+
         var graph = ssa.Graph;
         CheckExits(loop);
         var exitSources = loop.ExitEdges.Select(edge => edge.From).Distinct().ToArray();
@@ -190,8 +202,11 @@ internal sealed partial class OperationLowering
 
         var entry = copy is { } outer
             ? And(And(outer.Entry, outer.Active), gates.Reach(outer.Loop.Header, loop.Header, testOffset))
-            : And(entryCondition?.Invoke() ?? One, gates.Reach(0, loop.Header, testOffset));
+            : And(entryCondition?.Invoke() ?? One, gates.Reach(TopStart, loop.Header, testOffset));
         var facts = copy?.Facts.Clone() ?? new Intervals(this);
+
+        // A fact on a wire of this loop does not count as progress: the next copy reads a new wire.
+        facts.Before = Circuit.Width;
         facts.Add(entry);
         var certain = copy is { } around
             ? around.Certain && around.Active is ConstantValue && gates.Reach(around.Loop.Header, loop.Header, testOffset) is ConstantValue { Number: not 0 }
@@ -273,7 +288,7 @@ internal sealed partial class OperationLowering
 
                 if (next is not ConstantValue && !narrowed && maximum is null)
                 {
-                    throw Refuse(testOffset, "a loop with no maximum", NoMaximumReason);
+                    throw NoMaximum(loop, testOffset, entry, outerCopy);
                 }
 
                 if (next is not ConstantValue)
@@ -537,6 +552,12 @@ internal sealed partial class OperationLowering
         /// <summary>True when an interval is empty: the active path cannot occur.</summary>
         public bool IsEmpty { get; private set; }
 
+        /// <summary>Add returns true only for a shrunk interval of a wire before this position.</summary>
+        public int Before { get; set; } = int.MaxValue;
+
+        /// <summary>The interval of an int wire, or null when the wire has none or the path cannot occur.</summary>
+        public (double Low, double High)? Interval(Wire wire) => IsEmpty ? null : Of(wire);
+
         public Intervals Clone()
         {
             var clone = new Intervals(lowering) { IsEmpty = IsEmpty };
@@ -637,7 +658,7 @@ internal sealed partial class OperationLowering
 
             bounds[wire] = (newLow, newHigh);
             IsEmpty |= newLow > newHigh;
-            return true;
+            return wire.Position < Before;
         }
 
         // The interval of an int wire: its fact, or its declared range rounded to integers. A wire
