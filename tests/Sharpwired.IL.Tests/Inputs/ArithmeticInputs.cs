@@ -58,6 +58,20 @@ public static class ArithmeticInputs
     [Handwired]
     public static int IntMinimum([Range(-100, 100)] int a, [Range(-100, 100)] int b) => Math.Min(a, b);
 
+    // Forms whose stored form is exact while a C# intermediate value rounds (review of task 3).
+    [Handwired]
+    public static float CancelledSum([Range(0, 10), Grid(1)] float a, [Range(-1e9, 1e9)] float b) => (a + b) - b;
+
+    [Handwired]
+    public static float CancelledConstant([Range(0, 1e6)] float x) => (x + 0.1f) - x;
+
+    [Handwired]
+    public static float CancelledProducts([Range(0, 16777216), Grid(1)] float x) => x * 3f - x * 2f;
+
+    // Each intermediate value is exact: the chain stays one affine.
+    [Handwired]
+    public static float ExactTwoSteps([Range(0, 1000), Grid(1)] float x, [Range(0, 1000), Grid(1)] float y) => (x + y) * 0.5f - 3f;
+
     [Handwired]
     public static float Relu([Range(-100, 100)] float x) => Hw.Relu(x);
 

@@ -188,4 +188,56 @@ public class ArithmeticTests
         expected.AssertSameOperations(translated);
         AssertMatchesPlain(translated, 414, ZeroSign.MayDiffer);
     }
+
+    // Review of task 3: the stored form of (a + b) - b is the exact form a, but C# rounds a + b.
+    [Fact]
+    public void A_form_whose_terms_cancel_after_a_rounded_sum_gives_a_round_affine_chain()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(0, 10), grid: 1), Cell.Input(new NumericRange(-1e9, 1e9)));
+        var (a, b) = (expected.Cells[0], expected.Cells[1]);
+        var sum = expected.Circuit.RoundAffine([(a, 1), (b, 1)]);
+        expected.Circuit.RoundAffine([(sum, 1), (b, -1)]);
+        var translated = Translate(nameof(ArithmeticInputs.CancelledSum));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [1f, 1e8f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 415, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_form_whose_constant_folds_after_a_rounded_sum_gives_a_round_affine_chain()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(0, 1e6)));
+        var x = expected.Cells[0];
+        var sum = expected.Circuit.RoundAffine([(x, 1)], 0.1f);
+        expected.Circuit.RoundAffine([(sum, 1), (x, -1)]);
+        var translated = Translate(nameof(ArithmeticInputs.CancelledConstant));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [1000f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 416, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_form_with_a_product_past_2_to_the_24_steps_gives_a_round_affine_chain()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(0, 16777216), grid: 1));
+        var x = expected.Cells[0];
+        var three = expected.Circuit.RoundAffine([(x, 3)]);
+        var two = expected.Circuit.RoundAffine([(x, 2)]);
+        expected.Circuit.RoundAffine([(three, 1), (two, -1)]);
+        var translated = Translate(nameof(ArithmeticInputs.CancelledProducts));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [16777215f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 417, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_chain_with_exact_intermediate_values_gives_one_affine()
+    {
+        var grid = Cell.Input(new NumericRange(0, 1000), grid: 1);
+        var expected = new ExpectedProgram(grid, grid);
+        expected.Circuit.Affine([(expected.Cells[0], 0.5), (expected.Cells[1], 0.5)], -3);
+        var translated = Translate(nameof(ArithmeticInputs.ExactTwoSteps));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlain(translated, 418, ZeroSign.MayDiffer);
+    }
 }

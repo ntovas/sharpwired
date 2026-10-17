@@ -163,4 +163,16 @@ public class AggregateTests
         expected.AssertSameOperations(translated);
         AssertMatchesPlain(translated, 512, ZeroSign.Exact);
     }
+
+    // Review of task 3: a constructor parameter that goes to two fields sets both fields.
+    [Fact]
+    public void A_constructor_parameter_stored_into_two_fields_sets_both_fields()
+    {
+        var expected = new ExpectedProgram(Ten);
+        var translated = Translate(nameof(AggregateInputs.BothFields));
+        expected.AssertSameOperations(translated);
+        Assert.All(translated.Outputs, output => Assert.Equal(translated.Inputs[0].Wire, output.Wire));
+        AssertMatchesPlainAt(translated, [5f], ZeroSign.Exact);
+        AssertMatchesPlain(translated, 513, ZeroSign.Exact);
+    }
 }

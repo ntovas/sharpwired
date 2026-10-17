@@ -46,6 +46,12 @@ public class RefusalTests
     [InlineData(nameof(RefusedInputs.OpenAnimation), "open-animation",
         "a call to Sharpwired.Annotations.Hw.AnimatedObject(Single[], Single, Single, Single, Single, Boolean, Boolean)",
         "each float operand of Hw.AnimatedObject needs a finite declared range")]
+    [InlineData(nameof(RefusedInputs.StaticBig), "static-big", "the int constant 16777217", "FP32 holds each int exactly only within -2^24..2^24")]
+    [InlineData(nameof(RefusedInputs.StaticBigTable), "static-big-table", "the int constant 16777217", "FP32 holds each int exactly only within -2^24..2^24")]
+    [InlineData(nameof(RefusedInputs.DivideByStoredThree), "divide-by-stored-three", "float division by 3",
+        "C# rounds x / 3 one time, and a product with the rounded reciprocal gives another value for some x; write x * (1f / 3)")]
+    [InlineData(nameof(RefusedInputs.StoredIndexPastEnd), "stored-index-past-end", "the array index 2", "the index must lie in 0..1")]
+    [InlineData(nameof(RefusedInputs.StoreIndexPastEnd), "store-index-past-end", "the array index 2", "the index must lie in 0..1")]
     public void A_refused_construct_gives_the_file_and_the_line_of_its_marker(string method, string marker, string construct, string reason) =>
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(RefusedInputs), method)), Refused, marker, construct, reason);
 

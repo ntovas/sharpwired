@@ -152,17 +152,13 @@ internal sealed partial class OperationLowering
     {
         var number = Convert.ToDouble(value.Constant, CultureInfo.InvariantCulture);
         var kind = KindOf(value);
-        if (kind == ScalarKind.Int && Math.Abs(number) > 16_777_216)
-        {
-            throw Refuse(value.IlOffset, $"the int constant {number.ToString(CultureInfo.InvariantCulture)}", "FP32 holds each int exactly only within -2^24..2^24");
-        }
-
-        return new ConstantValue(number, kind);
+        return kind == ScalarKind.Int ? IntConstant(number, value.IlOffset) : new ConstantValue(number, kind);
     }
 
-    // A refusal that names a constant gives the line of the instruction that loads the constant.
-    private static int ConstantOffset(SsaValue value, int operationOffset) =>
-        value.Kind == SsaValueKind.Constant ? value.IlOffset : operationOffset;
+    // An int constant of the IL or of a static readonly field. FP32 holds an int exactly only within 2^24.
+    private ConstantValue IntConstant(double number, int ilOffset) => Math.Abs(number) > 16_777_216
+        ? throw Refuse(ilOffset, $"the int constant {number.ToString(CultureInfo.InvariantCulture)}", "FP32 holds each int exactly only within -2^24..2^24")
+        : new ConstantValue(number, ScalarKind.Int);
 
     private ScalarValue Scalar(SsaValue value, int ilOffset) => Get(value) as ScalarValue
         ?? throw Refuse(ilOffset, "an aggregate as a number", "the operation reads a float, an int or a bool");
@@ -261,7 +257,7 @@ internal sealed partial class OperationLowering
         var reciprocal = 1 / divisor.Number;
         if (!Fp32.IsPowerOfTwoGrid(Math.Abs(divisor.Number)) || (double)(float)reciprocal != reciprocal || !double.IsFinite(reciprocal))
         {
-            throw Refuse(ConstantOffset(operation.Operands[1], offset), $"float division by {Fp32.Format(divisor.Number)}",
+            throw Refuse(offset, $"float division by {Fp32.Format(divisor.Number)}",
                 $"C# rounds x / {Fp32.Format(divisor.Number)} one time, and a product with the rounded reciprocal gives another value for some x; write x * (1f / {Fp32.Format(divisor.Number)})");
         }
 
@@ -523,10 +519,10 @@ internal sealed partial class OperationLowering
         return value switch
         {
             float number => new ConstantValue(number, ScalarKind.Float),
-            int number => new ConstantValue(number, ScalarKind.Int),
+            int number => IntConstant(number, offset),
             bool bit => new ConstantValue(bit ? 1 : 0, ScalarKind.Bit),
             float[] numbers => new ArrayValue(typeof(float), [.. numbers.Select(n => (Value)new ConstantValue(n, ScalarKind.Float))], isLocal: false),
-            int[] numbers => new ArrayValue(typeof(int), [.. numbers.Select(n => (Value)new ConstantValue(n, ScalarKind.Int))], isLocal: false),
+            int[] numbers => new ArrayValue(typeof(int), [.. numbers.Select(n => (Value)IntConstant(n, offset))], isLocal: false),
             _ => throw Refuse(offset, $"the static field {field.DeclaringType?.Name}.{field.Name} of type {field.FieldType.Name}",
                 "a static readonly field holds a float, an int, a bool, a float[] or an int[]"),
         };
@@ -581,8 +577,7 @@ internal sealed partial class OperationLowering
         var values = ImmutableDictionary.CreateBuilder<string, Value>(StringComparer.Ordinal);
         foreach (var field in DataTypes.InstanceFields(type))
         {
-            var index = System.Array.IndexOf(fields, field.Name);
-            values[field.Name] = index >= 0
+            values[field.Name] = fields.TryGetValue(field.Name, out var index)
                 ? parameters[index]
                 : DataTypes.Zero(field.FieldType)
                     ?? throw Refuse(offset, $"the constructor of {type.Name}", $"the constructor does not set the field {field.Name}, which has no zero value");
@@ -618,7 +613,7 @@ internal sealed partial class OperationLowering
         {
             return constant.Number >= 0 && constant.Number < count
                 ? array.Elements[(int)constant.Number]
-                : throw Refuse(ConstantOffset(indexValue, offset), $"the array index {Fp32.Format(constant.Number)}", $"the index must lie in 0..{count - 1}");
+                : throw Refuse(offset, $"the array index {Fp32.Format(constant.Number)}", $"the index must lie in 0..{count - 1}");
         }
 
         if (index.Kind != ScalarKind.Int || array.Elements.Any(element => element is not ScalarValue))
@@ -663,7 +658,7 @@ internal sealed partial class OperationLowering
 
         if (index < 0 || index >= array.Elements.Length)
         {
-            throw Refuse(ConstantOffset(operation.Operands[1], offset), $"the array index {Fp32.Format(index)}", $"the index must lie in 0..{array.Elements.Length - 1}");
+            throw Refuse(offset, $"the array index {Fp32.Format(index)}", $"the index must lie in 0..{array.Elements.Length - 1}");
         }
 
         array.Elements[(int)index] = Get(operation.Operands[2]);

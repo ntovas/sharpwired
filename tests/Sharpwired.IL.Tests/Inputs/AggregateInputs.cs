@@ -44,6 +44,20 @@ public struct Accumulator
     public readonly float Total => total;
 }
 
+/// <summary>A struct whose constructor stores its one parameter into two fields (review of task 3).</summary>
+public readonly struct ProbePair
+{
+    public ProbePair(float a)
+    {
+        A = a;
+        B = a;
+    }
+
+    public float A { get; }
+
+    public float B { get; }
+}
+
 /// <summary>A record struct with a [State] property, which TranslateFunction refuses.</summary>
 public readonly record struct WithStateProperty([property: State, Range(0, 1)] float Level);
 
@@ -122,6 +136,13 @@ public static class AggregateInputs
 
     [Handwired]
     public static float StaticLookup([Range(0, 3)] int i, [Range(-10, 10)] float x) => Table[i] + x * Scale;
+
+    [Handwired]
+    public static (float, float) BothFields([Range(-10, 10)] float x)
+    {
+        var pair = new ProbePair(x);
+        return (pair.A, pair.B);
+    }
 
     [Handwired]
     public static float FromInt([Range(-100, 100)] int i) => i * 0.5f;

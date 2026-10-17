@@ -55,10 +55,20 @@ internal sealed class Emitter(Circuit circuit)
             && Circuit.FormGrid(storedTerms, storedBias) is not null;
     }
 
+    /// <summary>
+    /// True when the form and each C# intermediate value on the way to it are exact. A stored form
+    /// can be exact when its terms cancel or its constants fold, while C# rounds an intermediate
+    /// value, for example (a + b) - b. So the rule checks the form of each IL instruction.
+    /// </summary>
+    public bool IsExactChain(AffineValue form) =>
+        IsExact(form.Terms, form.Bias)
+        && (form.Left is not AffineValue { Wire: null } left || IsExactChain(left))
+        && (form.Right is not AffineValue { Wire: null } right || IsExactChain(right));
+
     // The C#-equal rule of the plan, section "Emission rules".
     private Wire EmitAffine(AffineValue form)
     {
-        if (IsExact(form.Terms, form.Bias))
+        if (IsExactChain(form))
         {
             return Circuit.Affine(form.Terms, form.Bias);
         }

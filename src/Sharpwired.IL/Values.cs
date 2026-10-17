@@ -197,11 +197,12 @@ internal static class DataTypes
     }
 
     /// <summary>
-    /// The field that each parameter of a data constructor goes to, by parameter index. A data
+    /// The parameter index that each field of a data constructor gets, by field name. A data
     /// constructor only stores its parameters into fields of its type and calls the constructor of
-    /// object or ValueType. Returns null for another constructor.
+    /// object or ValueType. One parameter can go to more than one field. When the constructor stores
+    /// into a field two times, the last store sets the field. Returns null for another constructor.
     /// </summary>
-    public static string?[]? ConstructorFields(ConstructorInfo constructor)
+    public static IReadOnlyDictionary<string, int>? ConstructorFields(ConstructorInfo constructor)
     {
         if (constructor.GetMethodBody() is null)
         {
@@ -218,7 +219,7 @@ internal static class DataTypes
             return null;
         }
 
-        var fields = new string?[constructor.GetParameters().Length];
+        var fields = new Dictionary<string, int>(StringComparer.Ordinal);
         var instructions = decoded.Instructions.Where(i => i.OpCode != ILOpCode.Nop).ToArray();
         var index = 0;
         while (index < instructions.Length)
@@ -246,7 +247,7 @@ internal static class DataTypes
                 && instructions[index + 2] is { OpCode: ILOpCode.Stfld, Operand: FieldInfo field }
                 && field.DeclaringType == constructor.DeclaringType && !field.IsStatic)
             {
-                fields[next.IntOperand - 1] = field.Name;
+                fields[field.Name] = next.IntOperand - 1;
                 index += 3;
                 continue;
             }

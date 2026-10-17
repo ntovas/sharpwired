@@ -57,6 +57,18 @@ internal static class TranslationSupport
         }
     }
 
+    /// <summary>Compares the program evaluator with the plain method on one source table, for each output leaf.</summary>
+    public static void AssertMatchesPlainAt(TranslatedFunction translated, float[] source, ZeroSign zeroSign)
+    {
+        var program = translated.CreateEvaluator().Evaluate(source).Outputs;
+        var plain = translated.EvaluatePlain(source);
+        Assert.Equal(plain.Length, program.Length);
+        for (var leaf = 0; leaf < plain.Length; leaf++)
+        {
+            AssertSameValue(plain[leaf], program[leaf], zeroSign, $"output {translated.Outputs[leaf].Path} for [{string.Join(", ", source)}]");
+        }
+    }
+
     public static void AssertSameValue(float plain, float program, ZeroSign zeroSign, string context)
     {
         var same = zeroSign == ZeroSign.Exact ? Js.ObjectIs(plain, program) : plain == program;

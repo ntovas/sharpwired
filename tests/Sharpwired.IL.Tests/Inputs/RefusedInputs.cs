@@ -120,6 +120,41 @@ public static class RefusedInputs
     [Handwired]
     public static float Branch([Range(0, 1)] float x, bool c) => c ? x : 0f; // marker: branch
 
+    // A static readonly int past 2^24, and an int table with an element past 2^24 (review of task 3).
+    private static readonly int Big = 16_777_217;
+
+    private static readonly int[] BigTable = [1, 16_777_217];
+
+    [Handwired]
+    public static bool StaticBig([Range(0, 16777216)] int i) => i < Big; // marker: static-big
+
+    [Handwired]
+    public static int StaticBigTable([Range(0, 1)] int i) => BigTable[i]; // marker: static-big-table
+
+    // The constant and the refused instruction on different lines (review of task 3).
+    [Handwired]
+    public static float DivideByStoredThree([Range(0, 1)] float y)
+    {
+        float d = 3f;
+        return y / d; // marker: divide-by-stored-three
+    }
+
+    [Handwired]
+    public static float StoredIndexPastEnd([FixedLength(2), Range(0, 1)] float[] w)
+    {
+        int i = 2;
+        return w[i]; // marker: stored-index-past-end
+    }
+
+    [Handwired]
+    public static float StoreIndexPastEnd([Range(0, 1)] float x)
+    {
+        var table = new float[2];
+        int i = 2;
+        table[i] = x; // marker: store-index-past-end
+        return table[0];
+    }
+
     [Handwired]
     public static AnimatedValue OpenAnimation(
         [FixedLength(4), Range(-AggregateInputs.MatrixBound, AggregateInputs.MatrixBound)] float[] matrix,
