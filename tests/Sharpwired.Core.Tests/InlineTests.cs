@@ -8,7 +8,7 @@ namespace Sharpwired.Core.Tests;
 
 public class InlineTests
 {
-    // 'inlined circuits become one graph and share matching expressions' (reference part).
+    // 'inlined circuits become one graph and share matching expressions'.
     [Fact]
     public void Inlined_circuits_become_one_graph_and_share_matching_expressions()
     {
@@ -21,7 +21,9 @@ public class InlineTests
 
         Assert.Equal(existingSum, wireMap[childSum.Position]);
         var output = wireMap[childProduct.Position];
-        Js.Is(10, parent.EvaluateReference([2, 3])[output.Position]);
+        var program = parent.CompileTensorProgram([output]);
+        parent.TensorProgram = program;
+        Js.Is(10, parent.EvaluateTensor([2, 3])[output.Position]);
     }
 
     // Sharpwired addition: the mapping covers the source cells and then each operation, and it must

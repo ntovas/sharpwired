@@ -256,6 +256,11 @@ public class MacroRangesTests
         {
             float[] source = [(float)position, (float)destination, (float)velocity, 200, 20, 0.05f, 0.5f, 0.5f, 1000, 1000, 1];
             var reference = circuit.EvaluateReference(source);
+            var tensor = circuit.EvaluateTensor(source);
+            // The reference and the compiled springs must step identically (toBe).
+            Js.Is(reference[spring.Position.Position], tensor[spring.Position.Position]);
+            Js.Is(reference[spring.Velocity.Position], tensor[spring.Velocity.Position]);
+            Js.Is(reference[spring.Active.Position], tensor[spring.Active.Position]);
             position = reference[spring.Position.Position];
             velocity = reference[spring.Velocity.Position];
             active = reference[spring.Active.Position];

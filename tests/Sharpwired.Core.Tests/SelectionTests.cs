@@ -1,9 +1,10 @@
 // Handwired source: tests/runtime/numeric-ui-core.test.ts (first-active selection and argmax),
-// tests/runtime/random-hardened.test.ts (the reference parts of each test), and the emitFirstActive and
-// emitArgmax rows of docs/execution-model.md#macro-contracts. Each test name holds the Handwired
-// test name. Handwired evaluates these circuits with the tensor evaluator. This port uses the
-// reference evaluator, and PHASE2-TENSOR-ASSERTIONS.md lists the tensor assertions. The layer
-// bounds read the layers of the compiled program, as Handwired reads tensorProgram.layers.length.
+// tests/runtime/random-hardened.test.ts, and the emitFirstActive and emitArgmax rows of
+// docs/execution-model.md#macro-contracts. Each test name holds the Handwired test name. The ported
+// Handwired tests evaluate with the tensor evaluator and the program that Handwired compiles. The
+// one-hot checks use Js.AllIs, because Handwired compares with assert.deepEqual of node:assert/strict
+// or with toEqual, and both compare each number with Object.is. The layer bounds read the layers
+// of the compiled program, as Handwired reads tensorProgram.layers.length.
 
 namespace Sharpwired.Core.Tests;
 
@@ -15,8 +16,8 @@ public class SelectionTests
 
     private static double[] OneHot(int count, int winner) => [.. Enumerable.Range(0, count).Select(item => item == winner ? 1.0 : 0.0)];
 
-    // random-hardened.test.ts buildArgmax: scores in cells 0..count-1 within 0..1, and the unit in cell count.
-    private static (Circuit Circuit, ArgmaxSelection Winner) BuildArgmax(int scoreCount)
+    // Build an argmax over scores in cells 0..count-1 within 0..1, with the unit in cell count.
+    private static (Circuit Circuit, ArgmaxSelection Winner) BuildArgmaxCircuit(int scoreCount)
     {
         var circuit = new Circuit(scoreCount + 1);
         for (var wire = 0; wire < scoreCount; wire++) circuit.AssumeRange(Wire.FromPosition(wire), 0, 1);
@@ -24,6 +25,23 @@ public class SelectionTests
         var winner = circuit.Argmax(Wires(Enumerable.Range(0, scoreCount)), circuit.Source(scoreCount));
         circuit.ValidateCircuit();
         return (circuit, winner);
+    }
+
+    // random-hardened.test.ts buildArgmax: the argmax circuit, with
+    // circuit.tensorProgram = circuit.compileTensorProgram([...winner.selected, winner.score]).
+    private static (Circuit Circuit, ArgmaxSelection Winner) BuildArgmax(int scoreCount)
+    {
+        var (circuit, winner) = BuildArgmaxCircuit(scoreCount);
+        circuit.TensorProgram = circuit.CompileTensorProgram([.. winner.Selected, winner.Score]);
+        return (circuit, winner);
+    }
+
+    // Handwired: const tensor = circuit.evaluateTensor(source); validateTensorEvaluation(source, circuit, tensor).
+    private static float[] EvaluateAndValidate(Circuit circuit, float[] source)
+    {
+        var tensor = circuit.EvaluateTensor(source);
+        circuit.ValidateTensorEvaluation(source, tensor);
+        return tensor;
     }
 
     // numeric-ui-core.test.ts 'first-active selection resolves ordered candidates through a balanced tree'.
@@ -35,6 +53,8 @@ public class SelectionTests
         for (var wire = 0; wire < circuit.SourceSize; wire++) circuit.AssumeRange(Wire.FromPosition(wire), 0, 1);
         var selected = circuit.FirstActive(circuit.Source(0), Wires(Enumerable.Range(1, CandidateCount)));
         circuit.ValidateCircuit();
+        var program = circuit.CompileTensorProgram(selected);
+        circuit.TensorProgram = program;
         (int Active, int[] Hits, int Winner)[] cases =
         [
             (1, [0], 0),
@@ -48,10 +68,10 @@ public class SelectionTests
             var source = new float[circuit.SourceSize];
             source[0] = active;
             foreach (var hit in hits) source[hit + 1] = 1;
-            var values = circuit.EvaluateReference(source);
-            Assert.Equal(OneHot(CandidateCount, winner), ValuesAt(values, selected));
+            var values = circuit.EvaluateTensor(source);
+            Js.AllIs(OneHot(CandidateCount, winner), ValuesAt(values, selected));
         }
-        Assert.True(TensorChecks.ProgramCounts(circuit.CompileTensorProgram(selected)).Layers <= 5 * (int)Math.Ceiling(Math.Log2(CandidateCount)) + 1);
+        Assert.True(program.Layers.Length <= 5 * (int)Math.Ceiling(Math.Log2(CandidateCount)) + 1);
     }
 
     // numeric-ui-core.test.ts 'argmax resolves continuous scores through a balanced tree'.
@@ -59,7 +79,9 @@ public class SelectionTests
     public void Argmax_resolves_continuous_scores_through_a_balanced_tree()
     {
         const int CandidateCount = 7;
-        var (circuit, winner) = BuildArgmax(CandidateCount);
+        var (circuit, winner) = BuildArgmaxCircuit(CandidateCount);
+        var program = circuit.CompileTensorProgram([.. winner.Selected, winner.Score]);
+        circuit.TensorProgram = program;
         (double[] Scores, int Winner)[] cases =
         [
             ([0.1, 0.7, 0.2, 0.4, 0.3, 0.6, 0.5], 1),
@@ -68,12 +90,11 @@ public class SelectionTests
         ];
         foreach (var (scores, winnerIndex) in cases)
         {
-            var values = circuit.EvaluateReference([.. scores.Select(score => (float)score), 1]);
-            Assert.Equal(OneHot(CandidateCount, winnerIndex), ValuesAt(values, winner.Selected));
+            var values = circuit.EvaluateTensor([.. scores.Select(score => (float)score), 1]);
+            Js.AllIs(OneHot(CandidateCount, winnerIndex), ValuesAt(values, winner.Selected));
             Assert.True(Math.Abs(values[winner.Score.Position] - Js.F(scores[winnerIndex])) < 1e-6);
         }
-        var layers = TensorChecks.ProgramCounts(circuit.CompileTensorProgram([.. winner.Selected, winner.Score])).Layers;
-        Assert.True(layers <= 6 * (int)Math.Ceiling(Math.Log2(CandidateCount)));
+        Assert.True(program.Layers.Length <= 6 * (int)Math.Ceiling(Math.Log2(CandidateCount)));
     }
 
     // numeric-ui-core.test.ts 'argmax breaks exact ties toward the lower-indexed candidate'.
@@ -84,11 +105,12 @@ public class SelectionTests
         // left (lower) candidate, like a loop that replaces the best only on a strictly larger score.
         // The 0.5 ± 2^-24 comparison constants give this. A plain 0.5 comparison sends some ties, for
         // example 0.3 against 0.3, to the right.
-        var (circuit, winner) = BuildArgmax(4);
+        var (circuit, winner) = BuildArgmaxCircuit(4);
+        circuit.TensorProgram = circuit.CompileTensorProgram(winner.Selected);
         foreach (var tie in new[] { 0, 0.25f, 0.3f, 0.5f, 0.7f, 1 })
         {
-            var values = circuit.EvaluateReference([tie, tie, tie, tie, 1]);
-            Assert.Equal([1.0, 0, 0, 0], ValuesAt(values, winner.Selected));
+            var values = circuit.EvaluateTensor([tie, tie, tie, tie, 1]);
+            Js.AllIs([1.0, 0, 0, 0], ValuesAt(values, winner.Selected));
         }
     }
 
@@ -115,17 +137,25 @@ public class SelectionTests
     }
 
     // random-hardened.test.ts 'boolean boundary battery' / 'boolean rounds adjacent-ulp scores identically
-    // in both evaluators' (reference part).
+    // in both evaluators'.
     [Fact]
-    public void Boolean_rounds_adjacent_ulp_scores_to_the_documented_bit()
+    public void Boolean_rounds_adjacent_ulp_scores_identically_in_both_evaluators()
     {
         var circuit = new Circuit(1);
         circuit.AssumeRange(circuit.Source(0), 0, 1);
         var decision = circuit.Boolean(circuit.Source(0));
+        circuit.TensorProgram = circuit.CompileTensorProgram([decision]);
         // One ulp below 0.5, exactly 0.5, and one ulp above.
         foreach (var (score, expected) in new[] { (0.499_999_97f, 0.0), (0.5f, 1), (0.500_000_06f, 1) })
         {
-            Js.Is(expected, circuit.EvaluateReference([score])[decision.Position]);
+            float[] source = [score];
+            var reference = circuit.EvaluateReference(source);
+            var tensor = circuit.EvaluateTensor(source);
+            // Both evaluators give the same exact bit, and it is the documented bit (toBe).
+            Js.Is(expected, reference[decision.Position]);
+            Js.Is(expected, tensor[decision.Position]);
+            Js.Is(reference[decision.Position], tensor[decision.Position]);
+            circuit.ValidateTensorEvaluation(source, tensor);
         }
     }
 
@@ -143,8 +173,8 @@ public class SelectionTests
             var right = Js.F(@base + subMargin);
             // The right value must be greater after fround, else the case checks nothing.
             if (!(right > left)) continue;
-            var values = circuit.EvaluateReference([(float)left, (float)right, 1]);
-            Assert.Equal([1.0, 0], ValuesAt(values, winner.Selected));
+            var tensor = EvaluateAndValidate(circuit, [(float)left, (float)right, 1]);
+            Js.AllIs([1.0, 0], ValuesAt(tensor, winner.Selected));
             checkedPairs++;
         }
         // Sharpwired addition: 0.5 + 2^-25 and 0.75 + 2^-25 round to the left score, the other 3 bases do not.
@@ -169,10 +199,10 @@ public class SelectionTests
                     scores[position] = (float)tieValue;
                     scores[position + 1] = (float)tieValue;
                     scores[scoreCount] = 1;
-                    var values = circuit.EvaluateReference(scores);
+                    var tensor = EvaluateAndValidate(circuit, scores);
                     // The one-hot puts its single 1 at the left tied index, in each subtree.
-                    Assert.Equal(OneHot(scoreCount, position), ValuesAt(values, winner.Selected));
-                    Js.Is(Js.F(tieValue), values[winner.Score.Position]);
+                    Js.AllIs(OneHot(scoreCount, position), ValuesAt(tensor, winner.Selected));
+                    Js.Is(Js.F(tieValue), tensor[winner.Score.Position]);
                 }
             }
         }
@@ -186,8 +216,8 @@ public class SelectionTests
         for (var scoreCount = 2; scoreCount <= 9; scoreCount++)
         {
             var (circuit, winner) = BuildArgmax(scoreCount);
-            var values = circuit.EvaluateReference([.. Enumerable.Repeat(0.5f, scoreCount), 1]);
-            Assert.Equal(OneHot(scoreCount, 0), ValuesAt(values, winner.Selected));
+            var tensor = EvaluateAndValidate(circuit, [.. Enumerable.Repeat(0.5f, scoreCount), 1]);
+            Js.AllIs(OneHot(scoreCount, 0), ValuesAt(tensor, winner.Selected));
         }
     }
 
@@ -197,7 +227,7 @@ public class SelectionTests
     [Fact]
     public void Argmax_keeps_the_left_candidate_within_its_band_and_always_declares_its_group()
     {
-        var (circuit, winner) = BuildArgmax(4);
+        var (circuit, winner) = BuildArgmaxCircuit(4);
         var group = Assert.Single(circuit.OneHotGroups);
         Assert.Equal(winner.Selected, group.Members);
         Assert.False(group.AllowAllZero);
@@ -280,9 +310,11 @@ public class SelectionTests
     }
 
     // random-hardened.test.ts 'hardened random verification' / 'non-dyadic macro circuits preserve every
-    // live FP32 wire' (reference part: validateCircuit, and the reference evaluator on each source).
+    // live FP32 wire'. Handwired calls validateTensorEvaluation, which compares each wire of wireOrder
+    // with ===. The PHASE2 list also asks for Object.is on each wire of wireOrder, so this port also
+    // compares the tensor value with the reference value with Js.ObjectIs.
     [Fact]
-    public void Non_dyadic_macro_circuits_build_valid_circuits_that_the_reference_evaluator_runs()
+    public void Non_dyadic_macro_circuits_preserve_every_live_FP32_wire()
     {
         double[] nonDyadic =
         [
@@ -294,6 +326,7 @@ public class SelectionTests
         double RandomCoefficient() => nonDyadic[RandomInteger(nonDyadic.Length)];
         var macroApplications = 0;
         var evaluations = 0;
+        var comparedWires = 0;
         for (var circuitIndex = 0; circuitIndex < 320; circuitIndex++)
         {
             // Unit sources feed the boolean, argmax and first-active preconditions. One more source is
@@ -428,10 +461,13 @@ public class SelectionTests
                 allWires.Add(produced);
             }
             circuit.ValidateCircuit();
-            // Handwired picks the roots of the tensor program here. The reference part keeps the draws.
             var operandWires = allWires.Where(wire => wire.Position >= sourceSize).ToList();
             var rootCount = 1 + RandomInteger(5);
-            for (var root = 0; root < rootCount; root++) RandomInteger(operandWires.Count);
+            var roots = new Wire[rootCount];
+            for (var root = 0; root < rootCount; root++) roots[root] = operandWires[RandomInteger(operandWires.Count)];
+            var program = circuit.CompileTensorProgram(roots);
+            circuit.TensorProgram = program;
+            circuit.ValidateTensorProgram(program);
             for (var inputIndex = 0; inputIndex < 5; inputIndex++)
             {
                 var source = new float[sourceSize];
@@ -443,12 +479,24 @@ public class SelectionTests
                             ? (float)(random() * 0.999_998 + 0.000_001)
                             : (float)(random() * 4 - 2);
                 }
-                Assert.Equal(circuit.Width, circuit.EvaluateReference(source).Length);
+                var tensor = circuit.EvaluateTensor(source);
+                circuit.ValidateTensorEvaluation(source, tensor);
+                var reference = circuit.EvaluateReference(source);
+                foreach (var wire in program.WireOrder)
+                {
+                    Assert.True(
+                        Js.ObjectIs(reference[wire], tensor[wire]),
+                        $"circuit {circuitIndex}, source {inputIndex}: wire {wire}: tensor {tensor[wire]:R}, reference {reference[wire]:R}");
+                    comparedWires++;
+                }
                 evaluations++;
             }
         }
         // The suite exercised the macros, not only plain operations.
         Assert.True(macroApplications > 0);
         Assert.Equal(320 * 5, evaluations);
+        // Sharpwired addition: a floor on the compared wires (source cells and live operations). The
+        // measured count is 92,520, and the floor is half of it.
+        Assert.True(comparedWires > 46_000, $"compared wires {comparedWires}");
     }
 }

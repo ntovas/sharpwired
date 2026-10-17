@@ -1,9 +1,10 @@
 // Handwired source: tests/runtime/spring-matrix.test.ts.
-// Each test name holds the Handwired test name. Handwired evaluates with createTensorEvaluator
-// and checkEveryCompileMode. This port evaluates with the reference evaluator and keeps the
-// validateCircuit part of checkEveryCompileMode. PHASE2-TENSOR-ASSERTIONS.md lists the tensor
-// parts, and PHASE3-TIMING-ASSERTIONS.md lists the host timing and advanceFrame tests. The costs
-// read TensorChecks.ProgramCounts of the compiled program, as Handwired programCounts does.
+// Each test name holds the Handwired test name. Each test evaluates with createTensorEvaluator
+// where Handwired does, and calls TensorChecks.EveryCompileMode with CompileModes.SpringMatrix
+// where Handwired calls checkEveryCompileMode. The inlining test and the backward pass test use
+// the reference evaluator, as Handwired does. PHASE3-TIMING-ASSERTIONS.md lists the host timing
+// and advanceFrame tests. The costs read TensorChecks.ProgramCounts of the compiled program, as
+// Handwired programCounts does.
 
 namespace Sharpwired.Core.Tests;
 
@@ -125,9 +126,12 @@ public class SpringMatrixTests
     public void Applying_a_spring_matrix_equals_float64_Euler_steps_and_the_cost_is_pinned()
     {
         var (circuit, next) = BuildMatrixCircuit();
-        var counts = TensorChecks.ProgramCounts(circuit.CompileTensorProgram([next.Displacement, next.Velocity]));
-        Assert.Equal((14, 3), (counts.LiveOperations, counts.Layers));
+        Wire[] roots = [next.Displacement, next.Velocity];
+        var counts = TensorChecks.ProgramCounts(circuit.CompileTensorProgram(roots));
+        Assert.Equal((14, 3, 28), (counts.LiveOperations, counts.Layers, counts.StoredWeights));
+        var evaluator = circuit.CreateTensorEvaluator(roots);
         var random = Js.CreateRandom(3);
+        var sources = new List<float[]>();
         var worstDisplacement = 0.0;
         var worstVelocity = 0.0;
         for (var sample = 0; sample < 1500; sample++)
@@ -138,17 +142,18 @@ public class SpringMatrixTests
             var velocity = F((random() * 2 - 1) * 5000);
             var matrix = SpringMatrix.SpringMatrixPower(SpringMatrix.SpringStepMatrix(constants), steps);
             var source = Floats([.. matrix.ToArray(), displacement, velocity]);
-            var values = circuit.EvaluateReference(source);
+            var outputs = evaluator.Evaluate(source);
             var expectedFp32 = ApplyMatrixFp32([.. source.Take(4).Select(value => (double)value)], displacement, velocity);
-            Js.Is(expectedFp32.Displacement, values[next.Displacement.Position]);
-            Js.Is(expectedFp32.Velocity, values[next.Velocity.Position]);
+            Js.Is(expectedFp32.Displacement, outputs[0]);
+            Js.Is(expectedFp32.Velocity, outputs[1]);
             var expected = EulerSteps(constants, displacement, velocity, steps);
-            worstDisplacement = Math.Max(worstDisplacement, Math.Abs(values[next.Displacement.Position] - expected.Displacement));
-            worstVelocity = Math.Max(worstVelocity, Math.Abs(values[next.Velocity.Position] - expected.Velocity));
+            worstDisplacement = Math.Max(worstDisplacement, Math.Abs(outputs[0] - expected.Displacement));
+            worstVelocity = Math.Max(worstVelocity, Math.Abs(outputs[1] - expected.Velocity));
+            if (sample < 40) sources.Add(source);
         }
         Assert.True(worstDisplacement < 1e-3, $"worst displacement error {worstDisplacement}");
         Assert.True(worstVelocity < 1e-2, $"worst velocity error {worstVelocity}");
-        circuit.ValidateCircuit();
+        TensorChecks.EveryCompileMode(circuit, roots, sources, CompileModes.SpringMatrix);
     }
 
     // 'applying a spring matrix' / 'zero steps return the state unchanged, and extreme states stay
@@ -157,18 +162,21 @@ public class SpringMatrixTests
     public void Zero_steps_return_the_state_unchanged_and_extreme_states_stay_FP32_products()
     {
         var (circuit, next) = BuildMatrixCircuit();
+        var evaluator = circuit.CreateTensorEvaluator([next.Displacement, next.Velocity]);
         (double, double)[] states = [(123.456, -7.5), (-0.0, 0), (F(1e-45), -F(1e-45)), (Largest, -Largest), (F(Math.Pow(2, 24) + 2), 3)];
         foreach (var (displacement, velocity) in states)
         {
             // Sums start from +0, so -0 comes back as +0. Adding 0 ignores the sign of zero.
-            var identity = circuit.EvaluateReference(Floats([1, 0, 0, 1, displacement, velocity]));
-            Js.Is(F(displacement) + 0, identity[next.Displacement.Position] + 0.0);
-            Js.Is(F(velocity) + 0, identity[next.Velocity.Position] + 0.0);
+            // The evaluator overwrites its output array on each call, so each check reads the
+            // values before the next call.
+            var identity = evaluator.Evaluate(Floats([1, 0, 0, 1, displacement, velocity]));
+            Js.Is(F(displacement) + 0, identity[0] + 0.0);
+            Js.Is(F(velocity) + 0, identity[1] + 0.0);
             var matrix = SpringMatrix.SpringMatrixPower(SpringMatrix.SpringStepMatrix(Constants[1]), 300);
-            var stepped = circuit.EvaluateReference(Floats([.. matrix.ToArray(), displacement, velocity]));
+            var stepped = evaluator.Evaluate(Floats([.. matrix.ToArray(), displacement, velocity]));
             var expected = ApplyMatrixFp32([.. matrix.ToArray().Select(F)], F(displacement), F(velocity));
-            Js.Is(expected.Displacement, stepped[next.Displacement.Position]);
-            Js.Is(expected.Velocity, stepped[next.Velocity.Position]);
+            Js.Is(expected.Displacement, stepped[0]);
+            Js.Is(expected.Velocity, stepped[1]);
         }
     }
 
@@ -234,11 +242,10 @@ public class SpringMatrixTests
         }
     }
 
-    private static double[] EvaluateRoots(ObjectCircuit built, float[] source)
-    {
-        var values = built.Circuit.EvaluateReference(source);
-        return [.. built.Roots.Select(root => (double)values[root.Position])];
-    }
+    // The values of the roots from the reusable evaluator. The method copies them, because the next
+    // call overwrites the output array of the evaluator.
+    private static double[] EvaluateRoots(TensorEvaluator evaluator, float[] source) =>
+        [.. evaluator.Evaluate(source).Select(value => (double)value)];
 
     // The FP32 matrix that a host writes for the steps.
     private static double[] Fp32Matrix(SpringConstants constants, int steps) =>
@@ -249,16 +256,16 @@ public class SpringMatrixTests
     [Fact]
     public void Animated_object_costs()
     {
-        (int, int) Counts(int springCount, bool separate, bool withSnap)
+        (int, int, int) Counts(int springCount, bool separate, bool withSnap)
         {
             var built = BuildObject(springCount, separate, withSnap);
             var counts = TensorChecks.ProgramCounts(built.Circuit.CompileTensorProgram(built.Roots));
-            return (counts.LiveOperations, counts.Layers);
+            return (counts.LiveOperations, counts.Layers, counts.StoredWeights);
         }
-        Assert.Equal((29, 11), Counts(1, false, false));
-        Assert.Equal((30, 12), Counts(1, true, false));
-        Assert.Equal((52, 11), Counts(2, false, false));
-        Assert.Equal((128, 13), Counts(5, true, true));
+        Assert.Equal((29, 11, 54), Counts(1, false, false));
+        Assert.Equal((30, 12, 57), Counts(1, true, false));
+        Assert.Equal((52, 11, 102), Counts(2, false, false));
+        Assert.Equal((128, 13, 264), Counts(5, true, true));
     }
 
     // 'animated objects' / 'match an independent FP32 twin bit for bit, including samples at the
@@ -288,6 +295,8 @@ public class SpringMatrixTests
             foreach (var withSnap in new[] { false, true })
             {
                 var built = BuildObject(3, separateDestinationDuringSteps, withSnap);
+                var evaluator = built.Circuit.CreateTensorEvaluator(built.Roots);
+                var sources = new List<float[]>();
                 for (var sample = 0; sample < 1500; sample++)
                 {
                     var source = new float[built.Circuit.SourceSize];
@@ -323,7 +332,7 @@ public class SpringMatrixTests
                     WriteSprings(source, springs);
                     source[built.SettleCheckCell] = random() < 0.7 ? 1 : 0;
                     source[built.SnapCell] = withSnap && random() < 0.15 ? 1 : 0;
-                    var outputs = EvaluateRoots(built, source);
+                    var outputs = EvaluateRoots(evaluator, source);
                     var expected = AnimatedObjectFp32(springs, separateDestinationDuringSteps, source[built.SettleCheckCell], withSnap ? source[built.SnapCell] : null);
                     double[] expectedOutputs = [.. expected.Displacements, .. expected.Positions, .. expected.Velocities, expected.Settled, expected.Active];
                     Assert.Equal(expectedOutputs.Length, outputs.Length);
@@ -354,8 +363,9 @@ public class SpringMatrixTests
                             subnormalNotAtRest++;
                         }
                     }
+                    if (sample < 30) sources.Add(source);
                 }
-                built.Circuit.ValidateCircuit();
+                TensorChecks.EveryCompileMode(built.Circuit, built.Roots, sources, CompileModes.SpringMatrix);
             }
         }
         Assert.True(settledSamples > 500, $"settled samples {settledSamples}");
@@ -370,6 +380,7 @@ public class SpringMatrixTests
     public void Settle_at_a_settle_check_or_at_exact_rest_and_a_huge_exceedance_never_flips_the_bit()
     {
         var built = BuildObject(1, false, false);
+        var evaluator = built.Circuit.CreateTensorEvaluator(built.Roots);
         var threshold = F(0.01);
         // [displacement, position, velocity, settled, active]
         double[] Run(double displacement, double velocity, double settleCheck, double destination = 0)
@@ -378,7 +389,7 @@ public class SpringMatrixTests
             WriteSprings(source, [new SpringSample([1, 0, 0, 1], displacement, velocity, destination, destination)]);
             source[built.SettleCheckCell] = (float)settleCheck;
             // Adding 0 ignores the sign of zero, for example a settled negative velocity is f(-0.01 × 0) = -0.
-            return [.. EvaluateRoots(built, source).Select(value => value + 0)];
+            return [.. EvaluateRoots(evaluator, source).Select(value => value + 0)];
         }
         void Expect(double[] expected, double[] actual)
         {
@@ -415,13 +426,14 @@ public class SpringMatrixTests
     {
         var floor = Math.Pow(2, -22);
         var built = BuildObject(1, false, false, settleDistance: floor, settleSpeed: floor);
+        var evaluator = built.Circuit.CreateTensorEvaluator(built.Roots);
         var source = new float[built.Circuit.SourceSize];
         // One FP32 step above 2^-22 exceeds the threshold by 2^-45, which moves the score by 2^-25.
         WriteSprings(source, [new SpringSample([1, 0, 0, 1], NextFloat32Up(floor), 0, 0, 0)]);
         source[built.SettleCheckCell] = 1;
-        Js.Is(0, EvaluateRoots(built, source)[3]);
+        Js.Is(0, EvaluateRoots(evaluator, source)[3]);
         source[0 + 4] = (float)floor;
-        Js.Is(1, EvaluateRoots(built, source)[3]);
+        Js.Is(1, EvaluateRoots(evaluator, source)[3]);
         var kinds = built.Circuit.RoundingPoints().Select(point => point.Kind).ToList();
         Assert.Single(kinds, kind => kind == RoundingPointKind.Marked);
         Assert.Single(kinds, kind => kind == RoundingPointKind.Boolean);
@@ -435,6 +447,7 @@ public class SpringMatrixTests
     public void A_changed_destination_rebases_the_displacement_once_and_an_unchanged_one_adds_exactly_0()
     {
         var built = BuildObject(1, true, false);
+        var evaluator = built.Circuit.CreateTensorEvaluator(built.Roots);
         var random = Js.CreateRandom(23);
         var rebased = 0;
         for (var sample = 0; sample < 2000; sample++)
@@ -448,7 +461,7 @@ public class SpringMatrixTests
             var destination = random() < 0.5 ? destinationDuringSteps : F(Math.Pow(2, 20) + Js.Round(random() * 800));
             WriteSprings(source, [new SpringSample(matrix, displacement, velocity, destination, destinationDuringSteps)]);
             source[built.SettleCheckCell] = 0;
-            var outputs = EvaluateRoots(built, source);
+            var outputs = EvaluateRoots(evaluator, source);
             var stepped = ApplyMatrixFp32(matrix, displacement, velocity);
             if (destination == destinationDuringSteps)
             {
