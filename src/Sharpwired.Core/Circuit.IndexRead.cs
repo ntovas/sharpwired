@@ -20,8 +20,8 @@ public sealed partial class Circuit
         return (int)position;
     }
 
-    // The index read instruction on one index value: copy the FP32 value of the selected
-    // candidate, +0 where that side reads zero, and NaN for a NaN index.
+    // The index read instruction on one index value. Copy the FP32 value of the selected candidate.
+    // Give +0 where that side reads zero, and NaN for a NaN index.
     internal static float ReadIndexedValue(float[] values, IndexReadInstruction read, double index)
     {
         var position = ResolveIndexPosition(
@@ -82,9 +82,9 @@ public sealed partial class Circuit
         if (!double.IsFinite(indexBias)) throw new ArgumentException("index bias must be finite");
         var table = RegisterCandidateTable(candidates);
         var (terms, bias) = FoldConstantTerms(NormalizeTerms(indexTerms), indexBias, ConstantList);
-        // The wires that the index form reads, counted as Append counts them: after the builder
-        // drops zero coefficients and folds constant wires into the bias, but before it copies
-        // small affine producers in.
+        // The wires that the index form reads, counted as Append counts them. These are the terms
+        // after the builder drops zero coefficients and folds constant wires into the bias. They
+        // are the terms before the builder copies small affine producers in.
         var readTerms = terms;
         (terms, bias) = ComposeAffineTerms(terms, bias, SourceSize, OperationList);
         if (terms.Length == 0)

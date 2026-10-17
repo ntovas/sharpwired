@@ -11,11 +11,11 @@ public sealed partial class Circuit
     /// <summary>
     /// Compile the operations that the roots read, directly or through other operations, into
     /// layers of sparse matrices. With no roots, every operation is a root. With lowerGathers, a
-    /// masked sum over a declared one-hot group becomes one gather read of the selected candidate,
-    /// and its products leave the program when nothing else reads them. The layer of an operation is
-    /// its depth minus 1: the build-time depth, or with recomputeDepths, one more than the deepest
-    /// value that it reads in the compiled program. In a layer, the rows follow the operation order
-    /// and the input columns follow the packed positions.
+    /// masked sum over a declared one-hot group becomes one gather read of the selected candidate.
+    /// Its products leave the program when nothing else reads them. The layer of an operation is
+    /// its depth minus 1. The depth is the build-time depth. With recomputeDepths, the depth is one
+    /// more than the deepest value that the operation reads in the compiled program. In a layer, the
+    /// rows follow the operation order and the input columns follow the packed positions.
     /// </summary>
     public TensorProgram CompileTensorProgram(IReadOnlyList<Wire>? roots = null, bool lowerGathers = true, bool recomputeDepths = false)
     {
@@ -49,7 +49,7 @@ public sealed partial class Circuit
         }
         var availableValues = SourceSize;
         // The column of each wire in the layer that the loop compiles, or -1 when the layer does not
-        // read the wire. Every layer uses this one array and resets its own entries at the end, so
+        // read the wire. Every layer uses this one array and resets its own entries at the end. So
         // the compiler does not allocate the width of the circuit for each layer.
         var inputColumnByWire = new int[width];
         Array.Fill(inputColumnByWire, -1);
@@ -288,10 +288,10 @@ public sealed partial class Circuit
         return liveOperations;
     }
 
-    // The depth of each live operation from the values that it reads in the compiled program: a
-    // lowered masked sum reads the bits of its group and its candidates, not its products, and an
-    // index read reads its index form and its candidates. An operation comes after each value that
-    // it reads, so one pass in operation order is enough. Without gather plans, this gives the
+    // The depth of each live operation from the values that it reads in the compiled program. A
+    // lowered masked sum reads the bits of its group and its candidates, not its products. An index
+    // read reads its index form and its candidates. An operation comes after each value that it
+    // reads, so one pass in operation order is enough. Without gather plans, this gives the
     // build-time depths.
     internal int[] ComputeCompiledDepths(bool[] liveOperations, IReadOnlyDictionary<int, GatherPlan> gatherPlans)
     {
@@ -315,7 +315,7 @@ public sealed partial class Circuit
             if (operation.IndexRead is { } read)
             {
                 // Each candidate comes before the first read of the table, so its depth is final
-                // then, and later reads can use the depth of the table again.
+                // then. Later reads can use the depth of the table again.
                 if (!tableDepths.TryGetValue(read.Table, out var tableDepth))
                 {
                     tableDepth = 0;
@@ -330,7 +330,7 @@ public sealed partial class Circuit
     }
 
     // Store a candidate table as a base position and a stride when the candidates are at evenly
-    // spaced packed positions, for example a run of source cells, a reversed run, or one repeated
+    // spaced packed positions. Examples are a run of source cells, a reversed run, or one repeated
     // wire. Otherwise store one position for each candidate.
     internal static PackedCandidateTable PackCandidateTable(CandidateTable table, int[] packedIndexByWire, int availableValues)
     {

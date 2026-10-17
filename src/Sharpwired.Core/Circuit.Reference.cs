@@ -169,8 +169,8 @@ public sealed partial class Circuit
     }
 
     // The selected candidate receives the output gradient, like the backward pass of a gather.
-    // The read is a step function of the index: its derivative is 0 between integers and has no
-    // value at them, so the caller chooses what the index form receives.
+    // The read is a step function of the index. Its derivative is 0 between integers and has no
+    // value at them. So the caller chooses what the index form receives.
     private static void BackpropagateIndexRead(float[] values, float[] gradients, Operation operation, float outputGradient, IndexGradient indexGradient)
     {
         var read = operation.IndexRead!;
@@ -191,7 +191,8 @@ public sealed partial class Circuit
         if (indexGradient == IndexGradient.BackwardDifference && double.IsFinite(indexValue))
         {
             // The backward pass gives this gradient to a ReLU one-hot masked sum at an integer index
-            // i, with the bits relu(i - j + 1) - relu(i - j). The ReLU at its corner gets the slope 0.
+            // i. The bits of that sum are relu(i - j + 1) - relu(i - j). The ReLU at its corner gets
+            // the slope 0.
             // So the index receives read(i) - read(i - 1), with the same rule outside the table. The
             // difference is a float64 value, as in Handwired.
             var floorIndex = Math.Floor(indexValue);

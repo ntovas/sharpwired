@@ -101,8 +101,8 @@ public static partial class Validation
     }
 
     /// <summary>
-    /// Check each declared one-hot group against evaluated wire values: each member is exactly 0 or
-    /// 1, and the members add up to exactly 1, or to 0 where the group allows all zeros. For tests
+    /// Check each declared one-hot group against evaluated wire values. Each member must be exactly 0
+    /// or 1. The members must add up to exactly 1, or to 0 where the group allows all zeros. For tests
     /// and for checks of values that a trainer writes back: the evaluators do not do this check.
     /// </summary>
     public static void ValidateOneHotGroups(this Circuit circuit, float[] values)
@@ -152,8 +152,8 @@ public static partial class Validation
     /// <summary>
     /// Check that no evaluated wire is NaN, and name the operation that produced the first NaN.
     /// Range inference does not follow NaN, so the builder cannot refuse what produces one. For
-    /// example, both sides of a select always compute, and an overflowing side that the gate does
-    /// not pick still gives f(Infinity × 0) = NaN. The values hold every wire. With roots, only the
+    /// example, both sides of a select always compute. An overflowing side that the gate does not
+    /// pick still gives f(Infinity × 0) = NaN. The values hold every wire. With roots, only the
     /// roots and the wires that they read, directly or through other operations, are checked. For
     /// tests and error messages: the evaluators do not do this check.
     /// </summary>

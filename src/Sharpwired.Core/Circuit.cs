@@ -1,9 +1,10 @@
-// Handwired source: src/runtime/numeric-ui-core.ts (class Circuit: the fields, the constructor,
-// assumeRange, assumeOneHot, assumeGrid, assumeBit, markRoundingPoint, roundingPoints,
-// isNonNegative, source, constant, affine, roundAffine, multiply, select, reglu, boolean, append;
-// and unknownRange, inferFormGrid, inferOperationGrid, recordRoundingPoint, evaluateAffineRange,
-// multiplyByReluRange, serializeExpression, serializeMacro, identityWire, affineShareThreshold,
-// composeAffineTerms, foldConstantTerms, normalizeTerms).
+// Handwired source: src/runtime/numeric-ui-core.ts. From class Circuit: the fields, the constructor,
+// assumeRange, assumeOneHot, assumeGrid, assumeBit, markRoundingPoint and roundingPoints. Also from
+// class Circuit: isNonNegative, source, constant, affine, roundAffine, multiply, select, reglu,
+// boolean and append. The functions unknownRange, inferFormGrid, inferOperationGrid,
+// recordRoundingPoint, evaluateAffineRange, multiplyByReluRange and serializeExpression. The
+// functions serializeMacro, identityWire, affineShareThreshold, composeAffineTerms,
+// foldConstantTerms and normalizeTerms.
 
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
@@ -31,8 +32,8 @@ public sealed partial class Circuit
     internal readonly List<bool> HasReaderList;
     internal readonly List<OneHotGroup> OneHotGroupList = [];
 
-    // Read-only views of the lists, made at the first read, so that a caller cannot cast a list
-    // property back to the list that the circuit changes.
+    // Read-only views of the lists, made at the first read. A caller cannot cast a list property
+    // back to the list that the circuit changes.
     private ReadOnlyCollection<Operation>? operationsView;
     private ReadOnlyCollection<int>? depthsView;
     private ReadOnlyCollection<double?>? constantsView;
@@ -85,7 +86,7 @@ public sealed partial class Circuit
 
     /// <summary>
     /// Declare the range of the values of a wire. A declaration does not change the operations
-    /// that already read the wire, so a declaration that narrows the range of such a wire throws,
+    /// that already read the wire. So a declaration that narrows the range of such a wire throws,
     /// unless allowExistingReaders is true.
     /// </summary>
     public void AssumeRange(Wire wire, double minimum, double maximum, bool allowExistingReaders = false)
@@ -280,8 +281,8 @@ public sealed partial class Circuit
         ImmutableArray<Term> gate = [.. gateTerms];
         // The wires that the operation reads, so that AssumeRange and AssumeGrid can refuse a later
         // declaration. Without preserveRounding, these are the terms after the builder drops zero
-        // coefficients and folds constants, but before it composes small affine producers, so a
-        // producer counts as read.
+        // coefficients and folds constants. They are the terms before the builder composes small
+        // affine producers, so a producer counts as read.
         var readLeft = left;
         var readGate = gate;
         if (!preserveRounding)
@@ -407,9 +408,10 @@ public sealed partial class Circuit
         return new NumericRange(minimum, maximum);
     }
 
-    // The grid of an affine form evaluated in FP32, when every term reads a wire with a grid and the
-    // declared ranges keep every product and partial sum within 2^24 grid steps. Magnitude bounds
-    // |bias| plus every |coefficient × operand|, which bounds every partial sum in any term order.
+    // The grid of an affine form evaluated in FP32. The grid is known when every term reads a wire
+    // with a grid. The declared ranges must also keep every product and partial sum within 2^24
+    // grid steps. Magnitude bounds |bias| plus every |coefficient × operand|, which bounds every partial
+    // sum in any term order.
     internal static (double Grid, double Magnitude)? InferFormGrid(
         ImmutableArray<Term> terms,
         double bias,

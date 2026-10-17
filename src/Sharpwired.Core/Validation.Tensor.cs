@@ -6,15 +6,21 @@ namespace Sharpwired.Core;
 public static partial class Validation
 {
     /// <summary>
-    /// Check that a compiled program fits the circuit: the sizes match, each layer reads only the
-    /// values that earlier layers wrote, each row and column is inside its layer, each gather slot is
-    /// resolved exactly once before its reads, each gather read and index read can reach its
-    /// candidates, each constant is finite, each live wire is written exactly once, and each root is
-    /// present.
+    /// Check that a compiled program fits the circuit. The checks are:
+    /// <list type="bullet">
+    /// <item><description>The sizes match.</description></item>
+    /// <item><description>Each layer reads only the values that earlier layers wrote.</description></item>
+    /// <item><description>Each row and column is inside its layer.</description></item>
+    /// <item><description>Each gather slot is resolved exactly once before its reads.</description></item>
+    /// <item><description>Each gather read and index read can reach its candidates.</description></item>
+    /// <item><description>Each constant is finite.</description></item>
+    /// <item><description>Each live wire is written exactly once.</description></item>
+    /// <item><description>Each root is present.</description></item>
+    /// </list>
     /// </summary>
     /// <remarks>
-    /// A program record can hold values that a JavaScript program object cannot have the same way,
-    /// for example a negative row or a wire order shorter than the layers write. Where Handwired
+    /// A program record can hold values that a JavaScript program object cannot have the same way.
+    /// Examples are a negative row, or a wire order shorter than the layers write. Where Handwired
     /// reads undefined and the next check fails, this port checks the bounds first and throws the
     /// message of that next check.
     /// </remarks>
@@ -128,8 +134,8 @@ public static partial class Validation
                 if (read.CandidatePositions.Count == 0)
                 {
                     // Evenly spaced positions are between the first and the last, so when both ends
-                    // are available, each candidate is available. long, because Handwired computes
-                    // the last position in float64.
+                    // are available, each candidate is available. The type is long, because
+                    // Handwired computes the last position in float64.
                     var lastPosition = read.CandidateBase + (long)(read.CandidateCount - 1) * read.CandidateStride;
                     Invariant(
                         read.CandidateBase >= 0
@@ -175,13 +181,15 @@ public static partial class Validation
 
     /// <summary>
     /// Check that the tensor values equal the reference values on each wire of the program that
-    /// EvaluateTensor runs without a program argument: <see cref="Circuit.TensorProgram"/>, or a
-    /// program of every operation that this call compiles into it when it is null.
+    /// EvaluateTensor runs without a program argument. That program is
+    /// <see cref="Circuit.TensorProgram"/>. When it is null, this call compiles a program of every
+    /// operation into it.
     /// </summary>
     /// <remarks>
     /// The comparison is == on float, as Handwired uses ===: +0 equals -0, and a NaN value never
-    /// passes. The reference values come from the operation stream, which checks the length of the
-    /// source table and not the source ranges.
+    /// passes. The reference values come from the operation stream. The operation stream checks the
+    /// length of the source table and not the source ranges. The call can write
+    /// <see cref="Circuit.TensorProgram"/>. Do not call it from parallel threads on one circuit.
     /// </remarks>
     /// <param name="circuit">The circuit.</param>
     /// <param name="source">The source table of the evaluation.</param>
@@ -194,7 +202,7 @@ public static partial class Validation
         var program = circuit.TensorProgram ??= circuit.CompileTensorProgram();
         foreach (var wire in program.WireOrder)
         {
-            // The message is built only on failure, so a passing check allocates no string.
+            // The code builds the message only on failure, so a check that passes allocates no string.
             if (!(tensorValues[wire] == expectedValues[wire]))
             {
                 throw new InvalidOperationException($"tensor wire {wire} does not match the reference FP32 atom program");

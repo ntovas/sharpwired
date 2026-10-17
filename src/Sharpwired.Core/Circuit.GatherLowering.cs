@@ -5,21 +5,22 @@ using System.Collections.Immutable;
 
 namespace Sharpwired.Core;
 
-// A recognized one-hot-masked sum, keyed by its operation index: the terms of the affine are
+// A recognized one-hot-masked sum, keyed by its operation index. The terms of the affine are
 // products of the bits of the group and these candidate wires, in the order of the group positions.
 internal sealed record GatherPlan(int GroupIndex, ImmutableArray<Wire> CandidateWires);
 
-// One parsed term of a masked sum: Coefficient × f(left × max(0, GateCoefficient × gate)), or an
-// exact Multiply of left and gate when ExactMultiply is true.
+// One parsed term of a masked sum: Coefficient × f(left × max(0, GateCoefficient × gate)). When
+// ExactMultiply is true, the term is an exact Multiply of left and gate.
 internal readonly record struct MaskedProduct(double Coefficient, Wire LeftWire, Wire GateWire, double GateCoefficient, bool ExactMultiply);
 
 public sealed partial class Circuit
 {
-    // Find each masked read of a group: an affine whose terms are products of the bits of a declared
-    // one-hot group and value wires, with each group position exactly one time. Such a sum adds
-    // f(0 × value) = 0 for each position that the group does not select, and the selected value. So
-    // a read of the selected candidate gives the same value bit for bit (execution-model.md, "One-hot
-    // groups and gathers"). The result maps an operation index to its plan.
+    // Find each masked read of a group. A masked read is an affine whose terms are products of the
+    // bits of a declared one-hot group and value wires. Each group position occurs exactly one
+    // time. Such a sum adds f(0 × value) = 0 for each position that the group does not select, and
+    // the selected value. So a read of the selected candidate gives the same value bit for bit
+    // (execution-model.md, "One-hot groups and gathers"). The result maps an operation index to its
+    // plan.
     internal static Dictionary<int, GatherPlan> PlanGatherLowering(Circuit circuit)
     {
         var plans = new Dictionary<int, GatherPlan>();
@@ -63,9 +64,10 @@ public sealed partial class Circuit
                 products.Add(product);
             }
             if (!parsed) continue;
-            // Each term of a matching sum reads the group through its left wire or its gate wire, so
-            // only the groups of the first product can match. The groups of the gate wire come first,
-            // then the groups of the left wire, each group one time, as a JavaScript Set iterates.
+            // Each term of a sum that matches reads the group through its left wire or its gate wire.
+            // So only the groups of the first product can match. The groups of the gate wire come
+            // first, then the groups of the left wire, each group one time, as a JavaScript Set
+            // iterates.
             var first = products[0];
             var candidateGroups = new List<int>();
             var seenGroups = new HashSet<int>();
@@ -91,7 +93,7 @@ public sealed partial class Circuit
     }
 
     // Find the wire of one side of a ReGLU. The builder copies a small affine wire (fewer than
-    // AffineShareThreshold terms) into each consumer, so a product with such a wire stores the
+    // AffineShareThreshold terms) into each consumer. So a product with such a wire stores the
     // expanded definition of the wire, not one term. The expression cache of the builder gives the
     // wire back: an expanded copy has the key under which the builder stored the wire. Sign -1 means
     // that the side is the negated wire (the negative arm of a mixed-sign Multiply stores the gate
@@ -120,9 +122,9 @@ public sealed partial class Circuit
         return null;
     }
 
-    // Parse one term of a possible masked sum. A usable product is a ReGLU whose left side is a wire
-    // (or the copied definition of that wire) and whose gate side is a wire or its negation: the
-    // forms that Multiply builds for bit × value in each orientation.
+    // Parse one term of a possible masked sum. A usable product is a ReGLU with two conditions. Its
+    // left side is a wire or the copied definition of that wire. Its gate side is a wire or its
+    // negation. These are the forms that Multiply builds for bit × value in each orientation.
     private static MaskedProduct? ParseMaskedProduct(Circuit circuit, Wire wire, double coefficient)
     {
         if (wire.Position < circuit.SourceSize) return null;
@@ -138,8 +140,9 @@ public sealed partial class Circuit
     }
 
     // The lowering needs value wires with finite declared ranges. A wire whose range admits Infinity
-    // can make the dense sum NaN through a product that the group does not select
-    // (f(Infinity × 0) is NaN), while the gather skips that product, so such reads stay dense.
+    // can make the dense sum NaN. For a product that the group does not select, f(Infinity × 0) is
+    // NaN. The gather skips that product, so such reads stay dense. Each bound rounds to FP32 before
+    // the test. A bound that rounds to Infinity, for example 3.5e38, admits Infinity.
     private static bool HasFiniteRange(Circuit circuit, Wire wire)
     {
         var range = circuit.RangeList[wire.Position];
@@ -152,8 +155,8 @@ public sealed partial class Circuit
         public bool Used { get; set; }
     }
 
-    // Try to read the parsed products as one complete read of the group: each group position must
-    // give exactly one value wire, and each term must equal that masked read in FP32. Return the
+    // Try to read the parsed products as one complete read of the group. Each group position must
+    // give exactly one value wire. Each term must equal that masked read in FP32. Return the
     // candidate wires in the order of the group positions, or null when the sum is not a pure masked
     // read of this group.
     private static ImmutableArray<Wire>? AttemptGatherMatch(
@@ -185,9 +188,9 @@ public sealed partial class Circuit
             {
                 var options = new List<(int Position, Wire ValueWire)>();
                 // The bit in the gate: f(value × max(0, bit)) selects each finite value. Both ends of
-                // the declared range of the value must be finite: with Infinity, a product that the
-                // group does not select becomes f(Infinity × 0) = NaN and makes the dense sum NaN,
-                // which a gather does not give.
+                // the declared range of the value must be finite. With Infinity, a product that the
+                // group does not select becomes f(Infinity × 0) = NaN and makes the dense sum NaN.
+                // A gather does not give this NaN.
                 if (positionByMember.TryGetValue(gateWire, out var gatePosition) && HasFiniteRange(circuit, leftWire))
                 {
                     options.Add((gatePosition, leftWire));
@@ -208,8 +211,8 @@ public sealed partial class Circuit
                     else if (gateRange.Minimum >= 0 && double.IsFinite(gateRange.Maximum))
                     {
                         // The bit on the left: f(bit × max(0, value)) reads the value only when the
-                        // ReLU is the identity, so the value must be nonnegative, and finite for the
-                        // NaN reason above.
+                        // ReLU is the identity. So the value must be nonnegative. It must also be
+                        // finite, for the NaN reason above.
                         options.Add((leftPosition, gateWire));
                     }
                 }
@@ -218,7 +221,7 @@ public sealed partial class Circuit
             }
             else if (gateCoefficient == -1 && positionByMember.ContainsKey(gateWire))
             {
-                // A bit behind a negated gate: max(0, -bit) is exactly 0 for a bit of 0 or 1, so the
+                // A bit behind a negated gate: max(0, -bit) is exactly 0 for a bit of 0 or 1. So the
                 // term adds a signed zero that the sum ignores. When the left value can be infinite,
                 // the reference computes f(Infinity × 0) = NaN, not a zero.
                 if (!HasFiniteRange(circuit, leftWire)) return null;
@@ -237,8 +240,8 @@ public sealed partial class Circuit
         {
             if (!arm.Used) return null;
         }
-        // Give the positions: first the terms with one option, then each term whose bit can be on
-        // either side takes the first of its positions that is still open, in term order.
+        // Give the positions. First place the terms with one option. Then, in term order, each term
+        // whose bit can be on either side takes the first of its positions that is still open.
         var candidateWires = new Wire?[group.Members.Length];
         var flexibleTerms = new List<List<(int Position, Wire ValueWire)>>();
         foreach (var options in optionsByTerm)
