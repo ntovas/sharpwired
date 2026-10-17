@@ -39,7 +39,9 @@ internal static class TranslationSupport
 
     /// <summary>
     /// Compares the program evaluator with the plain method over the seeded source tables, for each
-    /// output leaf.
+    /// output leaf. When the plain method gives a value that is not finite (an input near
+    /// float.MaxValue overflows in C# too), the evaluator must refuse the table, because NaN and
+    /// infinity are not part of the contract (plan, "Behavior with no direct form").
     /// </summary>
     public static void AssertMatchesPlain(TranslatedFunction translated, int seed, ZeroSign zeroSign)
     {
@@ -47,8 +49,14 @@ internal static class TranslationSupport
         var sources = SeededSources.Create(translated.Table, SeededTableCount, seed);
         foreach (var source in sources)
         {
-            var program = evaluator.Evaluate(source).Outputs;
             var plain = translated.EvaluatePlain(source);
+            if (!plain.All(float.IsFinite))
+            {
+                Assert.Throws<InvalidOperationException>(() => evaluator.Evaluate(source));
+                continue;
+            }
+
+            var program = evaluator.Evaluate(source).Outputs;
             Assert.Equal(plain.Length, program.Length);
             for (var leaf = 0; leaf < plain.Length; leaf++)
             {

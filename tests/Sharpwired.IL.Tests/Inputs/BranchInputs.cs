@@ -22,7 +22,7 @@ public static class BranchInputs
     public static float ChooseOrZero(bool c, [Range(-100, 100)] float x) => c ? x : 0f;
 
     [Handwired]
-    public static float DoubleWhen(bool c, float x)
+    public static float DoubleWhen(bool c, [Range(-100, 100)] float x)
     {
         float y = x;
         if (c)

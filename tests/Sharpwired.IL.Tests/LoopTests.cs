@@ -27,6 +27,12 @@ public class LoopTests
 
     private const string OverflowReason = "the value can overflow FP32; declare smaller ranges";
 
+    private const string ChoiceConstruct = "a choice with a side that has no finite range";
+
+    private const string ChoiceReason = "a side of this choice can overflow FP32 when C# does not compute it; declare finite ranges";
+
+    private static CellSpec Thousand => Cell.Input(new NumericRange(-1000, 1000));
+
     private static CellSpec Open => Cell.Input(Cell.AnyNumber);
 
     private static CellSpec Hundred => Cell.Input(new NumericRange(-100, 100));
@@ -157,7 +163,7 @@ public class LoopTests
     [Fact]
     public void A_counted_loop_unrolls_eight_copies_with_active_bits()
     {
-        var expected = new ExpectedProgram(Count(8), Open);
+        var expected = new ExpectedProgram(Count(8), Thousand);
         var (n, x) = (expected.Cells[0], expected.Cells[1]);
         var circuit = expected.Circuit;
         var c0 = circuit.Compare(circuit.Constant(0), Relation.Less, n);
@@ -181,6 +187,44 @@ public class LoopTests
         AssertMatchesPlain(translated, 1108, ZeroSign.MayDiffer);
     }
 
+    // The counterexample of the review: n = 1, x = 3E+38. The second copy is inactive and computes
+    // s + x = Infinity, and Select(0, s, Infinity) gives NaN.
+    [Fact]
+    public void A_counted_loop_whose_kept_state_has_no_finite_range_is_refused() =>
+        AssertRefused(() => Translate(nameof(LoopInputs.CountedSumOpen)), LoopFile, "counted-open", ChoiceConstruct, ChoiceReason);
+
+    [Fact]
+    public void A_counted_loop_with_a_finite_range_gives_the_plain_value_at_the_range_end()
+    {
+        var translated = Translate(nameof(LoopInputs.CountedSumWide));
+
+        // The largest FP32 value in the range 1E+35.
+        var end = MathF.BitDecrement(1e35f);
+        for (var n = 0; n <= 8; n++)
+        {
+            AssertMatchesPlainAt(translated, [n, end], ZeroSign.MayDiffer);
+            AssertMatchesPlainAt(translated, [n, -end], ZeroSign.MayDiffer);
+        }
+
+        AssertMatchesPlain(translated, 1121, ZeroSign.MayDiffer);
+    }
+
+    // The header holds a part of the loop test and no exit edge. The unroll counts the pass that runs
+    // only the test blocks, so the loop gets all 3 copies of [MaxIterations(3)].
+    [Theory]
+    [InlineData(nameof(LoopInputs.OrTestMaximum), new[] { 3f })]
+    [InlineData(nameof(LoopInputs.LessOrEqualAnd), new[] { 3f, 100f })]
+    public void A_loop_test_in_two_or_more_blocks_gets_each_copy_of_MaxIterations(string name, float[] longest)
+    {
+        var translated = Translate(name);
+        AssertMatchesPlainAt(translated, longest, ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 1122, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_constant_that_folds_past_the_fp32_range_is_refused() =>
+        AssertRefused(() => Translate(nameof(LoopInputs.FoldedInfinity)), LoopFile, "folded-infinity", OverflowConstruct, OverflowReason);
+
     [Fact]
     public void A_counted_loop_with_an_array_read_gives_the_plain_values() =>
         AssertMatchesPlain(Translate(nameof(LoopInputs.CountedWeights)), 1109, ZeroSign.MayDiffer);
@@ -196,7 +240,7 @@ public class LoopTests
     [Fact]
     public void An_FSharp_for_in_loop_to_n_minus_1_unrolls_eight_copies()
     {
-        var expected = new ExpectedProgram(Count(8), Open);
+        var expected = new ExpectedProgram(Count(8), Thousand);
         var (n, x) = (expected.Cells[0], expected.Cells[1]);
         var circuit = expected.Circuit;
         var limit = circuit.Affine([(n, 1)], -1);

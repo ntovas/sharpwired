@@ -6,6 +6,12 @@
 // relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off". The emitter also keeps
 // the overflow bits of the loops with [MaxIterations] (LoopForms.cs), because the inlined methods
 // share it.
+//
+// The circuit computes both sides of each gate, and each inactive loop copy, where C# computes only
+// the side that it takes. So a side whose range is not finite can be Infinity in the circuit while C#
+// does not compute it, and Select(0, kept, Infinity) gives NaN. The emitter refuses such a side
+// (review of task 5, round 2, finding A). A cell holds a finite value (the cell validator checks it),
+// and an emitted gate holds one of its checked sides, so these sides are accepted.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -26,20 +32,49 @@ internal sealed class Emitter(Circuit circuit)
     /// </summary>
     public List<LoopOverflow> Overflows { get; } = [];
 
+    // The wires of the emitted gates. Each one holds a side with a finite value.
+    private readonly HashSet<Wire> gateWires = [];
+
     // True when an emitted value passed the FP32 range after the last CheckRanges.
     private bool pastRange;
 
+    // True when an emitted gate read a side that can be Infinity after the last CheckRanges.
+    private bool openSide;
+
     /// <summary>
-    /// Returns false when a value that the translator emitted after the last check has a range that is
-    /// not finite while each wire that the value reads has a finite range: the value can overflow FP32.
-    /// The rule checks the value wires (an affine form, a gate, a product), and not the operations in
-    /// a macro, because a macro can use a saturation with a range that is not finite.
+    /// Returns the construct and the reason of a refusal, or null. A value that the translator emitted
+    /// after the last check can overflow FP32 when its range is not finite while each wire that it
+    /// reads has a finite range, or when it is a constant that is not finite. The rule checks the value
+    /// wires (an affine form, a gate, a product), and not the operations in a macro, because a macro
+    /// can use a saturation with a range that is not finite. A gate is refused when a side that is not
+    /// a cell or a gate has a range that is not finite.
     /// </summary>
-    public bool CheckRanges()
+    public (string Construct, string Reason)? CheckRanges()
     {
-        var passes = !pastRange;
+        (string, string)? fault = pastRange ? (OperationLowering.OverflowConstruct, OperationLowering.OverflowReason)
+            : openSide ? (OperationLowering.OpenSideConstruct, OperationLowering.OpenSideReason)
+            : null;
         pastRange = false;
-        return passes;
+        openSide = false;
+        return fault;
+    }
+
+    // A side of a gate. A cell and a gate hold finite values; another wire with a range that is not
+    // finite can hold Infinity.
+    private Wire Side(Wire side)
+    {
+        if (!IsFinite(Circuit.Ranges[side.Position]) && side.Position >= Circuit.SourceSize && !gateWires.Contains(side))
+        {
+            openSide = true;
+        }
+
+        return side;
+    }
+
+    private Wire Gate(Wire gate)
+    {
+        gateWires.Add(gate);
+        return gate;
     }
 
     /// <summary>Notes a value wire and the wires that it reads, for <see cref="CheckRanges"/>.</summary>
@@ -59,6 +94,11 @@ internal sealed class Emitter(Circuit circuit)
         if (value.Wire is { } wire)
         {
             return wire;
+        }
+
+        if (value is ConstantValue { Number: var number } && !double.IsFinite(number))
+        {
+            pastRange = true;
         }
 
         var emitted = value switch
@@ -237,13 +277,13 @@ internal sealed class Emitter(Circuit circuit)
         {
             // Rule 6: ITE(c, x, 0) = Multiply(c, x), the Handwired form of "condition ? value : 0".
             var condition = Emit(gate.Condition);
-            return Circuit.Multiply(condition, Emit(gate.On));
+            return Gate(Circuit.Multiply(condition, Side(Emit(gate.On))));
         }
 
         // Rule 7: Select(c, off, on).
         var gateWire = Emit(gate.Condition);
-        var offValue = Emit(gate.Off);
-        return Circuit.Select(gateWire, offValue, Emit(gate.On));
+        var offValue = Side(Emit(gate.Off));
+        return Gate(Circuit.Select(gateWire, offValue, Side(Emit(gate.On))));
     }
 
     // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.

@@ -332,7 +332,7 @@ internal sealed partial class OperationLowering
         }
 
         return left is ConstantValue constant
-            ? new ConstantValue((float)(constant.Number / divisor.Number), kind)
+            ? FiniteConstant((float)(constant.Number / divisor.Number), kind, offset)
             : NewAffine(kind, AffineOp.Scale, left, null, reciprocal, operation);
     }
 
@@ -364,8 +364,13 @@ internal sealed partial class OperationLowering
             ILOpCode.Mul => a * b,
             _ => -a,
         };
-        return new ConstantValue(result, kind);
+        return FiniteConstant(result, kind, offset);
     }
+
+    // A folded constant that is not finite has no operand wires, so the range check of decision 11
+    // does not see it (review of task 5, round 2, finding C).
+    private ConstantValue FiniteConstant(float value, ScalarKind kind, int offset) =>
+        float.IsFinite(value) ? new ConstantValue(value, kind) : throw Refuse(offset, OverflowConstruct, OverflowReason);
 
     // An affine form of one IL instruction. An int form must be exact; a form with two or more uses
     // emits at its definition (plan, "Emission rules", rule 2).

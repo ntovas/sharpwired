@@ -94,9 +94,9 @@ public static class HandwiredTranslator
     // The output leaves emit at the return, so a value past the FP32 range among them has the location of the return.
     private static void CheckRanges(Emitter emitter, SourceLocation location)
     {
-        if (!emitter.CheckRanges())
+        if (emitter.CheckRanges() is { } fault)
         {
-            throw new TranslationException(location, 0, OperationLowering.OverflowConstruct, OperationLowering.OverflowReason);
+            throw new TranslationException(location, 0, fault.Construct, fault.Reason);
         }
     }
 

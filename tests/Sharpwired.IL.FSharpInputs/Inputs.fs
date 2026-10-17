@@ -134,21 +134,21 @@ module Loops =
         s
 
     [<Handwired>]
-    let countedSum ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+    let countedSum ([<Range(0.0, 8.0)>] n: int) ([<Range(-1000.0, 1000.0)>] x: float32) =
         let mutable s = 0.0f
         for _ in 0 .. n - 1 do
             s <- s + x
         s
 
     [<Handwired>]
-    let countedSumTo ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+    let countedSumTo ([<Range(0.0, 8.0)>] n: int) ([<Range(-1000.0, 1000.0)>] x: float32) =
         let mutable s = 0.0f
         for i = 1 to n do
             s <- s + x
         s
 
     [<Handwired>]
-    let countedSumWhile ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+    let countedSumWhile ([<Range(0.0, 8.0)>] n: int) ([<Range(-1000.0, 1000.0)>] x: float32) =
         let mutable s = 0.0f
         let mutable i = 0
         while i < n do

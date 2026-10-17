@@ -57,7 +57,7 @@ public class BranchTests
     [Fact]
     public void An_if_statement_gives_select_of_the_old_and_the_new_value()
     {
-        var expected = new ExpectedProgram(Cell.InputBit(), Open);
+        var expected = new ExpectedProgram(Cell.InputBit(), Hundred);
         var (c, x) = (expected.Cells[0], expected.Cells[1]);
         expected.Circuit.Select(c, x, expected.Circuit.Affine([(x, 2)]));
         var translated = Translate(nameof(BranchInputs.DoubleWhen));

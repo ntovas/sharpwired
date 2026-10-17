@@ -103,11 +103,77 @@ public static class LoopInputs
     // Form 2.
 
     [Handwired]
-    public static float CountedSum([Range(0, 8)] int n, float x)
+    public static float CountedSum([Range(0, 8)] int n, [Range(-1000, 1000)] float x)
     {
         float s = 0f;
         for (int i = 0; i < n; i++) s += x;
         return s;
+    }
+
+    // The kept state of an inactive copy reads s + x, which can be Infinity when x has no range,
+    // while C# does not compute it (review of task 5, round 2, finding A).
+    [Handwired]
+    public static float CountedSumOpen([Range(0, 8)] int n, float x)
+    {
+        float s = 0f;
+        for (int i = 0; i < n; i++) s += x; // marker: counted-open
+        return s;
+    }
+
+    // The inferred range of each kept state stays finite for x within 1E+35.
+    [Handwired]
+    public static float CountedSumWide([Range(0, 8)] int n, [Range(-1e35, 1e35)] float x)
+    {
+        float s = 0f;
+        for (int i = 0; i < n; i++) s += x;
+        return s;
+    }
+
+    // The header holds the first part of the loop test and no exit edge (review of task 5, round 2,
+    // finding B). The last pass runs only the test blocks, so the unroll needs MaxIterations + 1 passes.
+    [Handwired, MaxIterations(3)]
+    public static float OrTestMaximum([Range(0, 3)] int n)
+    {
+        float s = 0f;
+        int i = 0;
+        while (i < 1 || i < n)
+        {
+            s += 1f;
+            i++;
+        }
+
+        return s;
+    }
+
+    // In Debug, the && value is a phi after the header, so the header has no exit edge. The right
+    // operand is a comparison: with a local or an argument, Roslyn writes the IL and instead.
+    [Handwired, MaxIterations(3)]
+    public static float LessOrEqualAnd([Range(0, 3)] int n, [Range(0, 100)] float x)
+    {
+        float s = 0f;
+        int i = 1;
+        while (i <= n && x > s)
+        {
+            s += 1f;
+            i++;
+        }
+
+        return s;
+    }
+
+    // s and t are constants in each copy. 0.5 * 3^82 passes float.MaxValue, so the fold gives
+    // Infinity (review of task 5, round 2, finding C).
+    [Handwired]
+    public static float FoldedInfinity()
+    {
+        float s = 0.5f, t = 0f;
+        for (int i = 0; i != 150; i++)
+        {
+            for (int j = 0; j < 2; j++) s = s * 3f; // marker: folded-infinity
+            t += s;
+        }
+
+        return s + t;
     }
 
     [Handwired]

@@ -49,6 +49,12 @@ internal sealed partial class OperationLowering
     /// <summary>The reason of a value whose range passes FP32.</summary>
     public const string OverflowReason = "the value can overflow FP32; declare smaller ranges";
 
+    /// <summary>The construct of a gate with a side whose range is not finite.</summary>
+    public const string OpenSideConstruct = "a choice with a side that has no finite range";
+
+    /// <summary>The reason of a gate with a side whose range is not finite.</summary>
+    public const string OpenSideReason = "a side of this choice can overflow FP32 when C# does not compute it; declare finite ranges";
+
     private static readonly ConstantValue Zero = new(0, ScalarKind.Bit);
 
     private static readonly ConstantValue One = new(1, ScalarKind.Bit);
@@ -172,9 +178,12 @@ internal sealed partial class OperationLowering
         var exitSources = loop.ExitEdges.Select(edge => edge.From).Distinct().ToArray();
         var testOffset = LastOffset(exitSources.Contains(loop.Header) ? loop.Header : exitSources.Min());
 
-        // A copy count is a count of copies of the body. When the header holds an exit test, the
-        // last pass runs only the test, so the header runs one more time than the body.
-        var extra = exitSources.Contains(loop.Header) ? 1 : 0;
+        // A copy count is a count of copies of the body. When the blocks of the exit test come before
+        // the body (no back edge leaves them), the last pass runs only the test, so the test runs one
+        // more time than the body. The test can span the header and other blocks, for example
+        // "i < 1 || i < n", and an && value in Debug (review of task 5, round 2, finding B).
+        var testBlocks = BlocksBefore(loop, exitSources);
+        var extra = testBlocks.Overlaps(loop.BackEdgeSources) ? 0 : 1;
         var maximum = method.Method.GetCustomAttribute<MaxIterationsAttribute>()?.Count;
         int? limitPasses = maximum is { } count && count <= MaximumCopies ? count + extra : null;
         var hardPasses = MaximumCopies + extra;
@@ -194,7 +203,6 @@ internal sealed partial class OperationLowering
         var liveOuts = LiveOuts(loop);
         var held = new Dictionary<SsaValue, Value>();
         var order = CopyOrder(loop);
-        var testBlocks = BlocksBefore(loop, exitSources);
 
         // kept[i]: a Select of the active bit keeps the state of header phi i; previous[i]: the state
         // of the pass before.
@@ -394,13 +402,14 @@ internal sealed partial class OperationLowering
         return order.ToImmutable();
     }
 
-    // Refuses a value past the FP32 range: an emitted operation whose range is not finite while each
-    // wire that it reads has a finite range.
+    // Refuses a value past the FP32 range (an emitted operation whose range is not finite while each
+    // wire that it reads has a finite range, or a constant that is not finite), and a gate with a side
+    // that can be Infinity (Emitter.cs).
     private void CheckRanges(int offset)
     {
-        if (!Emitter.CheckRanges())
+        if (Emitter.CheckRanges() is { } fault)
         {
-            throw Refuse(offset, OverflowConstruct, OverflowReason);
+            throw Refuse(offset, fault.Construct, fault.Reason);
         }
     }
 

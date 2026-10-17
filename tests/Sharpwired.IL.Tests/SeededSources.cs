@@ -1,6 +1,8 @@
 // No Handwired source. Seeded source tables within the declarations of a finished table, for the
 // value tests of the translator (plan, task 3): bits 0 or 1; int values within the range; float
 // values on the grid; and otherwise random FP32 values in the range, with the range ends, 0 and -0.
+// An open range also gets values up to +-3E+38 and +-float.MaxValue, so that a value test reaches
+// the inputs that overflow FP32 (review of task 5, round 2, finding A).
 // A one-hot group gets exactly one member at 1, or no member when the group allows all zeros. Each
 // table passes the validator of the finished table.
 
@@ -12,8 +14,11 @@ namespace Sharpwired.IL.Tests;
 
 internal static class SeededSources
 {
-    // The magnitudes of a value in an open range: 2^-12 to 2^12.
+    // The magnitudes of most values in an open range: 2^-12 to 2^12.
     private const int OpenRangeExponent = 12;
+
+    // The largest exponent of a large value in an open range: 2^127 is near float.MaxValue.
+    private const int LargeExponent = 127;
 
     /// <summary>Creates count source tables from the seed. Each table passes the validator of the table.</summary>
     public static List<float[]> Create(FinishedTable table, int count, int seed)
@@ -64,7 +69,22 @@ internal static class SeededSources
         if (!double.IsFinite(range.Minimum) || !double.IsFinite(range.Maximum))
         {
             if (choice < 0.1) return random() < 0.5 ? 0f : -0f;
-            var magnitude = (float)((1 + random()) * Math.ScaleB(1.0, (int)(random() * (2 * OpenRangeExponent + 1)) - OpenRangeExponent));
+            float magnitude;
+            if (choice < 0.15)
+            {
+                magnitude = random() < 0.5 ? 3e38f : float.MaxValue;
+            }
+            else if (choice < 0.3)
+            {
+                // A large value: 2^12 to float.MaxValue.
+                var exponent = OpenRangeExponent + (int)(random() * (LargeExponent - OpenRangeExponent + 1));
+                magnitude = (float)Math.Min((1 + random()) * Math.ScaleB(1.0, exponent), float.MaxValue);
+            }
+            else
+            {
+                magnitude = (float)((1 + random()) * Math.ScaleB(1.0, (int)(random() * (2 * OpenRangeExponent + 1)) - OpenRangeExponent));
+            }
+
             var signed = random() < 0.5 ? -magnitude : magnitude;
             return signed >= range.Minimum && signed <= range.Maximum ? signed : magnitude;
         }
