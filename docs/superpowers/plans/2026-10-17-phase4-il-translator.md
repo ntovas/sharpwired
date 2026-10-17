@@ -727,3 +727,14 @@ The tasks run in order. Each task ends with `dotnet build -warnaserror`, `dotnet
 5. Attributes outside R4.2. The plan adds `[Initial]` (the builder toggle starts the viewport at 1280 × 800) and `[FixedLength]` (a `float[]` has no length in its type). Do you accept the two attributes?
 6. The recurrent form limits. One loop with no maximum per method, at the top level. The state cell range comes from a fixed point of 8 rounds, with a wide fallback range. Do you accept these limits for phase 4?
 7. The sign of zero. The per-construct value tests use `==` on outputs that come from `Select`, `MinimumExact` or `MaximumExact`, because their contracts allow a different sign of zero. The toggle trace uses `Js.Is`. Do you agree?
+
+## Decisions
+
+The controller decided these open questions on 2026-10-17. Question 2 waits for the user.
+
+1. Accepted: the state-first `ToggleProgram.Build(declare)` overload. The phase 3 `Build()` stays and keeps its cell order.
+3. Accepted: `Toggle.CSharp` opens the translated C# toggle. The option `--builder` opens the builder toggle.
+4. Accepted: `Spring`, `Argmax` and `ClampZeroOne` join `Hw` in phase 6 only if the JSON search needs them.
+5. Accepted: `[Initial]` and `[FixedLength]`. The translator needs an initial state value and a fixed array length.
+6. Accepted: the form 3 limits. One loop with no maximum per method, at the top level. The state range comes from a fixed point of 8 rounds, with a wide fallback range.
+7. Accepted: the per-construct value tests compare with `==` where Handwired allows a different sign of zero (`Select`, `MinimumExact`, `MaximumExact`, execution-model.md "up to the sign of zero"). The toggle trace compares with `Js.Is`.
