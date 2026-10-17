@@ -736,3 +736,13 @@ The manual check, after task 7:
 3. Test projects for samples. The plan adds `tests/Toggle.Builder.Tests` for `samples/Toggle.Builder`, and no test project for `samples/Toggle.CSharp`, which holds only `Program.cs` in phase 3. Phase 4 adds the plain C# method to `samples/Toggle.CSharp`, and its test project can come with it. Do you agree?
 4. `Sharpwired.Core.Tests` gets a project reference to `Sharpwired.Timing`, because the spring macro tests write float64 matrices as host values. The alternative is to move these macro tests into `Sharpwired.Timing.Tests`, which then tests Core macros. Do you agree with the reference?
 5. The idle rule. Raylib draws every frame at 60 fps. The plan calls `ToggleMachine.Step` only when the clock runs, an event is queued, or the viewport changed, and draws the last commands in other frames. The browser host requests no frame while idle. Do you want the same rule, or a step in every frame?
+
+## Decisions
+
+The controller decided the open questions on 2026-10-17.
+
+1. Event time. Raylib gives no timestamp for an input event. Each event gets the time of the frame that reads it. An event can therefore apply up to one frame late. The trace test drives `HostLoop` with exact event times, so the test does not depend on this rule.
+2. Cancel. The host queues a cancel event when the window loses focus. This is the nearest Raylib form of `pointercancel`.
+3. Test projects. `samples/Toggle.Builder` gets a test project. `samples/Toggle.CSharp` holds only `Program.cs` and gets no test project.
+4. References. `Sharpwired.Core.Tests` references `Sharpwired.Timing`. This makes no cycle.
+5. Idle rule. When the clock is stopped, no event is queued and the viewport did not change, the window draws the last commands and does not step the program. This follows the Handwired browser host, which requests a frame only while the program animates.
