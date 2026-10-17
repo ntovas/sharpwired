@@ -3,6 +3,7 @@
 // build time only: SourceTable.Next and ProgramEvaluator.Create call it, and no evaluation does.
 
 using System.Collections;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using Sharpwired.Core;
@@ -20,6 +21,8 @@ namespace Sharpwired.Cells;
 /// field is the property name with its first letter in lower case, so ThumbOffset gives thumbOffset.
 /// </item>
 /// <item>Null, a number, an enum value and a string are refused.</item>
+/// <item>A type with public instance fields, for example a ValueTuple, is refused, because the walker reads only properties.</item>
+/// <item>A default ImmutableArray is refused.</item>
 /// </list>
 /// </summary>
 internal static class WireStruct
@@ -47,8 +50,8 @@ internal static class WireStruct
                 return;
             case Shape.List:
             {
-                var storedElements = Elements(stored!);
-                if (ShapeOf(next) != Shape.List || Elements(next!) is not { } nextElements || nextElements.Length != storedElements.Length)
+                var storedElements = Elements(stored!, path);
+                if (ShapeOf(next) != Shape.List || Elements(next!, path) is not { } nextElements || nextElements.Length != storedElements.Length)
                 {
                     throw new ArgumentException($"next state{at} must be a list of {storedElements.Length.ToString(CultureInfo.InvariantCulture)}");
                 }
@@ -86,7 +89,10 @@ internal static class WireStruct
 
     /// <summary>
     /// Handwired collectLeaves: each wire of a value, with its path, for example ("thumb.offset", 27).
-    /// The fields go in declaration order, as Object.entries gives them in Handwired.
+    /// The fields go in declaration order, as Object.entries gives them in Handwired. Here the
+    /// declaration order is the MetadataToken order of the properties. For a derived record, the
+    /// properties of the base record come first. In a record, the positional properties come before
+    /// the properties of the body. ProgramEvaluator writes its outputs in this order.
     /// </summary>
     public static List<(string Path, Wire Wire)> CollectLeaves(object? value, string path, List<(string Path, Wire Wire)> leaves)
     {
@@ -97,7 +103,7 @@ internal static class WireStruct
                 break;
             case Shape.List:
             {
-                var elements = Elements(value!);
+                var elements = Elements(value!, path);
                 for (var index = 0; index < elements.Length; index++) CollectLeaves(elements[index], ElementPath(path, index), leaves);
                 break;
             }
@@ -127,17 +133,40 @@ internal static class WireStruct
     private static bool IsReadOnlyList(Type type) =>
         type.GetInterfaces().Any(face => face.IsGenericType && face.GetGenericTypeDefinition() == typeof(IReadOnlyList<>));
 
-    private static object?[] Elements(object list) => [.. ((IEnumerable)list).Cast<object?>()];
+    // The elements of a list. A default ImmutableArray holds no array, and its enumerator throws a
+    // BCL exception, so the walker refuses it first.
+    private static object?[] Elements(object list, string path)
+    {
+        var type = list.GetType();
+        if (type.IsGenericType
+            && type.GetGenericTypeDefinition() == typeof(ImmutableArray<>)
+            && type.GetProperty(nameof(ImmutableArray<int>.IsDefault))!.GetValue(list) is true)
+        {
+            var at = path.Length == 0 ? "" : $" at {path}";
+            throw new ArgumentException($"the list{at} is a default ImmutableArray; use an empty array");
+        }
+        return [.. ((IEnumerable)list).Cast<object?>()];
+    }
 
-    // The public instance properties of a type, in declaration order (metadata token order), with
-    // the first letter of each name in lower case.
-    private static (string Name, PropertyInfo Property)[] Fields(Type type) =>
-    [
-        .. type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(property => property.GetIndexParameters().Length == 0 && property.GetMethod is { IsPublic: true })
-            .OrderBy(property => property.MetadataToken)
-            .Select(property => (FieldName(property.Name), property)),
-    ];
+    // The public instance properties of a type, with the first letter of each name in lower case.
+    // The order is the MetadataToken order. For a derived record, the properties of the base record
+    // come first. In a record, the positional properties come before the properties of the body.
+    // A type with public instance fields is refused: the walker reads only properties, so a struct
+    // with fields or a ValueTuple would give no leaf.
+    private static (string Name, PropertyInfo Property)[] Fields(Type type)
+    {
+        if (type.GetFields(BindingFlags.Public | BindingFlags.Instance).Length != 0)
+        {
+            throw new ArgumentException($"the type {type.Name} holds public fields; use properties");
+        }
+        return
+        [
+            .. type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.GetIndexParameters().Length == 0 && property.GetMethod is { IsPublic: true })
+                .OrderBy(property => property.MetadataToken)
+                .Select(property => (FieldName(property.Name), property)),
+        ];
+    }
 
     private static string FieldName(string propertyName) =>
         propertyName.Length == 0 ? propertyName : char.ToLowerInvariant(propertyName[0]) + propertyName[1..];

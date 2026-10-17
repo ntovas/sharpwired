@@ -17,6 +17,12 @@ public static class ProgramEvaluator
     /// <c>new { ThumbLeft = thumbLeft }</c>. Create reads the shape of the output by reflection one
     /// time. Evaluate does not use reflection.
     /// </summary>
+    /// <remarks>
+    /// The outputs of an object go in the MetadataToken order of its properties. For a derived
+    /// record, the properties of the base record come first. In a record, the positional properties
+    /// come before the properties of the body. A type with public instance fields, for example a
+    /// ValueTuple, is refused, because the walker reads only properties.
+    /// </remarks>
     public static ProgramEvaluator<TOutput> Create<TOutput>(FinishedTable program, TOutput output)
         where TOutput : notnull => new(program, output);
 }
