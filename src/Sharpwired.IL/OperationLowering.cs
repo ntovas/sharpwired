@@ -7,7 +7,8 @@
 // emits the gates of the phis that an operation reads (Gates.cs). The gate of a phi that only a
 // branch, a ret or another phi reads stays symbolic, so that an AND chain gives one AND. A call to a
 // [Handwired] method is inlined (Inliner.cs). A loop is unrolled at the position of its first block
-// in IL order (LoopForms.cs).
+// in IL order (LoopForms.cs). A floor, an int division and an int remainder with few results give a
+// threshold count (ThresholdCounts.cs).
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -138,7 +139,7 @@ internal sealed partial class OperationLowering
 
         foreach (var operation in block.Operations)
         {
-            if (operation.Address is not null || invertedComparisons.ContainsValue(operation))
+            if (operation.Address is not null || invertedComparisons.ContainsValue(operation) || LowerRunningTotal(operation))
             {
                 continue;
             }
@@ -211,7 +212,7 @@ internal sealed partial class OperationLowering
     }
 
     /// <summary>The value of an SSA value: an argument, a local at the entry, a constant, a phi or an operation.</summary>
-    public Value Get(SsaValue value) => value.Kind switch
+    public Value Get(SsaValue value) => operandValues.TryGetValue(value, out var replaced) ? replaced : value.Kind switch
     {
         SsaValueKind.Argument => arguments[value.Index],
         SsaValueKind.Phi => gates.PhiValue(value),
@@ -255,6 +256,8 @@ internal sealed partial class OperationLowering
         {
             case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Neg:
                 return Arithmetic(operation);
+            case ILOpCode.Rem:
+                return Remainder(operation);
             case ILOpCode.And or ILOpCode.Or or ILOpCode.Xor:
                 return BitOperation(operation);
             case ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un:
@@ -323,7 +326,8 @@ internal sealed partial class OperationLowering
         var offset = operation.IlOffset;
         if (kind == ScalarKind.Int)
         {
-            throw Refuse(offset, "int division", "C# rounds toward zero, and the program has no exact integer division");
+            return IntegerQuotient(left, right, remainder: false, offset)
+                ?? throw Refuse(offset, "int division", "C# rounds toward zero, and the program has no exact integer division");
         }
 
         if (right is not ConstantValue divisor)
@@ -334,8 +338,7 @@ internal sealed partial class OperationLowering
         var reciprocal = 1 / divisor.Number;
         if (!Fp32.IsPowerOfTwoGrid(Math.Abs(divisor.Number)) || (double)(float)reciprocal != reciprocal || !double.IsFinite(reciprocal))
         {
-            throw Refuse(offset, $"float division by {Fp32.Format(divisor.Number)}",
-                $"C# rounds x / {Fp32.Format(divisor.Number)} one time, and a product with the rounded reciprocal gives another value for some x; write x * (1f / {Fp32.Format(divisor.Number)})");
+            return DeferredQuotient(left, divisor.Number, operation) ?? throw FloatDivisionRefusal(divisor.Number, offset);
         }
 
         return left is ConstantValue constant
@@ -559,6 +562,11 @@ internal sealed partial class OperationLowering
             return value;
         }
 
+        if (value is QuotientValue quotient)
+        {
+            return Truncate(quotient, offset);
+        }
+
         if (value is ConstantValue constant)
         {
             return Math.Abs(constant.Number) <= 16_777_216
@@ -570,7 +578,7 @@ internal sealed partial class OperationLowering
         var range = Circuit.Ranges[wire.Position];
         if (Circuit.Grids[wire.Position] is not >= 1 || !(range.Minimum >= -16_777_216 && range.Maximum <= 16_777_216))
         {
-            throw Refuse(offset, "a conversion from float to int",
+            return TruncateWire(wire, offset) ?? throw Refuse(offset, "a conversion from float to int",
                 "the program converts a float to int only for a value on a grid of 1 within -2^24..2^24");
         }
 
@@ -762,22 +770,7 @@ internal sealed partial class OperationLowering
                     "the program changes an array in place, so a store in a loop must run in each copy of the loop");
         }
 
-        var array = Array(operation.Operands[0], offset);
-        if (!array.IsLocal)
-        {
-            throw Refuse(offset, "a store into a cell array or a static array", "the program changes only an array that the method creates");
-        }
-
-        if (Scalar(operation.Operands[1], offset) is not ConstantValue { Number: var index })
-        {
-            throw Refuse(offset, "an array store at a computed index", "the program stores into an array at a constant index only");
-        }
-
-        if (index < 0 || index >= array.Elements.Length)
-        {
-            throw Refuse(offset, $"the array index {Fp32.Format(index)}", $"the index must lie in 0..{array.Elements.Length - 1}");
-        }
-
-        array.Elements[(int)index] = Get(operation.Operands[2]);
+        var (array, index) = StoreTarget(operation);
+        array.Elements[index] = Get(operation.Operands[2]);
     }
 }

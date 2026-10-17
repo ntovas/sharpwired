@@ -168,7 +168,7 @@ public static class FrontEndInputs
     public static float Wide(float x) => (float)(x * 0.1); // marker: conv.r8
 
     [Handwired]
-    public static int Remainder(int a, int b) => a % b; // marker: rem
+    public static uint UnsignedDivision(uint a, uint b) => a / b; // marker: div.un
 
     [Handwired]
     public static float Lambda(float x) { Func<float> f = () => x * 2f; return f(); } // marker: ldftn

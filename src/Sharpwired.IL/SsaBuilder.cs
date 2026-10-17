@@ -169,7 +169,7 @@ internal sealed class SsaBuilder
             case ILOpCode.Pop:
                 Pop(stack);
                 return;
-            case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
+            case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Rem or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor
                 or ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un:
                 {
                     var right = Pop(stack);

@@ -76,7 +76,7 @@ public class DecoderTests
     [InlineData("Boxed", "box", "the IL instruction box")]
     [InlineData("Text", "ldstr", "the IL instruction ldstr")]
     [InlineData("Wide", "conv.r8", "double arithmetic")]
-    [InlineData("Remainder", "rem", "the IL instruction rem")]
+    [InlineData("UnsignedDivision", "div.un", "the IL instruction div.un")]
     [InlineData("Lambda", "ldftn", "the IL instruction ldftn")]
     [InlineData("WithExceptionClause", "exception-clause", "an exception clause")]
     public void A_refused_construct_gives_the_source_file_and_line(string name, string marker, string construct)
@@ -96,8 +96,8 @@ public class DecoderTests
     [Fact]
     public void A_refused_opcode_gives_the_offset_of_its_instruction()
     {
-        var error = Assert.Throws<TranslationException>(() => IlDecoder.Decode(CSharpInput("Remainder")));
-        // ldarg.0 and ldarg.1 are one byte each, and the Debug and the Release IL put no nop before rem.
+        var error = Assert.Throws<TranslationException>(() => IlDecoder.Decode(CSharpInput("UnsignedDivision")));
+        // ldarg.0 and ldarg.1 are one byte each, and the Debug and the Release IL put no nop before div.un.
         Assert.Equal(2, error.IlOffset);
     }
 

@@ -142,14 +142,18 @@ internal sealed class RecurrentTranslator
     private readonly DecodedMethod decoded;
     private readonly SsaMethod ssa;
     private readonly int header;
+
+    // The option of the translation, for each part (TranslationOptions.RecognizePatterns).
+    private readonly bool recognizePatterns;
     private readonly ImmutableArray<SsaValue> headerPhis;
     private RecurrentContext shape = null!;
     private CellPlan[] statePlans = [];
     private CellPlan[] invariantPlans = [];
 
-    private RecurrentTranslator(MethodInfo method)
+    private RecurrentTranslator(MethodInfo method, bool recognizePatterns)
     {
         this.method = method;
+        this.recognizePatterns = recognizePatterns;
         layout = CellLayout.Walk(method, [.. method.GetParameters().Select(_ => ParameterRole.Function)]);
         decoded = IlDecoder.Decode(method);
         ssa = SsaBuilder.Build(ControlFlowGraph.Build(decoded));
@@ -159,9 +163,9 @@ internal sealed class RecurrentTranslator
 
     private SourceLocation Location => decoded.Locations.Locate(shape.TestOffset);
 
-    public static RecurrentFunction Translate(MethodInfo method)
+    public static RecurrentFunction Translate(MethodInfo method, TranslationOptions options)
     {
-        var translator = new RecurrentTranslator(method);
+        var translator = new RecurrentTranslator(method, options.RecognizePatterns);
         var prefix = translator.Prefix();
         translator.FixStateRanges();
         var step = translator.Step();
@@ -175,7 +179,7 @@ internal sealed class RecurrentTranslator
         var (_, circuit) = layout.Declare();
         try
         {
-            Lower(new Emitter(circuit), Parameters(circuit), new RecurrentContext(RecurrentPart.Probe, -1));
+            Lower(new Emitter(circuit, recognizePatterns), Parameters(circuit), new RecurrentContext(RecurrentPart.Probe, -1));
         }
         catch (RecurrentLoopFoundException found)
         {
@@ -188,7 +192,7 @@ internal sealed class RecurrentTranslator
     private TranslatedFunction Prefix()
     {
         var (table, circuit) = layout.Declare();
-        var emitter = new Emitter(circuit);
+        var emitter = new Emitter(circuit, recognizePatterns);
         shape = new RecurrentContext(RecurrentPart.Prefix, header);
         Lower(emitter, Parameters(circuit), shape);
         var stateLeaves = shape.InitialState.SelectMany((value, index) => Leaves(value, StateName(headerPhis[index]))).ToArray();
@@ -344,7 +348,7 @@ internal sealed class RecurrentTranslator
             }
         }
 
-        var emitter = new Emitter(circuit);
+        var emitter = new Emitter(circuit, recognizePatterns);
         var (result, _) = Lower(emitter, arguments, context);
         return new LoweredPart(table, circuit, emitter, context, state, invariants, part == RecurrentPart.Suffix ? result : null);
     }

@@ -12,6 +12,7 @@ public class AttributeTests
     [Theory]
     [InlineData(typeof(HandwiredAttribute), AttributeTargets.Method)]
     [InlineData(typeof(MaxIterationsAttribute), AttributeTargets.Method)]
+    [InlineData(typeof(AssociativeAttribute), AttributeTargets.Method)]
     [InlineData(typeof(RangeAttribute), CellTargets)]
     [InlineData(typeof(GridAttribute), CellTargets)]
     [InlineData(typeof(EventAttribute), CellTargets)]

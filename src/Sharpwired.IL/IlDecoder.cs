@@ -101,7 +101,7 @@ internal static class IlDecoder
         ILOpCode.Ldc_i4_5, ILOpCode.Ldc_i4_6, ILOpCode.Ldc_i4_7, ILOpCode.Ldc_i4_8, ILOpCode.Ldc_i4, ILOpCode.Ldc_i4_s,
         ILOpCode.Ldc_r4,
         ILOpCode.Dup, ILOpCode.Pop,
-        ILOpCode.Add, ILOpCode.Sub, ILOpCode.Neg, ILOpCode.Mul, ILOpCode.Div,
+        ILOpCode.Add, ILOpCode.Sub, ILOpCode.Neg, ILOpCode.Mul, ILOpCode.Div, ILOpCode.Rem,
         ILOpCode.And, ILOpCode.Or, ILOpCode.Xor,
         ILOpCode.Ceq, ILOpCode.Cgt, ILOpCode.Cgt_un, ILOpCode.Clt, ILOpCode.Clt_un,
         ILOpCode.Br, ILOpCode.Br_s, ILOpCode.Brtrue, ILOpCode.Brtrue_s, ILOpCode.Brfalse, ILOpCode.Brfalse_s,
@@ -304,7 +304,7 @@ internal static class IlDecoder
         {
             ILOpCode.Ldc_i8 or ILOpCode.Conv_i8 or ILOpCode.Conv_u8 or ILOpCode.Conv_i or ILOpCode.Conv_u =>
                 "the program has 32-bit values only; use int or float",
-            ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.Div_un =>
+            ILOpCode.Rem_un or ILOpCode.Div_un =>
                 "the program has no exact integer division or remainder",
             ILOpCode.Shl or ILOpCode.Shr or ILOpCode.Shr_un or ILOpCode.Not =>
                 "the program has no exact form for bit operations on int values",

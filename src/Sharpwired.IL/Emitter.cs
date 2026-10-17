@@ -22,9 +22,15 @@ namespace Sharpwired.IL;
 internal sealed record LoopOverflow(Wire Bit, SourceLocation Location, int Copies);
 
 /// <summary>Emits symbolic values into the circuit. After the emit, a value holds its wire.</summary>
-internal sealed class Emitter(Circuit circuit)
+internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
 {
     public Circuit Circuit { get; } = circuit;
+
+    /// <summary>
+    /// True when the lowering recognizes the Handwired patterns (RunningTotals.cs, ThresholdCounts.cs).
+    /// The inlined methods share the emitter, so they share the option.
+    /// </summary>
+    public bool RecognizePatterns { get; } = recognizePatterns;
 
     /// <summary>
     /// The overflow bits of the loops of form 2 with [MaxIterations], in the order of the unroll, also

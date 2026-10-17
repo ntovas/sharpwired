@@ -63,6 +63,9 @@ internal static class Intrinsics
                     return new WireValue(lowering.Macro(offset, construct, () => lowering.Circuit.ClampExact(value, minimum, maximum)), kind.Value);
                 }
 
+            case ("Floor", 1, ScalarKind.Float) when callee.DeclaringType == typeof(MathF) && lowering.Emitter.RecognizePatterns:
+                return operands[0] is ScalarValue operand ? lowering.Floor(operand, offset) : null;
+
             case ("Abs", 1, ScalarKind.Float):
                 {
                     var value = lowering.Emit(operands[0], offset);

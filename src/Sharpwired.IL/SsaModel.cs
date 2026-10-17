@@ -317,7 +317,7 @@ internal static class SsaTypes
 
         switch (value.Op)
         {
-            case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Neg:
+            case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Rem or ILOpCode.Neg:
                 return operands.Any(o => o.Type.Kind == SsaTypeKind.Float) ? SsaType.Float : SsaType.Int;
             case ILOpCode.And or ILOpCode.Or or ILOpCode.Xor:
                 return operands.All(IsBitLike) && operands.Any(o => o.Type.Kind == SsaTypeKind.Bit) ? SsaType.Bit : SsaType.Int;

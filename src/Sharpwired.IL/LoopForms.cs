@@ -29,6 +29,8 @@
 //   ranges, is refused (in loops and in straight-line code).
 // - The lowering changes a local array in place, so a store in a loop copy is accepted only when
 //   the copy always runs: its active bit is the constant 1 and constant branches reach the store.
+// - A running total of the loop (RunningTotals.cs) keeps a placeholder as its state in each copy,
+//   and its stores keep their conditions. After the unroll a prefix network gives its values.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -215,6 +217,11 @@ internal sealed partial class OperationLowering
         var bodyPhis = loop.Body.SelectMany(block => ssa.Blocks[block].Phis).ToArray();
         var headerPhis = ssa.Blocks[loop.Header].Phis;
         var state = headerPhis.Select(gates.EntryValue).ToArray();
+        var initial = state.ToArray();
+
+        // The running totals of the loop (RunningTotals.cs) keep their own state: a placeholder in each copy.
+        var totals = MatchRunningTotals(loop);
+        bool IsTotal(SsaValue value) => totals.Any(total => total.Holds(value));
         var liveOuts = LiveOuts(loop);
         var held = new Dictionary<SsaValue, Value>();
         var order = CopyOrder(loop);
@@ -232,10 +239,14 @@ internal sealed partial class OperationLowering
                 var atLimit = limitPasses is { } limit && pass >= limit - 1;
                 copy = new LoopCopy(loop, entry, active, facts, certain);
                 gates.ForgetPhis(bodyPhis);
+                totals.ForEach(total => total.Pass = pass);
                 for (var index = 0; index < headerPhis.Length; index++)
                 {
                     gates.SetPhiValue(headerPhis[index], state[index]);
-                    Inliner.EmitLeaves(Emitter, state[index]);
+                    if (!IsTotal(headerPhis[index]) || pass == 0)
+                    {
+                        Inliner.EmitLeaves(Emitter, state[index]);
+                    }
                 }
 
                 CheckRanges(testOffset);
@@ -244,7 +255,7 @@ internal sealed partial class OperationLowering
                 // that the exit test reads.
                 var lowered = LowerRegion(order, loop, atLimit && active is not ConstantValue ? testBlocks : null);
                 var proceed = Gates.Not(gates.ExitReach(loop, testOffset));
-                foreach (var value in liveOuts)
+                foreach (var value in liveOuts.Where(value => !IsTotal(value)))
                 {
                     if (CurrentValue(value, loop, lowered) is { } current)
                     {
@@ -301,7 +312,7 @@ internal sealed partial class OperationLowering
                     var back = gates.BackEdgeValue(headerPhis[index])
                         ?? throw new InvalidOperationException($"the phi {headerPhis[index]} has no value on the back edges");
                     previous[index] = state[index];
-                    (state[index], kept[index]) = Keep(next, back, state[index], Gates.TypeOf(headerPhis[index].Type), testOffset);
+                    (state[index], kept[index]) = IsTotal(headerPhis[index]) ? (back, false) : Keep(next, back, state[index], Gates.TypeOf(headerPhis[index].Type), testOffset);
                 }
 
                 active = next;
@@ -323,6 +334,8 @@ internal sealed partial class OperationLowering
                 values[value] = after;
             }
         }
+
+        FinishRunningTotals(totals, initial, headerPhis);
     }
 
     // A loop must have one exit (plan, question 5). Two or more exit edges are one exit when they go

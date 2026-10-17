@@ -18,6 +18,21 @@ namespace Sharpwired.IL;
 /// <summary>A wire with the path of its cell or output leaf, for example "down.x" or "trackLeft".</summary>
 public readonly record struct NamedWire(string Path, Wire Wire);
 
+/// <summary>The options of a translation.</summary>
+public sealed record TranslationOptions
+{
+    /// <summary>The options of a translation with no options argument.</summary>
+    public static TranslationOptions Default { get; } = new();
+
+    /// <summary>
+    /// True (the default): the translator recognizes the Handwired patterns where they cost less than
+    /// the normal form (plan, task 6b): a running total in a loop gives a prefix network, and a floor,
+    /// an int division or an int remainder with few results gives a threshold count. False: each
+    /// construct gets its normal form, for example for a comparison of the operation counts.
+    /// </summary>
+    public bool RecognizePatterns { get; init; } = true;
+}
+
 /// <summary>The translator of [Handwired] methods into programs.</summary>
 public static class HandwiredTranslator
 {
@@ -26,12 +41,16 @@ public static class HandwiredTranslator
     /// return leaf is an output. Throws <see cref="TranslationException"/> for a refused construct and
     /// <see cref="ArgumentException"/> for a method that is not a static, non-generic [Handwired] method.
     /// </summary>
-    public static TranslatedFunction TranslateFunction(MethodInfo method)
+    public static TranslatedFunction TranslateFunction(MethodInfo method) => TranslateFunction(method, TranslationOptions.Default);
+
+    /// <summary>Translates a static [Handwired] method with the options.</summary>
+    public static TranslatedFunction TranslateFunction(MethodInfo method, TranslationOptions options)
     {
         CheckMethod(method);
+        ArgumentNullException.ThrowIfNull(options);
         var layout = CellLayout.Walk(method, [.. method.GetParameters().Select(_ => ParameterRole.Function)]);
         var (table, circuit) = layout.Declare();
-        var (result, location, emitter) = Lower(method, layout, circuit);
+        var (result, location, emitter) = Lower(method, layout, circuit, options);
         var leaves = new List<(string Path, ScalarValue Value)>();
         var shape = CellLayout.Output(method.ReturnType, result, "", top: true, location, leaves);
         var outputs = leaves.Select(leaf => new NamedWire(leaf.Path, emitter.Emit(leaf.Value))).ToImmutableArray();
@@ -46,9 +65,13 @@ public static class HandwiredTranslator
     /// leaves of state are state cells; the leaves of input are input and event cells. Next gives the
     /// next value of each state cell, and the leaves of Output are the outputs.
     /// </summary>
-    public static TranslatedStep TranslateStep(MethodInfo method)
+    public static TranslatedStep TranslateStep(MethodInfo method) => TranslateStep(method, TranslationOptions.Default);
+
+    /// <summary>Translates a step method with the options.</summary>
+    public static TranslatedStep TranslateStep(MethodInfo method, TranslationOptions options)
     {
         CheckMethod(method);
+        ArgumentNullException.ThrowIfNull(options);
         var parameters = method.GetParameters();
         var returnType = method.ReturnType;
         if (parameters.Length != 2 || !CellLayout.IsValueTuple(returnType) || returnType.GetGenericArguments() is not [var nextType, var outputType]
@@ -59,7 +82,7 @@ public static class HandwiredTranslator
 
         var layout = CellLayout.Walk(method, [ParameterRole.State, ParameterRole.StepInput]);
         var (table, circuit) = layout.Declare();
-        var (result, location, emitter) = Lower(method, layout, circuit);
+        var (result, location, emitter) = Lower(method, layout, circuit, options);
         var tuple = (AggregateValue)result;
         var nextLeaves = new List<(string Path, ScalarValue Value)>();
         var nextShape = CellLayout.Output(nextType, tuple.Fields["Item1"], "", top: false, location, nextLeaves);
@@ -96,10 +119,14 @@ public static class HandwiredTranslator
     /// into a prefix, a step program and a suffix (Recurrent.cs). The loop must run on each call, at
     /// the top level of the method. Throws <see cref="ArgumentException"/> for a method with no such loop.
     /// </summary>
-    public static RecurrentFunction TranslateRecurrent(MethodInfo method)
+    public static RecurrentFunction TranslateRecurrent(MethodInfo method) => TranslateRecurrent(method, TranslationOptions.Default);
+
+    /// <summary>Translates a method with one loop with no maximum, with the options.</summary>
+    public static RecurrentFunction TranslateRecurrent(MethodInfo method, TranslationOptions options)
     {
         CheckMethod(method);
-        return RecurrentTranslator.Translate(method);
+        ArgumentNullException.ThrowIfNull(options);
+        return RecurrentTranslator.Translate(method, options);
     }
 
     // The output leaves emit at the return, so a value past the FP32 range among them has the location of the return.
@@ -138,11 +165,11 @@ public static class HandwiredTranslator
         }
     }
 
-    private static (Value Result, SourceLocation Location, Emitter Emitter) Lower(MethodInfo method, CellLayout layout, Circuit circuit)
+    private static (Value Result, SourceLocation Location, Emitter Emitter) Lower(MethodInfo method, CellLayout layout, Circuit circuit, TranslationOptions options)
     {
         var decoded = IlDecoder.Decode(method);
         var ssa = SsaBuilder.Build(ControlFlowGraph.Build(decoded));
-        var emitter = new Emitter(circuit);
+        var emitter = new Emitter(circuit, options.RecognizePatterns);
         var arguments = layout.Parameters.Select(parameter => CellLayout.ValueOf(parameter, circuit)).ToArray();
         var (result, offset) = OperationLowering.Lower(decoded, ssa, emitter, arguments, [method]);
         return (result, decoded.Locations.Locate(offset), emitter);
