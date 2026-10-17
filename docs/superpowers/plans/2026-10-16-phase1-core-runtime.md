@@ -69,7 +69,7 @@ The tasks run in order. Each task builds on the previous task.
 ### Task 5: springs
 
 - Port `SpringStepMatrix`, `SpringMatrixPower`, `SpringMatrixBound` from `$REF/src/runtime/host-timing.ts` into `SpringMatrix.cs` (float64). Port `emitSpring`, `emitApplySpringMatrix`, `emitAnimatedObject`, `emitAbsolute`, `emitClampZeroOne`.
-- Tests: port the cases of `$REF/tests/runtime/spring-matrix.test.ts` that do not need `advanceFrame`. List the `advanceFrame` cases for phase 3 in `tests/Sharpwired.Core.Tests/PHASE3-TIMING-ASSERTIONS.md`.
+- Tests: port the cases of `$REF/tests/runtime/spring-matrix.test.ts` that do not need `advanceFrame`. List the `advanceFrame` cases for phase 3 in `tests/Sharpwired.Core.Tests/PHASE3-TIMING-ASSERTIONS.md`. Phase 3 task 7 deleted this file after each row mapped to a phase 3 test.
 
 ### Task 6: selection, inlining and validators
 

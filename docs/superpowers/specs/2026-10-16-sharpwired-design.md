@@ -37,10 +37,10 @@ This checklist is the definition of done. Each phase owns the items under it.
 
 ### Phase 3: cells, timing, toggle with the builder API
 
-- [ ] R3.1 `SourceTable` and the cell functions (`Constant`, `Input`, `InputBit`, `Event`, `State`, `StateBit`, `List`, `OneHot`, `Permutation`, `AtMostOne`), `Next`, `Finish`, the validator.
-- [ ] R3.2 Host timing: frame planning (`AdvanceFrame`), the two write-back policies, settle checks, snaps, spring matrix functions, `QuantizeFrameTiming`.
-- [ ] R3.3 Prefix networks.
-- [ ] R3.4 The toggle switch with the builder API, a Raylib-cs window host, and a test against a plain C# reference over a scripted trace.
+- [x] R3.1 `SourceTable` and the cell functions (`Constant`, `Input`, `InputBit`, `Event`, `State`, `StateBit`, `List`, `OneHot`, `Permutation`, `AtMostOne`), `Next`, `Finish`, the validator.
+- [x] R3.2 Host timing: frame planning (`AdvanceFrame`), the two write-back policies, settle checks, snaps, spring matrix functions, `QuantizeFrameTiming`.
+- [x] R3.3 Prefix networks.
+- [x] R3.4 The toggle switch with the builder API, a Raylib-cs window host, and a test against a plain C# reference over a scripted trace.
 
 ### Phase 4: the IL translator
 

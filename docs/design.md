@@ -21,7 +21,8 @@ src/Sharpwired.Timing/      host timing: frame planning, spring matrices, settle
 src/Sharpwired.IL/          the IL translator: [Handwired] methods to Circuit
 src/Sharpwired.Gpu/         the WebGPU backend: WGSL writers and the batch runner
 src/Sharpwired.Raylib/      the Raylib host loop: input queue, frame clock, output to draw calls
-samples/Toggle.CSharp/      the toggle switch as a plain C# method
+samples/Toggle.Builder/     the toggle switch with the builder API, its machine and its window app (a library)
+samples/Toggle.CSharp/      the toggle switch as a plain C# method, and the program that opens its Raylib window
 samples/Toggle.FSharp/      the same switch as a plain F# function
 samples/JsonSearch/         the JSON highlighter and the regex search over 100,000 documents
 tests/                      xUnit tests: ports of handwired's tests, differential and seeded random tests

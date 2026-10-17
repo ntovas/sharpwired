@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="..\Sharpwired.Core.Tests\Js.cs" Link="Js.cs" />
+    <Compile Include="..\Sharpwired.Raylib.Tests\FakeFrameClock.cs" Link="FakeFrameClock.cs" />
   </ItemGroup>
 
   <ItemGroup>

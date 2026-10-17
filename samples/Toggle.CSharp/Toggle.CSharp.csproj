@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Toggle.Builder\Toggle.Builder.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Raylib\Sharpwired.Raylib.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Timing\Sharpwired.Timing.csproj" />
+  </ItemGroup>
+
+</Project>

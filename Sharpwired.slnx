@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Toggle.Builder/Toggle.Builder.csproj" />
+    <Project Path="samples/Toggle.CSharp/Toggle.CSharp.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Sharpwired.Cells/Sharpwired.Cells.csproj" />
