@@ -11,8 +11,9 @@ internal static class JsNumberText
 {
     /// <summary>
     /// A number as JavaScript String(number) writes it: the shortest digits that give the same
-    /// value, in decimal form for 1e-6 &lt;= |value| &lt; 1e21 and in exponent form otherwise, for
-    /// example "0.000001", "123456789012345680000", "1e-7" and "1.5e+21". Both zeros give "0".
+    /// value. The text has the decimal form for 1e-6 &lt;= |value| &lt; 1e21, and the exponent form
+    /// for other values. Examples are "0.000001", "123456789012345680000", "1e-7" and "1.5e+21".
+    /// Both zeros give "0".
     /// </summary>
     public static string Format(double value)
     {

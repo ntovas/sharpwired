@@ -1,5 +1,6 @@
-// No Handwired source. These tests cover the parts of the window host that make no Raylib call:
-// the roundness of a rounded rectangle, the focus loss edge, and the command-line options.
+// No Handwired source. These tests cover the parts of the window host that make no Raylib call.
+// These parts are the roundness of a rounded rectangle, the focus loss edge, and the command-line
+// options.
 
 namespace Sharpwired.Raylib.Tests;
 

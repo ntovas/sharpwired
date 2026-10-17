@@ -121,8 +121,8 @@ public class ToggleTests(ITestOutputHelper output)
         }
     }
 
-    // Sharpwired case with no Handwired test: of two events of one kind at one timestamp, the last one
-    // writes the cells, in the program and in the reference. Handwired gets this from the loop of the
+    // Sharpwired case with no Handwired test. Of two events of one kind at one timestamp, the last one
+    // writes the cells. This is true in the program and in the reference. Handwired gets this from the loop of the
     // evaluate callback and from findLast.
     [Theory]
     [InlineData(640, 700, 0)]

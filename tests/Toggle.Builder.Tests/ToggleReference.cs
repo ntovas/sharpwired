@@ -2,10 +2,11 @@
 // destination, withinThresholds, stepTo and render).
 //
 // The toggle switch of ToggleProgram in plain C#, in float64 (double), with the timing that
-// AdvanceFrame gives the program: the spring takes fixed 4 ms steps from the time the clock started,
-// steps to the timestamp of each event before the event applies, and settles only at a check every
-// 64 ms of simulated time. Events that share a timestamp apply together, in the order that the program
-// handles them in one evaluation: the last down, then the last up, then any cancel. This reference
+// AdvanceFrame gives the program. The spring takes fixed 4 ms steps from the time the clock started.
+// It steps to the timestamp of each event before the event applies. It settles only at a check every
+// 64 ms of simulated time. Events that share a timestamp apply together, in the order that the
+// program handles them in one evaluation. This order is the last down, then the last up, then any
+// cancel. This reference
 // never snaps the thumb onto its destination when a frame needs more than 300 steps. So a trace with a
 // stall of more than about 1,140 ms while the thumb moves gives other values than the program.
 

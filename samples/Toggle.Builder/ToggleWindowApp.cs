@@ -10,8 +10,8 @@ namespace Toggle.Builder;
 
 /// <summary>
 /// Handwired mountToggle for a window host. Each frame queues the pointer events of the frame at the
-/// frame time, steps the machine when the browser host would request a frame, and returns the track
-/// and the thumb as two rounded rectangles.
+/// frame time. It steps the machine when the browser host would request a frame. It returns the
+/// track and the thumb as two rounded rectangles.
 /// </summary>
 public sealed class ToggleWindowApp(ToggleMachine machine) : IWindowApp
 {
@@ -42,9 +42,9 @@ public sealed class ToggleWindowApp(ToggleMachine machine) : IWindowApp
     /// <summary>
     /// Queue a down event for a press, an up event for a release and a cancel event for a focus loss,
     /// each at frameTimeMs. Raylib gives no event timestamp, so an event applies at the time of the
-    /// frame that reads it. Then step the machine and return the draw commands. When no event is
-    /// queued, the clock is stopped, the viewport did not change and a step exists, return the commands
-    /// of the last step: the browser host requests no frame in this case.
+    /// frame that reads it. Then step the machine and return the draw commands. In one case, return
+    /// the commands of the last step. In this case, no event is queued and the clock is stopped. Also,
+    /// the viewport did not change and a step exists. The browser host requests no frame in this case.
     /// </summary>
     public IReadOnlyList<DrawCommand> Frame(WindowInput input, double frameTimeMs)
     {

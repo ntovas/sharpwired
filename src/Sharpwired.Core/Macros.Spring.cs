@@ -12,9 +12,10 @@ namespace Sharpwired.Core;
 public readonly record struct SpringWires(Wire Position, Wire Velocity, Wire Active);
 
 /// <summary>
-/// The 4 cells of a spring matrix that the host writes before each evaluation, one time for
-/// each stiffness and damping pair, for example
-/// Sharpwired.Timing.SpringMatrix.SpringMatrixPower(SpringMatrix.SpringStepMatrix(new(290, 30)), steps):
+/// The 4 cells of a spring matrix. The host writes them before each evaluation, one time for each
+/// stiffness and damping pair. For example, the host writes
+/// Sharpwired.Timing.SpringMatrix.SpringMatrixPower(
+/// Sharpwired.Timing.SpringMatrix.SpringStepMatrix(new(290, 30)), steps):
 /// displacement' = m[0] × displacement + m[1] × velocity and
 /// velocity' = m[2] × displacement + m[3] × velocity.
 /// </summary>
@@ -60,8 +61,8 @@ public sealed record AnimatedSpring(SpringMatrixWires Matrix, Wire Displacement,
 public sealed record AnimatedObjectOptions(Wire SettleCheck)
 {
     /// <summary>
-    /// An exact bit that puts each spring on its destination with zero velocity, for example while
-    /// the user drags the object, or when a frame needs more steps than its limit.
+    /// An exact bit that puts each spring on its destination with zero velocity. Examples are a drag
+    /// of the object by the user, and a frame that needs more steps than its limit.
     /// </summary>
     public Wire? Snap { get; init; }
 
@@ -83,7 +84,7 @@ public sealed record AnimatedObjectOptions(Wire SettleCheck)
 /// This is not state, so the rounding does not accumulate.
 /// </param>
 /// <param name="Settled">
-/// 1 when the settle check of this evaluation is 1 and each spring is within both thresholds, or
+/// 1 when the settle check of this evaluation is 1 and each spring is within both thresholds. Also 1
 /// when each displacement and velocity is ±0, for example after a snap.
 /// </param>
 /// <param name="Active">
@@ -153,9 +154,10 @@ public static partial class Macros
 
     /// <summary>
     /// The displacement of one spring from its destination and its velocity after each step that
-    /// the matrix describes, for example all 4 ms steps of one evaluation. The matrix cells need
-    /// finite declared ranges, for example ±Sharpwired.Timing.SpringMatrix.SpringMatrixBound(constants), so that a
-    /// host that writes an overflowing matrix fails the source range check. Each product is a
+    /// the matrix describes. An example is all 4 ms steps of one evaluation. The matrix cells need
+    /// finite declared ranges, for example
+    /// ±Sharpwired.Timing.SpringMatrix.SpringMatrixBound(constants), so that a host that writes an
+    /// overflowing matrix fails the source range check. Each product is a
     /// Circuit.Multiply, so the backward pass differentiates whole products, also at a matrix
     /// entry of exactly 0. The result is f(f(m0 × e) + f(m1 × v)) and f(f(m2 × e) + f(m3 × v)) for
     /// finite operands. Cost: 14 operations in 3 layers.
@@ -183,10 +185,10 @@ public static partial class Macros
 
     /// <summary>
     /// The springs of one animated object, for example the x, y, width, height and scale of a
-    /// window, stepped by their matrices and settled together with one exact bit. Each spring
+    /// window. Their matrices step them, and one exact bit settles them together. Each spring
     /// stores its displacement from its destination and its velocity, so FP32 rounds the state at
     /// the size of the displacement. When the object settles or snaps, each displacement and
-    /// velocity becomes 0, up to the sign of zero, so each spring stops exactly on its destination.
+    /// velocity becomes 0, up to the sign of zero. So each spring stops exactly on its destination.
     /// <code>
     /// (displacement', velocity') = matrix × (displacement, velocity)
     /// displacement'' = f(f(destinationDuringSteps - destination) + displacement')
@@ -246,15 +248,15 @@ public static partial class Macros
             stepped.Add(new SpringState(displacement, next.Velocity));
         }
         var exceedance = circuit.RoundAffine(exceedanceTerms);
-        // Each lifted term is 0, at least 2^127 × 2^-149 = 2^-22, or Infinity, so the lifted sum is
-        // 0 exactly when each displacement'' and velocity' is ±0, and relu(1 - 2^22 × liftedRest) is
+        // Each lifted term is 0, at least 2^127 × 2^-149 = 2^-22, or Infinity. So the lifted sum is
+        // 0 exactly when each displacement'' and velocity' is ±0. Then relu(1 - 2^22 × liftedRest) is
         // the atRest bit. The terms stay as written, because a merged repeated part would get the
         // coefficient 2^128, which is not an FP32 value. The lift is a ReLU, so at exact rest the
         // backward pass stops at its corner and does not scale gradients by 2^149.
         var liftedRest = circuit.Append(OperationKind.Reglu, [], 1, restTerms, 0, preserveRounding: true);
         var atRest = circuit.Reglu([], 1, [(liftedRest, -Math.Pow(2, 22))], 1);
-        // settleCheck and atRest first, so the partial sum is exactly 0, 0.5 or 1 before the
-        // subtraction of the exceedance, and 0.5 - 2^20 × 2^-45 is the FP32 value just below 0.5.
+        // settleCheck and atRest come first, so the partial sum is exactly 0, 0.5 or 1 before the
+        // subtraction of the exceedance. 0.5 - 2^20 × 2^-45 is the FP32 value just below 0.5.
         // The score resolves next to 0.5 only as FP32 values, so it is a marked rounding point.
         var settledScore = circuit.Append(
             OperationKind.Reglu,
@@ -284,8 +286,8 @@ public static partial class Macros
     /// <summary>
     /// The clamp to 0..1 as relu(value) - relu(value - unit), with unit a wire declared exactly 1.
     /// The result range is declared 0..1. The upper plateau needs value &lt;= 2^24 when value is its
-    /// own operation. When value is an ordinary affine sum that the builder copies into both ReLUs,
-    /// both copies must add without rounding, for example value &lt;= 2^23 for multiples of 1/2.
+    /// own operation. The builder copies an ordinary affine sum into both ReLUs. Then both copies
+    /// must add without rounding, for example value &lt;= 2^23 for multiples of 1/2.
     /// Negative finite values give 0.
     /// </summary>
     public static Wire ClampZeroOne(this Circuit circuit, Wire value, Wire unit)

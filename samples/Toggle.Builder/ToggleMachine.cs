@@ -23,11 +23,11 @@ public readonly record struct ToggleEvent(ToggleEventKind Kind, double X, double
 public readonly record struct ToggleOutput(double TrackLeft, double TrackTop, double ThumbOffset, double On, double Armed, double Active);
 
 /// <summary>
-/// Handwired createToggleMachine: the host of the toggle. Event handlers only queue events, and each
-/// step plans the evaluations of the frame with AdvanceFrame, which steps the spring to the timestamp
-/// of each event before the event applies. With <see cref="WriteBack.EventsAndSettleChecks"/>, the
-/// frame evaluation runs on a copy of the table, so the stored state depends only on the events and
-/// not on the frame rate.
+/// Handwired createToggleMachine: the host of the toggle. Event handlers only queue events. Each step
+/// plans the evaluations of the frame with AdvanceFrame, which steps the spring to the timestamp of
+/// each event before the event applies. With <see cref="WriteBack.EventsAndSettleChecks"/>, the frame
+/// evaluation runs on a copy of the table. So the stored state depends only on the events, and not on
+/// the frame rate.
 /// </summary>
 public sealed class ToggleMachine
 {

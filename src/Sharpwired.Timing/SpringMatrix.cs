@@ -91,8 +91,8 @@ public readonly record struct SpringMatrix(
 
     /// <summary>
     /// The magnitude to declare on the 4 matrix cells before the build, for example 10.36 for
-    /// stiffness 650 and damping 45: the largest |entry| of M^n for n = 0..maxStepsPerFrame, with
-    /// headroom, so that the FP32 value of each entry that the host writes stays within it. Throws
+    /// stiffness 650 and damping 45. It is the largest |entry| of M^n for n = 0..maxStepsPerFrame,
+    /// with headroom. So the FP32 value of each entry that the host writes stays within it. Throws
     /// for a spring whose powers overflow, for example a stiffness far above 250,000 with 4 ms steps.
     /// </summary>
     public static double SpringMatrixBound(SpringConstants constants, double stepMs = DefaultStepMs, int maxStepsPerFrame = DefaultMaxStepsPerFrame)

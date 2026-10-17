@@ -14,11 +14,12 @@ public static class RaylibWindow
     private const int CornerSegments = 16;
 
     /// <summary>
-    /// Open a window for the app and run it until the person closes the window (the close button or
-    /// the Esc key), or until the frame limit of the options. In each frame, read the pointer, the left
-    /// button edges, the focus loss edge and the screen size, read the clock one time, call
-    /// <see cref="IWindowApp.Frame"/>, and draw the commands on the background. With a screenshot path,
-    /// draw the last commands again and save them as an image before the window closes.
+    /// Open a window for the app and run it. The run stops when the person closes the window (the
+    /// close button or the Esc key), or at the frame limit of the options. In each frame, read the
+    /// pointer, the left button edges, the focus loss edge and the screen size. Then read the clock
+    /// one time, call <see cref="IWindowApp.Frame"/>, and draw the commands on the background. With a
+    /// screenshot path, draw the last commands again and save them as an image before the window
+    /// closes.
     /// </summary>
     public static void Run(IWindowApp app, IFrameClock clock, WindowRunOptions? options = null)
     {

@@ -31,9 +31,9 @@ internal sealed record CellRule(string Name, bool AtMostOne, ImmutableArray<Wire
 
 /// <summary>
 /// Handwired createValidator and the function that it returns: check a table against each
-/// declaration. The checks run in this order: the length of the table, each cell for a finite value
-/// within its range, each exact bit, each grid, then each one-hot and at-most-one rule. The message
-/// names the cell or the rule.
+/// declaration. First, it checks the length of the table. Then it checks that each cell holds a
+/// finite value within its range. Then it checks each exact bit, then each grid. Last, it checks each
+/// one-hot and at-most-one rule. The message names the cell or the rule.
 /// </summary>
 public sealed class CellValidator
 {

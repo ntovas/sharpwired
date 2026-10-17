@@ -1,5 +1,5 @@
 // Handwired source: tests/runtime/spring-matrix.test.ts, the helpers of the describe block
-// 'springs along frame-time traces, with presses between frames': Press, appPairs, appSpringPair,
+// 'springs along frame-time traces, with presses between frames'. The helpers: Press, appPairs, appSpringPair,
 // appObjectSprings, appInitialPositions, appCell, appSpringCell, appOutput, appPowers, createApp,
 // AppRun, runApp, Float64Spring, stepFloat64Springs, settleFloat64Objects, runFloat64Reference,
 // runUiMdOrder, appPresses, framePositions, frameDisplacements, maxFrameDifference, differingBits,
@@ -8,8 +8,8 @@
 // A small app along frame-time traces. Object 0 has x and y springs (stiffness 290, damping 30)
 // and a scale spring (stiffness 333, damping 20). Object 1 has one spring (stiffness 290, damping
 // 30). A press replaces the destinations of one object, and a jump press also snaps that object
-// onto them. The host writes one matrix for each stiffness and damping pair before each
-// evaluation, and 1 into the snap cell of each object for a planned snap.
+// onto them. Before each evaluation, the host writes one matrix for each stiffness and damping
+// pair. For a planned snap, it writes 1 into the snap cell of each object.
 
 using Sharpwired.Core;
 using Sharpwired.Core.Tests;
@@ -254,9 +254,9 @@ internal static class SpringTraceApp
         })];
     }
 
-    // Handwired runFloat64Reference. Frame-free float64 springs: 4 ms Euler steps from the moment
-    // the clock started, settle checks every 16 steps, presses applied at their timestamps after
-    // the steps up to them, and a stopped clock that starts at a press. A jump snaps its object
+    // Handwired runFloat64Reference. Frame-free float64 springs take 4 ms Euler steps from the
+    // moment the clock started, with settle checks every 16 steps. Each press applies at its
+    // timestamp after the steps up to it. A stopped clock starts at a press. A jump snaps its object
     // after the settle check of the press, and the clock stops when each spring is exactly at rest.
     public static Float64Run RunFloat64Reference(IReadOnlyList<Press> presses, IReadOnlyList<double> frameTimes, double offset = 0)
     {
@@ -331,9 +331,9 @@ internal static class SpringTraceApp
         return new Float64Run(positions, displacements, settles);
     }
 
-    // Handwired runUiMdOrder. The order of chenguini ui.md in float64: handle inputs, make the new
-    // layout, then run an animation tick that moves the springs toward the new destinations. Each
-    // frame has one settle check.
+    // Handwired runUiMdOrder. The order of chenguini ui.md in float64: handle inputs, then make the
+    // new layout. Then run an animation tick that moves the springs toward the new destinations.
+    // Each frame has one settle check.
     public static Dictionary<double, double[]> RunUiMdOrder(IReadOnlyList<Press> presses, IReadOnlyList<double> frameTimes)
     {
         var springs = InitialPositions.Select(position => new Float64Spring(position, 0, position)).ToArray();
@@ -358,7 +358,7 @@ internal static class SpringTraceApp
         return positions;
     }
 
-    // Handwired appPresses: 12 presses between frames on the 1/64 ms grid, 90 to 700 ms apart, so
+    // Handwired appPresses: 12 presses between frames on the 1/64 ms grid, 90 to 700 ms apart. So
     // most of them change the destination of a moving spring. With jumpChance above 0, some presses
     // are jumps.
     public static List<Press> AppPresses(int seed, double jumpChance = 0)
@@ -427,8 +427,8 @@ internal static class SpringTraceApp
         .. new[] { 21, 22, 23, 24 }.Select(seed => (seed, 0.35)),
     ];
 
-    // Handwired traceSchedules: the 120 fps baseline, and 10, 30 and 60 fps, and 60 and 120 fps
-    // with a 500 ms stall that starts 100 ms before the third press.
+    // Handwired traceSchedules: the 120 fps baseline, and 10, 30 and 60 fps. It also gives 60 and
+    // 120 fps with a 500 ms stall that starts 100 ms before the third press.
     public static (List<double> Baseline, List<double>[] Others) TraceSchedules(IReadOnlyList<Press> presses)
     {
         var durationMs = presses[^1].TimeStamp + 2000;

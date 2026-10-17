@@ -239,8 +239,8 @@ public class AdvanceFrameTests
             (Frame, 3016.671875, 3014, 0, false, false, ""),
         ];
         Assert.Equal(expected, run.Log.Skip(3).Select(item => (item.Kind, item.TimeMs, item.SimulatedTimeMs, item.Steps, item.SettleCheck, item.Snap, item.EventIds)));
-        // A press at 1,150 ms steps 283 times with its settle checks, and the 25 steps up to the
-        // frame at 1,250 ms exceed the remaining 17, so the springs snap.
+        // A press at 1,150 ms steps 283 times with its settle checks. The 25 steps up to the frame
+        // at 1,250 ms exceed the remaining 17, so the springs snap.
         var split = RunPlanner([0, 1000.0 / 60, 1250], [new TestEvent(0, 0), new TestEvent(1150, 1)], WriteBack.EveryEvaluation, MovesUntilSnap());
         Assert.Equal([0, 4, 283], split.StepsPerFrame);
         Assert.Equal(
@@ -315,7 +315,7 @@ public class AdvanceFrameTests
         // The frame at 60 ms wrote back at simulated time 60 ms, so 1,204 ms later is 301 steps.
         Assert.False(SnapsAfterGap(60, 1203, WriteBack.EveryEvaluation));
         Assert.True(SnapsAfterGap(60, 1204, WriteBack.EveryEvaluation));
-        // The frame at 60 ms evaluated a copy, and the first settle check is at 64 ms, so the steps
+        // The frame at 60 ms evaluated a copy, and the first settle check is at 64 ms. So the steps
         // count from the event at 0 ms.
         Assert.False(SnapsAfterGap(60, 1143, WriteBack.EventsAndSettleChecks));
         Assert.True(SnapsAfterGap(60, 1144, WriteBack.EventsAndSettleChecks));
@@ -380,8 +380,8 @@ public class AdvanceFrameTests
     }
 
     // No Handwired twin. A non-default configuration changes the settle check interval and the
-    // step budget: with 2 ms steps, a settle check every 4 steps and 10 steps per frame, the checks
-    // run every 8 ms from the event, and a 30 ms gap snaps.
+    // step budget. This configuration has 2 ms steps, a settle check every 4 steps and 10 steps per
+    // frame. The checks run every 8 ms from the event, and a 30 ms gap snaps.
     [Fact]
     public void AdvanceFrame_reads_the_step_the_settle_check_interval_and_the_step_budget_of_its_configuration()
     {

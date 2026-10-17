@@ -1,6 +1,6 @@
 // No Handwired test file. These tests cover the window app of template/toggle.ts (mountToggle, lines
-// 141-170) and the CSS of template/index.html without a window: the input to events, the idle rule,
-// the coordinate grid and the draw commands.
+// 141-170) and the CSS of template/index.html without a window. They cover the input to events, the
+// idle rule, the coordinate grid and the draw commands.
 
 using Sharpwired.Core.Tests;
 using Sharpwired.Raylib;
@@ -52,7 +52,7 @@ public class ToggleWindowAppTests
 
     // No Handwired test. The browser host requests a frame only while the clock runs, after an event,
     // or after a resize. The window app draws in every frame, but steps the program only in these frames.
-    // A second machine that gets the same events at the same timestamps and steps in every frame gives
+    // A second machine gets the same events at the same timestamps and steps in every frame. It gives
     // the same draw commands at every frame, so the idle rule gives the same pixels.
     [Fact]
     public void The_idle_rule_gives_at_each_frame_the_draw_commands_of_a_machine_that_steps_in_every_frame()
@@ -84,8 +84,8 @@ public class ToggleWindowAppTests
             if (ReferenceEquals(commands, previous)) reusedFrames++;
             previous = commands;
         }
-        // The script reaches each state: the clock ran, the app reused the commands of idle frames, and
-        // the last click (a press and a release in one frame) left the switch on at the end of its travel.
+        // The script reaches each state. The clock ran, and the app reused the commands of idle frames.
+        // The last click (a press and a release in one frame) left the switch on at the end of its travel.
         Assert.True(runningFrames > 50, $"the clock ran in {runningFrames} frames");
         Assert.True(reusedFrames > 300, $"the app reused the commands in {reusedFrames} frames");
         Assert.Equal(1.0, last.On);

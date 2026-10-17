@@ -3,9 +3,9 @@
 namespace Sharpwired.Core;
 
 /// <summary>
-/// Prefix networks: fixed sets of pairwise combines that compute each prefix items[0],
-/// combine(items[0], items[1]), combine(combine(items[0], items[1]), items[2]), and so on, with a
-/// longest chain of combines that is much shorter than the chain of a loop.
+/// Prefix networks: fixed sets of pairwise combines that compute each prefix. The prefixes are
+/// items[0], combine(items[0], items[1]), combine(combine(items[0], items[1]), items[2]), and so on.
+/// The longest chain of combines is much shorter than the chain of a loop.
 /// </summary>
 /// <remarks>
 /// combine(earlier, later) must be associative: combine(combine(a, b), c) must give the same result
@@ -20,8 +20,8 @@ namespace Sharpwired.Core;
 public static class PrefixNetworks
 {
     /// <summary>
-    /// Sklansky (1960): for blocks of 2, 4, 8, ... items, combine the last prefix of the left half
-    /// of the block into each prefix of its right half. For k items, with k a power of two, this is
+    /// Sklansky (1960): the network works on blocks of 2, 4, 8, ... items. In each block, it combines
+    /// the last prefix of the left half into each prefix of the right half. For k items, with k a power of two, this is
     /// (k / 2) × log2(k) combines and a longest chain of log2(k).
     /// </summary>
     public static T[] Sklansky<T>(IReadOnlyList<T> items, Func<T, T, T> combine)
@@ -47,8 +47,8 @@ public static class PrefixNetworks
     /// <summary>
     /// Brent-Kung (1982): an upward pass combines neighbors, then pairs of pairs, and so on. This
     /// completes the prefixes of the first 2, 4, 8, ... items. A downward pass then completes each
-    /// other prefix: it combines one completed prefix with one smaller block. For k items, with k a
-    /// power of two and at least 4, this is 2k − 2 − log2(k) combines and a longest chain of
+    /// other prefix: it combines one completed prefix with one smaller block. Let k be a power of two
+    /// and at least 4. Then k items take 2k − 2 − log2(k) combines, and the longest chain is
     /// 2 × log2(k) − 2.
     /// </summary>
     public static T[] BrentKung<T>(IReadOnlyList<T> items, Func<T, T, T> combine)

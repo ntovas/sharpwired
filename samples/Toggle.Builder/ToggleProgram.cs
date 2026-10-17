@@ -3,7 +3,7 @@
 // insideTrack).
 //
 // A toggle switch at the center of the viewport, as one numeric program. As a native switch, it acts
-// on release: a press on the track arms it, a release on the track while armed flips it, and a
+// on release. A press on the track arms it, and a release on the track while armed flips it. A
 // release off the track or a cancel disarms it. The thumb springs to its new side.
 //
 // Handwired declares toggleCells as a nested object literal and gets the same shape with wires. C#
@@ -83,9 +83,9 @@ public static class ToggleProgram
         var cancel = scope.Declare("cancel", Cell.Event());
         var on = scope.Declare("on", Cell.StateBit());
         var armed = scope.Declare("armed", Cell.StateBit());
-        // What AdvanceFrame plans for each evaluation: the spring matrix of its steps, whether the
-        // spring can come to rest (a settle check), and whether the thumb snaps onto its destination
-        // because the frame needs too many steps.
+        // What AdvanceFrame plans for each evaluation: the spring matrix of its steps, and whether the
+        // spring can come to rest (a settle check). The snap cell tells whether the thumb snaps onto
+        // its destination, because the frame needs too many steps.
         var springMatrix = scope.Declare("springMatrix", [MatrixEntry(), MatrixEntry(), MatrixEntry(), MatrixEntry()]);
         var settleCheck = scope.Declare("settleCheck", Cell.InputBit());
         var snap = scope.Declare("snap", Cell.InputBit());

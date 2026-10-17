@@ -11,7 +11,7 @@ namespace Sharpwired.Raylib;
 /// host. Event handlers only queue events. Each step plans the evaluations of one frame with
 /// AdvanceFrame, which steps the springs to the timestamp of each event before the event applies.
 /// With <see cref="WriteBack.EventsAndSettleChecks"/>, the frame evaluation runs on a copy of the
-/// table, so the stored state depends only on the events and not on the frame rate.
+/// table. So the stored state depends only on the events, and not on the frame rate.
 /// </summary>
 public sealed class HostLoop<TEvent>
     where TEvent : ITimedEvent

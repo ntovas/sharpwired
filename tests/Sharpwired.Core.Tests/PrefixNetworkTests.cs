@@ -27,8 +27,8 @@ public class PrefixNetworkTests
         return new StringRun(prefixes, combines, prefixes.Max(prefix => prefix.Depth));
     }
 
-    // A state machine over queued events as a prefix scan: each event is a table of S index reads
-    // from state to next state, and two tables combine as later[earlier[state]]. With the initial
+    // A state machine over queued events as a prefix scan. Each event is a table of S index reads
+    // from state to next state. Two tables combine as later[earlier[state]]. With the initial
     // state in a cell, the test reads each prefix at that cell. With the constant initial state 0,
     // the test reads each prefix at entry 0.
     private static StateMachineScan BuildStateMachineScan(

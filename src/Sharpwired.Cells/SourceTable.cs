@@ -4,9 +4,9 @@
 //
 // The source table is the float[] that the host writes before an evaluation, and that the host
 // writes the next-state values back into. Each cell is declared one time, with its policy, its range
-// and its initial value. The table derives the position of each cell (in declaration order), the
-// range, grid, exact bit and one-hot declarations of the circuit, the initial table, a validator,
-// and the wire that holds the next value of each cell.
+// and its initial value. The table derives the position of each cell, in declaration order. It
+// derives the range, grid, exact bit and one-hot declarations of the circuit. It also derives the
+// initial table, a validator, and the wire that holds the next value of each cell.
 //
 // A build has two phases, because a Circuit needs its source size before the first operation:
 // 1. Declare each cell, then call CreateCircuit.
@@ -15,7 +15,8 @@
 // Handwired declares a nested object literal and gets the same shape back with wires (the mapped type
 // CellWires). C# has no mapped types, so the caller writes a record for the wires and fills it with
 // ICellScope calls, one for each field. A component exports a method that declares its cells in a
-// scope, and a build method that takes the circuit, the table, its wires and the wires of the parent.
+// scope. It also exports a build method, which takes the circuit, the table, its wires and the wires
+// of the parent.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -41,8 +42,8 @@ public interface ICellScope
     Wire[] Declare(string name, OneHotSpec group);
 
     /// <summary>
-    /// Declare the cells "name[rank][item]" row by row, then add the rules "name rank r" for each
-    /// row, then the rules "name item i" for each column. The result is indexed [rank][item].
+    /// Declare the cells "name[rank][item]" row by row. Then add the rules "name rank r" for each
+    /// row, and then the rules "name item i" for each column. The result is indexed [rank][item].
     /// </summary>
     Wire[][] Declare(string name, PermutationSpec permutation);
 
@@ -54,8 +55,8 @@ public interface ICellScope
 }
 
 /// <summary>
-/// The return value of Handwired finish: the circuit, the wire that holds the next value of each cell
-/// (in cell order), the initial table, and the validator.
+/// The return value of Handwired finish. It holds the circuit, the initial table and the validator.
+/// It also holds the wire that holds the next value of each cell, in cell order.
 /// </summary>
 public sealed record FinishedTable(Circuit Circuit, ImmutableArray<Wire> NextSource, ImmutableArray<float> InitialSource, CellValidator Validator);
 
@@ -138,7 +139,7 @@ public sealed class SourceTable : ICellScope
 
     /// <summary>
     /// Handwired table.next: pair each state cell in stored with the wire under the same field name or
-    /// index in next, for example table.Next(cells.Spring, new SpringCells(velocity, position)). The
+    /// index in next. An example is table.Next(cells.Spring, new SpringCells(velocity, position)). The
     /// walk visits the fields in ordinal order of their names. It checks the whole shape and each pair
     /// before it records a pair. The pair checks run in this order: a source cell, a state cell, no
     /// earlier next value, a wire of the circuit.

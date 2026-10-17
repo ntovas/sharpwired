@@ -48,9 +48,9 @@ public class SpringTraceTests
                 Assert.True(MaxFrameDifference(FramePositions(run), reference.Positions) < 5e-4);
                 Assert.DoesNotContain(run.Commits, commit => commit.Kind == EvaluationKind.Snap);
             }
-            // Without jumps, a running clock stops only at a settle check. A jump snaps its object,
-            // and when the other object is exactly at rest, nothing animates and the clock stops
-            // at the jump, which needs the rest bit.
+            // Without jumps, a running clock stops only at a settle check. A jump snaps its object.
+            // When the other object is exactly at rest, nothing animates and the clock stops at the
+            // jump, which needs the rest bit.
             if (jumpChance == 0) Assert.Equal(0, baselineRun.StopsWithoutSettleCheck);
             else stopsAtJumps += baselineRun.StopsWithoutSettleCheck;
         }
@@ -80,8 +80,8 @@ public class SpringTraceTests
         }
         // Each evaluation rounds the stored displacement at its own size, so the error becomes
         // smaller near rest. Handwired measured on seeds 1 to 8: up to 1.4e-4 px from float64, and
-        // each run settles like float64. With absolute positions, which rounded at up to 2^-14 px
-        // at 800 px, it was 7.3e-4 px, and 2 of 48 runs settled at a different check.
+        // each run settles like float64. Absolute positions rounded at up to 2^-14 px at 800 px.
+        // With them, it was 7.3e-4 px, and 2 of 48 runs settled at a different check.
         Assert.Equal(0, runsWithDifferentSettles);
     }
 
@@ -160,7 +160,7 @@ public class SpringTraceTests
                 }
                 else
                 {
-                    // FP32 values near 1,048,576 px are 1/8 px apart, so the destinations of the
+                    // FP32 values near 1,048,576 px are 1/8 px apart. So the destinations of the
                     // scale spring, on a 1/64 grid, round before they reach the program. Handwired
                     // measured 0.10 px.
                     Assert.True(worstDisplacement < spacing, $"worst displacement {worstDisplacement:R} at {offset:R} px with {writeBack}");

@@ -20,8 +20,8 @@ public class ExactBitTests
         Assert.Equal(
             new[] { cells.Click, cells.Snap, cells.Open }.Concat(cells.Choice).Concat(cells.Order.SelectMany(row => row)).Select(wire => wire.Position),
             DeclaredBits(circuit));
-        // A bit gets no grid from the declaration, so a sum that reads it has none, and Compare would still build a
-        // sign cascade for the sum: AssumeGrid(wire, 1) is the declaration that changes that.
+        // A bit gets no grid from the declaration, so a sum that reads it has none. Compare would still build a
+        // sign cascade for the sum. AssumeGrid(wire, 1) is the declaration that changes that.
         Assert.Null(circuit.Grids[cells.Snap.Position]);
         var sum = circuit.Affine([(cells.Width, 1), (cells.Snap, 1)]);
         Assert.Null(circuit.Grids[sum.Position]);
@@ -77,8 +77,8 @@ public class ExactBitTests
     [Fact]
     public void InlineCircuit_repeats_an_exact_bit_on_the_wire_that_the_bit_lands_on_and_builds_the_operations_that_it_builds_without_the_declaration()
     {
-        // The same inner program twice, with its `enabled` cell declared with InputBit and as a cell within 0..1, inlined
-        // into an outer circuit whose own cells are not bits: C# for the inner program, enabled ? width : 0.
+        // The same inner program twice, with its `enabled` cell declared with InputBit and as a cell within 0..1. Each
+        // one is inlined into an outer circuit whose own cells are not bits. C# for the inner program: enabled ? width : 0.
         static InlinedProgram Build(Func<CellSpec> bit)
         {
             var innerTable = new SourceTable();

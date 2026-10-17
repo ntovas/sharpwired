@@ -21,8 +21,8 @@ public enum CellPolicy
     Input,
 
     /// <summary>
-    /// An exact bit that the host sets to 1 when an event arrives, for example a pointer press, next
-    /// to input cells for the coordinates of the event. The program resets it to 0.
+    /// An exact bit that the host sets to 1 when an event arrives, for example a pointer press. Input
+    /// cells for the coordinates of the event go next to it. The program resets it to 0.
     /// </summary>
     Event,
 

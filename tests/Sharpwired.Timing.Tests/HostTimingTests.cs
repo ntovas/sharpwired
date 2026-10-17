@@ -92,8 +92,8 @@ public class HostTimingTests
         Js.AllIs([-9.984375], HostTiming.QuantizeFrameTiming(5000, null, [4990.01]).EventTimesMs);
         // A frame timestamp before the previous frame counts no time.
         FrameTimingIs(1000, 0, [], HostTiming.QuantizeFrameTiming(990, 1000, []));
-        // A 100 s stall writes the cap, 1,200 ms, an event after the frame reads +0,
-        // and an older event reads the later of the previous frame and -1,200 ms.
+        // A 100 s stall writes the cap, 1,200 ms. An event after the frame reads +0. An older
+        // event reads the later of the previous frame and -1,200 ms.
         var stalled = HostTiming.QuantizeFrameTiming(101_000, 1000, [101_003, 500]);
         Js.Is(1200, stalled.DurationMs);
         Assert.True(Js.ObjectIs(stalled.EventTimesMs[0], 0));
@@ -267,8 +267,8 @@ public class HostTimingTests
             var twoMsSteps = SpringClockConfig.Default with { StepMs = 2 };
             Js.Is(SpringMatrix.SpringMatrixBound(constants, 2, 300), SpringMatrix.SpringMatrixBound(constants, twoMsSteps));
         }
-        // The 650/45 spring reaches its largest entry after more than 7 steps, so the bound of
-        // 7 steps is smaller than the bound of 300 steps.
+        // The 650/45 spring reaches its largest entry after more than 7 steps. So the bound of 7
+        // steps is smaller than the bound of 300 steps.
         Assert.True(
             SpringMatrix.SpringMatrixBound(new SpringConstants(650, 45), SpringClockConfig.Default with { MaxStepsPerFrame = 7 })
                 < SpringMatrix.SpringMatrixBound(new SpringConstants(650, 45)));

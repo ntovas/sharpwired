@@ -8,8 +8,8 @@ using System.Globalization;
 namespace Sharpwired.Raylib;
 
 /// <summary>
-/// What the window read in one frame: the pointer position in screen pixels, the left button edges,
-/// the focus loss edge and the screen size in pixels.
+/// What the window read in one frame. It holds the pointer position in screen pixels and the left
+/// button edges. It also holds the focus loss edge and the screen size in pixels.
 /// </summary>
 public readonly record struct WindowInput(
     double PointerX, double PointerY, bool PointerPressed, bool PointerReleased, bool FocusLost,
@@ -71,7 +71,7 @@ public sealed class FocusEdge(bool focused)
 }
 
 /// <summary>
-/// The command-line options of a window: <c>--frames N</c> closes the window after N frames, and
+/// The command-line options of a window. <c>--frames N</c> closes the window after N frames.
 /// <c>--screenshot path</c> saves the last frame as an image before the window closes. With no option,
 /// the window runs until the person closes it.
 /// </summary>
@@ -85,8 +85,8 @@ public sealed record WindowRunOptions(int? FrameLimit, string? ScreenshotPath)
 
     /// <summary>
     /// Read the options from the command line. Throw <see cref="ArgumentException"/> for an unknown
-    /// option, an option with no value, an option that is given two times, or a frame count that is
-    /// not a positive integer. A value that starts with "--" is the next option, so the option before
+    /// option, an option with no value, or an option that is given two times. Also throw it for a
+    /// frame count that is not a positive integer. A value that starts with "--" is the next option, so the option before
     /// it has no value.
     /// </summary>
     public static WindowRunOptions Parse(IReadOnlyList<string> args)

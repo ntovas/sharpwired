@@ -96,8 +96,8 @@ public class ProgramEvaluatorTests
         var shown = circuit.Select(pressed, circuit.RoundAffine([(width, 2)]), circuit.Constant(7));
         table.Next(shownCell, shown);
         var evaluator = ProgramEvaluator.Create(table.Finish(), new { shown });
-        // speed doubles from 8 to 16, past its range, and the check throws there, before it reaches the NaN next value of
-        // shown and the NaN output.
+        // speed doubles from 8 to 16, past its range, and the check throws there. The check does not reach the NaN next
+        // value of shown and the NaN output.
         var speedFailure = Assert.Throws<InvalidOperationException>(() => evaluator.Evaluate([1, 3e38f, 8, 0]));
         Assert.Matches(@"^speed must be finite and within 0\.\.8, got 16$", speedFailure.Message);
         var shownFailure = Assert.Throws<InvalidOperationException>(() => evaluator.Evaluate([1, 3e38f, 2, 0]));
@@ -146,9 +146,9 @@ public class ProgramEvaluatorTests
         table.Declare("count", Cell.State(new NumericRange(0, 10)));
         table.Declare("flag", Cell.StateBit());
         table.CreateCircuit();
-        // Each call writes a position counted by hand where a wire is meant, for example 0 is the press cell, and 6 is the
-        // count cell. At runtime, a next value is only checked to be a wire of the circuit, and a stored position to be a
-        // state cell.
+        // Each call writes a position counted by hand where a wire is meant. For example, 0 is the press cell, and 6 is
+        // the count cell. At runtime, a next value is only checked to be a wire of the circuit, and a stored position to
+        // be a state cell.
         table.Next(on, Wire.FromPosition(0));
         table.Next(spring, new PressSpring(Wire.FromPosition(0), spring.Velocity));
         table.Next(pair, [Wire.FromPosition(0), Wire.FromPosition(0)]);
@@ -156,8 +156,8 @@ public class ProgramEvaluatorTests
         table.Next(new { Flag = Wire.FromPosition(7) }, new { Flag = press });
         var evaluator = ProgramEvaluator.Create(table.Finish(), new { Typo = Wire.FromPosition(1) });
         var result = evaluator.Evaluate([1, 0, 5, 7, 0, 0, 3, 0]);
-        // on, the displacement of the spring, both pair cells, count and flag took the 1 of the press cell, and the output
-        // read the on cell.
+        // on, the displacement of the spring, both pair cells, count and flag took the 1 of the press cell. The output read
+        // the on cell.
         Js.AllIs([0, 1, 1, 7, 1, 1, 1, 1], result.NextValues.Select(value => (double)value));
         Assert.Equal<string>(["typo"], evaluator.OutputPaths);
         Js.AllIs([0], result.Outputs.Select(value => (double)value));

@@ -51,8 +51,8 @@ public enum EvaluationKind
 
     /// <summary>
     /// Handwired 'snap': runs no steps and puts each animated object on its destination with zero
-    /// velocity, because the steps up to the next evaluation pass what is left of the step budget
-    /// of the frame.
+    /// velocity. A snap runs when the steps up to the next evaluation pass what is left of the step
+    /// budget of the frame.
     /// </summary>
     Snap,
 }
@@ -120,21 +120,22 @@ public static partial class HostTiming
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The order rule: before the host applies an event with the timestamp T, the springs step to
-    /// T toward the destinations that were in effect before T. So a new destination starts to pull
+    /// The order rule: the springs step to the timestamp T of an event before the host applies the
+    /// event. They step toward the destinations that were in effect before T. So a new destination starts to pull
     /// within one step of T at each frame rate.
     /// </para>
     /// <para>
     /// Only settle check evaluations check the settle state, at the simulated times
     /// CheckOriginMs + 64 k ms by default. An evaluation while the clock is stopped checks it too,
     /// and starts the clock at its own time. A settle check at the simulated time c runs before
-    /// the events with timestamps at or after c, so each frame rate checks the same state against
+    /// the events with timestamps at or after c. So each frame rate checks the same state against
     /// the same destinations.
     /// </para>
     /// <para>
-    /// The evaluations of one frame run at most MaxStepsPerFrame steps together. Before each events
-    /// or frame evaluation, when the steps up to its time pass what is left of that budget, a snap
-    /// evaluation puts each animated object on its destination and stops the clock. This drops
+    /// The evaluations of one frame run at most MaxStepsPerFrame steps together. An events or frame
+    /// evaluation can need more steps up to its time than what is left of that budget. Then a snap
+    /// evaluation runs before it, puts each animated object on its destination and stops the
+    /// clock. This drops
     /// the pending steps. The steps count from AnimatedUntilMs, where the springs last stepped in
     /// state that was written back. An event before the last evaluation that wrote state back
     /// applies at the time of that evaluation. An event after the frame applies at the time of the
