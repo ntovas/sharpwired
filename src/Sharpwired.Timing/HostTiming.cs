@@ -40,7 +40,7 @@ public readonly record struct StepCount(int Steps, double LeftoverMs, bool Snap)
 /// The float64 code that a host runs between two evaluations. It decides what the host writes
 /// into the source table before each evaluation. It builds no operations.
 /// </summary>
-public static class HostTiming
+public static partial class HostTiming
 {
     /// <summary>
     /// Handwired validateSpringClockConfig. The checks run in the Handwired order: the time grid,
