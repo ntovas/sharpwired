@@ -442,7 +442,8 @@ public class TensorDifferentialTests(ITestOutputHelper output)
 
     // A sum of bit × value products with a random bias. Each product has a random orientation of
     // four. Two orientations are the two operand orders of Multiply. The other two are a ReGLU with
-    // the bit in the gate, and a ReGLU with the bit in the left form. The last orientation is a masked read only for a nonnegative value.
+    // the bit in the gate, and a ReGLU with the bit in the left form. The last orientation is a
+    // masked read only for a nonnegative value.
     private static Wire MaskedSum(Circuit circuit, Func<double> random, IReadOnlyList<Wire> bits, IReadOnlyList<Wire> values)
     {
         var terms = new Term[bits.Count];
@@ -483,9 +484,10 @@ public class TensorDifferentialTests(ITestOutputHelper output)
         return child;
     }
 
-    // One source table. Each cell gets a value in its declared range. The value is a random value, an
-    // end of the range, ±0, the smallest subnormal, or the largest FP32 value in the range. A cell with no bound
-    // can also get ±Infinity. Each group gets a valid one-hot, or all zeros where the group allows it.
+    // One source table. Each cell gets a value in its declared range. The value is a random value,
+    // an end of the range, ±0, the smallest subnormal, or the largest FP32 value in the range. A
+    // cell with no bound can also get ±Infinity. Each group gets a valid one-hot, or all zeros
+    // where the group allows it.
     private static float[] CreateSource(Func<double> random, Cell[] cells, List<SourceGroup> groups)
     {
         var source = new float[cells.Length];

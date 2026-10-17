@@ -131,8 +131,8 @@ public sealed record TensorIndexRead(
 /// One layer of a compiled program. The layer reads the packed values InputIndices into its input
 /// columns. It computes its projection rows with one sparse matrix. First come the output rows,
 /// one for each output. Then come the gate rows, one for each ReGLU (GateRows gives its output
-/// row). Then come the index rows, one for each index read. Then the layer applies the gates, the
-/// boolean atoms, the gather reads and the index reads.
+/// row). Then come the index rows, one for each index read. Then the layer applies the gather
+/// reads, the index reads, the gates and the boolean atoms, in that order.
 /// </summary>
 public sealed record TensorLayer
 {

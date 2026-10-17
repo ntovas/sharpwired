@@ -13,7 +13,8 @@ public sealed partial class Circuit
     /// layers of sparse matrices. With no roots, every operation is a root. With lowerGathers, a
     /// masked sum over a declared one-hot group becomes one gather read of the selected candidate.
     /// Its products leave the program when nothing else reads them. The layer of an operation is
-    /// its depth minus 1. The depth is the build-time depth. With recomputeDepths, the depth is one
+    /// its depth minus 1. Without recomputeDepths, the depth is the build-time depth. With
+    /// recomputeDepths, the depth is one
     /// more than the deepest value that the operation reads in the compiled program. In a layer, the
     /// rows follow the operation order and the input columns follow the packed positions.
     /// </summary>
