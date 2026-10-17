@@ -1,8 +1,9 @@
 // No Handwired source. Handwired has no translator. The emit of a symbolic value, after the plan,
 // section "Emission rules": the C#-equal rule of an affine form (exact form, one C# operation, or a
-// RoundAffine chain in C# order), and the bit forms of section "Decisions", question 4. The bit forms
-// follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT is 1 - bit, AND of N bits is
-// relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is relu(a - b) + relu(b - a).
+// RoundAffine chain in C# order), and the bit forms and the gate rules 5 to 7 of section
+// "Decisions", question 4. The bit forms follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT
+// is 1 - bit, AND of N bits is relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is
+// relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off".
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -30,6 +31,7 @@ internal sealed class Emitter(Circuit circuit)
             AndValue conjunction => EmitAnd(conjunction.Literals),
             OrValue disjunction => EmitOr(disjunction.Literals),
             XorValue xor => EmitXor(Emit(xor.Left), Emit(xor.Right)),
+            GateValue gate => EmitGate(gate),
             _ => throw new InvalidOperationException($"the value {value.GetType().Name} has no emit rule"),
         };
 
@@ -141,6 +143,38 @@ internal sealed class Emitter(Circuit circuit)
         var wire = Circuit.RoundAffine(terms, bias);
         form.Wire = wire;
         return wire;
+    }
+
+    // The gate rules 5 to 7 of the plan, section "Decisions", question 4. The emit order is the
+    // condition, then the off value, then the on value, then the gate operations, as the arguments of
+    // circuit.Select(gate, off, on) in the builder toggle.
+    private Wire EmitGate(GateValue gate)
+    {
+        if (gate.Kind != ScalarKind.Bit && gate.On is ConstantValue on && gate.Off is ConstantValue off)
+        {
+            // Rule 5: ITE(c, k1, k0) = [(c, k1 - k0)] + k0 when k1 - k0 is an FP32 value and f(k0 + (k1 - k0)) == k1.
+            var condition = Emit(gate.Condition);
+            var step = on.Number - off.Number;
+            if ((double)(float)step == step && (float)(off.Number + step) == (float)on.Number)
+            {
+                return Circuit.Affine([(condition, step)], off.Number);
+            }
+
+            var offWire = Circuit.Constant(off.Number);
+            return Circuit.Select(condition, offWire, Circuit.Constant(on.Number));
+        }
+
+        if (gate.Kind != ScalarKind.Bit && gate.Off is ConstantValue { Number: 0 })
+        {
+            // Rule 6: ITE(c, x, 0) = Multiply(c, x), the Handwired form of "condition ? value : 0".
+            var condition = Emit(gate.Condition);
+            return Circuit.Multiply(condition, Emit(gate.On));
+        }
+
+        // Rule 7: Select(c, off, on).
+        var gateWire = Emit(gate.Condition);
+        var offValue = Emit(gate.Off);
+        return Circuit.Select(gateWire, offValue, Emit(gate.On));
     }
 
     // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.

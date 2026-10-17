@@ -113,7 +113,7 @@ public static class HandwiredTranslator
         var ssa = SsaBuilder.Build(ControlFlowGraph.Build(decoded));
         var emitter = new Emitter(circuit);
         var arguments = layout.Parameters.Select(parameter => CellLayout.ValueOf(parameter, circuit)).ToArray();
-        var (result, offset) = OperationLowering.Lower(decoded, ssa, emitter, arguments);
+        var (result, offset) = OperationLowering.Lower(decoded, ssa, emitter, arguments, [method]);
         return (result, decoded.Locations.Locate(offset), emitter);
     }
 }
@@ -143,7 +143,7 @@ public sealed class TranslatedFunction
     /// <summary>The output leaves of the return value in walk order. A return value of one leaf has the path "".</summary>
     public ImmutableArray<NamedWire> Outputs { get; }
 
-    /// <summary>The overflow bits of the loops with a maximum. Straight-line code has none.</summary>
+    /// <summary>The overflow bits of the loops with a maximum. A method with no loop has none.</summary>
     public ImmutableArray<Wire> LoopOverflowBits { get; } = [];
 
     /// <summary>A program evaluator whose outputs are the output wires in the order of Outputs.</summary>

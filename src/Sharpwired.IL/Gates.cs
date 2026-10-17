@@ -1,0 +1,346 @@
+// No Handwired source for the walk. Handwired has no translator. Branch to select of the plan,
+// section "Decisions", question 4: the literal of each branch edge, the gate of each phi, and the
+// gate rules 1 to 4 (the emit applies the rules 5 to 7, Emitter.cs). The gate forms follow
+// $REF/docs/expressions.md, rows "condition ? on : off" and "NOT, AND and OR".
+//
+// The gate of a phi at the merge block M is value(D), with D the immediate dominator of M.
+// value(B) for a block B in the region from D to M is the phi operand when B jumps to M, and
+// ITE(c, value(T), value(F)) when B branches on the literal c to T and F. An edge to a block that
+// does not reach M gives no value, because the phi never reads it: ITE(c, x, none) = x. The return
+// value of a method with two or more ret instructions is the gate of a merge after the ret blocks.
+
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using Sharpwired.Core;
+
+namespace Sharpwired.IL;
+
+/// <summary>The branch literals and the gates of one lowering.</summary>
+internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
+{
+    private readonly Dictionary<int, ScalarValue> jumpLiterals = [];
+    private readonly Dictionary<int, ImmutableArray<ScalarValue>> caseLiterals = [];
+    private readonly Dictionary<SsaValue, Value> phiValues = [];
+    private readonly HashSet<ScalarValue> results = [];
+
+    private ControlFlowGraph Graph => ssa.Graph;
+
+    /// <summary>NOT of a bit. NOT of a NOT with no wire gives its operand.</summary>
+    public static ScalarValue Not(ScalarValue value) => value switch
+    {
+        ConstantValue constant => new ConstantValue(1 - constant.Number, ScalarKind.Bit),
+        NotValue { Wire: null } negation => negation.Operand,
+        _ => new NotValue(value),
+    };
+
+    /// <summary>The literals of a value in an AND (T is AndValue) or an OR (T is OrValue): an AND with no wire gives its literals in order (gate rule 4).</summary>
+    public static ImmutableArray<ScalarValue> Literals<T>(ScalarValue value)
+        where T : ScalarValue => value switch
+        {
+            AndValue { Wire: null } conjunction when typeof(T) == typeof(AndValue) => conjunction.Literals,
+            OrValue { Wire: null } disjunction when typeof(T) == typeof(OrValue) => disjunction.Literals,
+            _ => [value],
+        };
+
+    /// <summary>True when a gate made the value. The emit at a merge block emits only these values.</summary>
+    public bool IsResult(ScalarValue value) => results.Contains(value);
+
+    /// <summary>
+    /// Computes the literal of each edge of a conditional branch or a switch. A branch on a
+    /// comparison emits its Compare here, at its position in IL order.
+    /// </summary>
+    public void LowerTerminator(SsaBlock block)
+    {
+        var instruction = block.Terminator.Instruction;
+        if (instruction is null || instruction.OpCode == ILOpCode.Ret || instruction.IsJump)
+        {
+            return;
+        }
+
+        var offset = instruction.Offset;
+        var operands = block.Terminator.Operands;
+        var index = block.Block.Index;
+        switch (instruction.OpCode)
+        {
+            case ILOpCode.Brtrue or ILOpCode.Brtrue_s:
+                jumpLiterals[index] = Bit(operands[0], offset);
+                return;
+            case ILOpCode.Brfalse or ILOpCode.Brfalse_s:
+                jumpLiterals[index] = Not(Bit(operands[0], offset));
+                return;
+            case ILOpCode.Switch:
+                caseLiterals[index] = SwitchLiterals(operands[0], instruction.SwitchTargets.Length, offset);
+                return;
+            default:
+                jumpLiterals[index] = BranchLiteral(instruction.OpCode, operands[0], operands[1], offset);
+                return;
+        }
+    }
+
+    /// <summary>The gate of a phi. The translator computes it one time.</summary>
+    public Value PhiValue(SsaValue phi)
+    {
+        if (phiValues.TryGetValue(phi, out var known))
+        {
+            return known;
+        }
+
+        var merge = phi.Block;
+        var predecessors = Graph.Blocks[merge].Predecessors;
+        var value = Region(Graph.ImmediateDominator(merge), merge,
+            block => lowering.Get(phi.Operands[predecessors.IndexOf(block)]), TypeOf(phi.Type))
+            ?? throw new InvalidOperationException($"the phi {phi} has no value on a path from its dominator");
+        phiValues[phi] = value;
+        return value;
+    }
+
+    /// <summary>The return value of a method: the value of its one ret, or the gate of a merge after two or more ret blocks.</summary>
+    public Value ReturnValue(IReadOnlyList<SsaBlock> returns, Type returnType)
+    {
+        if (returns is [var single])
+        {
+            return lowering.Get(single.Terminator.Operands[0]);
+        }
+
+        var dominator = returns[0].Block.Index;
+        while (!returns.All(block => Graph.Dominates(dominator, block.Block.Index)))
+        {
+            dominator = Graph.ImmediateDominator(dominator);
+        }
+
+        return Region(dominator, -1, block => lowering.Get(ssa.Blocks[block].Terminator.Operands[0]), returnType)
+            ?? throw new InvalidOperationException("the return value has no value on a path from its dominator");
+    }
+
+    /// <summary>
+    /// The gate rules 1 to 4: ITE(condition, on, off). A null operand comes from an edge that does not
+    /// reach the merge. The gate of two aggregates or two arrays is the gate of each field or element.
+    /// </summary>
+    public Value? Make(ScalarValue condition, Value? on, Value? off, Type? type)
+    {
+        if (on is null || off is null || ReferenceEquals(on, off))
+        {
+            return on ?? off;
+        }
+
+        if (condition is NotValue { Wire: null } negation)
+        {
+            return Make(negation.Operand, off, on, type);
+        }
+
+        if (condition is ConstantValue constant)
+        {
+            return constant.Number != 0 ? on : off;
+        }
+
+        switch (on, off)
+        {
+            case (ScalarValue x, ScalarValue y):
+                return MakeScalar(condition, x, y, KindOf(type, x, y));
+            case (AggregateValue x, AggregateValue y) when x.Type == y.Type:
+                {
+                    var fields = ImmutableDictionary.CreateBuilder<string, Value>(StringComparer.Ordinal);
+                    foreach (var field in DataTypes.InstanceFields(x.Type).Where(field => x.Fields.ContainsKey(field.Name)))
+                    {
+                        fields[field.Name] = Make(condition, x.Fields[field.Name], y.Fields[field.Name], field.FieldType)!;
+                    }
+
+                    return fields.All(pair => ReferenceEquals(pair.Value, x.Fields[pair.Key])) ? x : new AggregateValue(x.Type, fields.ToImmutable());
+                }
+
+            case (ArrayValue x, ArrayValue y) when x.ElementType == y.ElementType && x.Elements.Length == y.Elements.Length:
+                {
+                    Value[] elements = [.. x.Elements.Zip(y.Elements, (a, b) => Make(condition, a, b, x.ElementType)!)];
+                    return elements.Select((element, index) => ReferenceEquals(element, x.Elements[index])).All(same => same)
+                        ? x
+                        : new ArrayValue(x.ElementType, elements, x.IsLocal && y.IsLocal);
+                }
+            default:
+                throw new InvalidOperationException($"a gate of a {on.GetType().Name} and a {off.GetType().Name}");
+        }
+    }
+
+    // value(B) for the blocks of the region from the dominator to the merge (-1: a merge after the
+    // ret blocks). operandOf gives the phi operand of a predecessor of the merge, or the return value
+    // of a ret block. Each block gets its value one time.
+    private Value? Region(int dominator, int merge, Func<int, Value> operandOf, Type? type)
+    {
+        var values = new Dictionary<int, Value?>();
+        var reaches = new Dictionary<int, bool>();
+
+        bool Reaches(int block)
+        {
+            if (merge < 0)
+            {
+                return true;
+            }
+
+            if (!reaches.TryGetValue(block, out var found))
+            {
+                found = Graph.Blocks[block].Successors.Any(successor => successor == merge || Reaches(successor));
+                reaches[block] = found;
+            }
+
+            return found;
+        }
+
+        Value? Edge(int from, int to) => to == merge ? operandOf(from) : Reaches(to) ? ValueAt(to) : null;
+
+        Value? ValueAt(int index)
+        {
+            if (values.TryGetValue(index, out var known))
+            {
+                return known;
+            }
+
+            var block = Graph.Blocks[index];
+            Value? value;
+            if (block.Terminator?.OpCode == ILOpCode.Ret)
+            {
+                value = merge < 0 ? operandOf(index) : null;
+            }
+            else if (!block.SwitchTargets.IsEmpty)
+            {
+                var cases = caseLiterals[index];
+                value = Edge(index, block.Next!.Value);
+                for (var k = cases.Length - 1; k >= 0; k--)
+                {
+                    value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type);
+                }
+            }
+            else if (block.Jump is { } jump && block.Next is { } next)
+            {
+                value = Make(jumpLiterals[index], Edge(index, jump), Edge(index, next), type);
+            }
+            else
+            {
+                value = Edge(index, block.Jump ?? block.Next!.Value);
+            }
+
+            values[index] = value;
+            return value;
+        }
+
+        return ValueAt(dominator);
+    }
+
+    private ScalarValue MakeScalar(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind)
+    {
+        // Rule 1: ITE(c, x, x) = x.
+        if (Same(on, off))
+        {
+            return on;
+        }
+
+        // Rule 2, for bits.
+        if (kind == ScalarKind.Bit && on is ConstantValue { Number: var k1 })
+        {
+            return k1 != 0
+                ? off is ConstantValue { Number: 0 } ? condition : Or(condition, off)
+                : off is ConstantValue { Number: 1 } ? Record(Not(condition)) : And(Record(Not(condition)), off);
+        }
+
+        if (kind == ScalarKind.Bit && off is ConstantValue { Number: var k0 })
+        {
+            return k0 == 0 ? And(condition, on) : Or(Record(Not(condition)), on);
+        }
+
+        // Rule 3: ITE(c1, ITE(c2, x, y), y) = ITE(AND(c1, c2), x, y); ITE(c1, x, ITE(c2, x, y)) = ITE(OR(c1, c2), x, y).
+        if (on is GateValue { Wire: null } inner && Same(inner.Off, off))
+        {
+            return MakeScalar(And(condition, inner.Condition), inner.On, off, kind);
+        }
+
+        if (off is GateValue { Wire: null } other && Same(other.On, on))
+        {
+            return MakeScalar(Or(condition, other.Condition), on, other.Off, kind);
+        }
+
+        return Record(new GateValue(condition, on, off, kind));
+    }
+
+    private AndValue And(ScalarValue left, ScalarValue right) =>
+        Record(new AndValue([.. Literals<AndValue>(left), .. Literals<AndValue>(right)]));
+
+    private OrValue Or(ScalarValue left, ScalarValue right) =>
+        Record(new OrValue([.. Literals<OrValue>(left), .. Literals<OrValue>(right)]));
+
+    private T Record<T>(T value)
+        where T : ScalarValue
+    {
+        results.Add(value);
+        return value;
+    }
+
+    // Two values are the same when they are one object, one constant, or one wire.
+    private static bool Same(ScalarValue left, ScalarValue right) =>
+        ReferenceEquals(left, right)
+        || (left is ConstantValue a && right is ConstantValue b && BitConverter.DoubleToInt64Bits(a.Number) == BitConverter.DoubleToInt64Bits(b.Number))
+        || (left.Wire is { } wire && wire == right.Wire);
+
+    // The kind of a gate: the type of the phi, or the kinds of the two values. The IL has int
+    // constants 0 and 1 in a bool phi, so the type of the phi decides.
+    private static ScalarKind KindOf(Type? type, ScalarValue on, ScalarValue off)
+    {
+        if (type is not null && DataTypes.KindOf(type) is { } kind)
+        {
+            return kind;
+        }
+
+        return on.Kind == ScalarKind.Float || off.Kind == ScalarKind.Float ? ScalarKind.Float
+            : on.Kind == ScalarKind.Bit && off.Kind == ScalarKind.Bit ? ScalarKind.Bit
+            : ScalarKind.Int;
+    }
+
+    private static Type? TypeOf(SsaType type) => type.Kind switch
+    {
+        SsaTypeKind.Float => typeof(float),
+        SsaTypeKind.Int => typeof(int),
+        SsaTypeKind.Bit => typeof(bool),
+        _ => type.ClrType,
+    };
+
+    // brtrue and brfalse read a bit: a bool value, a comparison or the constant 0 or 1.
+    private ScalarValue Bit(SsaValue operand, int offset)
+    {
+        var value = lowering.Scalar(operand, offset);
+        return value.Kind == ScalarKind.Bit || value is ConstantValue { Number: 0 or 1 }
+            ? value
+            : throw lowering.Refuse(offset, "a branch on a number", "the program branches on a bool value or on a comparison; compare the number with a value");
+    }
+
+    // The relation map of question 4. The .un forms on float give the other relation, with NOT on
+    // the jump edge, because the declared ranges are finite and no operand is NaN.
+    private ScalarValue BranchLiteral(ILOpCode op, SsaValue left, SsaValue right, int offset)
+    {
+        var (relation, jumpReadsBit, unsigned) = op switch
+        {
+            ILOpCode.Beq or ILOpCode.Beq_s => (Relation.Equal, true, false),
+            ILOpCode.Bne_un or ILOpCode.Bne_un_s => (Relation.Equal, false, false),
+            ILOpCode.Bge or ILOpCode.Bge_s => (Relation.GreaterOrEqual, true, false),
+            ILOpCode.Bgt or ILOpCode.Bgt_s => (Relation.Greater, true, false),
+            ILOpCode.Ble or ILOpCode.Ble_s => (Relation.LessOrEqual, true, false),
+            ILOpCode.Blt or ILOpCode.Blt_s => (Relation.Less, true, false),
+            ILOpCode.Bge_un or ILOpCode.Bge_un_s => (Relation.Less, false, true),
+            ILOpCode.Bgt_un or ILOpCode.Bgt_un_s => (Relation.LessOrEqual, false, true),
+            ILOpCode.Ble_un or ILOpCode.Ble_un_s => (Relation.Greater, false, true),
+            ILOpCode.Blt_un or ILOpCode.Blt_un_s => (Relation.GreaterOrEqual, false, true),
+            _ => throw new InvalidOperationException($"the branch {IlDecoder.NameOf(op)} has no relation"),
+        };
+        var bit = lowering.CompareOperands(left, right, relation, unsigned, offset);
+        return jumpReadsBit ? bit : Not(bit);
+    }
+
+    // The switch opcode on an int: the edge of case k reads Compare(v, Equal, k). The default edge
+    // is the last off value of the nested gates, which is the AND of the NOTs of the cases.
+    private ImmutableArray<ScalarValue> SwitchLiterals(SsaValue operand, int count, int offset)
+    {
+        var value = lowering.Scalar(operand, offset);
+        if (value.Kind != ScalarKind.Int)
+        {
+            throw lowering.Refuse(offset, "a switch on a value that is not an int", "the switch instruction reads an int with a declared range");
+        }
+
+        return [.. Enumerable.Range(0, count).Select(k => lowering.CompareValues(value, new ConstantValue(k, ScalarKind.Int), Relation.Equal, offset))];
+    }
+}

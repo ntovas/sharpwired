@@ -118,7 +118,12 @@ public static class RefusedInputs
     public static float FloatToInt([Range(0, 10)] float x) => (int)x; // marker: float-to-int
 
     [Handwired]
-    public static float Branch([Range(0, 1)] float x, bool c) => c ? x : 0f; // marker: branch
+    public static float Loop(float x)
+    {
+        float s = 0f;
+        for (int i = 0; i < 4; i++) s += x; // marker: loop
+        return s;
+    }
 
     // A static readonly int past 2^24, and an int table with an element past 2^24 (review of task 3).
     private static readonly int Big = 16_777_217;

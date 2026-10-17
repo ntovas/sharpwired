@@ -3,7 +3,7 @@
 // ret and switch; the edges come from the branches, the fall-through and the switch targets. The
 // dominators use the iterative algorithm of Cooper, Harvey and Kennedy, "A Simple, Fast Dominance
 // Algorithm" (2001). A natural loop (question 5) has a back edge: an edge whose target dominates
-// its source.
+// its source. A backward branch outside a natural loop is refused (section "Emission rules").
 
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
@@ -70,6 +70,7 @@ internal sealed class ControlFlowGraph
 
         immediateDominators = ComputeDominators();
         Loops = FindLoops();
+        CheckBackwardBranches();
     }
 
     public DecodedMethod Method { get; }
@@ -353,6 +354,33 @@ internal sealed class ControlFlowGraph
         }
 
         return a;
+    }
+
+    // The plan, section "Emission rules": a backward branch that is not a back edge of a natural loop
+    // is refused. Two checks find it:
+    // - A retreating edge (the target comes at or before the source in reverse postorder) whose
+    //   target does not dominate its source. Such an edge closes a cycle with two entries (an
+    //   irreducible cycle, or a jump into a loop body). In a reducible graph, each retreating edge is
+    //   a back edge, in each depth-first order.
+    // - An edge to a block at or before its source in IL order, with no natural loop that holds the
+    //   two blocks. The lowering emits the blocks of an acyclic region in IL order, so each edge of
+    //   such a region must go forward.
+    private void CheckBackwardBranches()
+    {
+        foreach (var block in Blocks)
+        {
+            foreach (var successor in block.Successors)
+            {
+                var retreating = reversePostorderNumbers[successor] <= reversePostorderNumbers[block.Index] && !Dominates(successor, block.Index);
+                var backward = successor <= block.Index && !Loops.Any(loop => loop.Body.Contains(block.Index) && loop.Body.Contains(successor));
+                if (retreating || backward)
+                {
+                    var last = Method.Instructions[block.FirstInstruction + Math.Max(block.InstructionCount - 1, 0)];
+                    throw Method.Refuse(last.Offset, "a backward branch outside a natural loop",
+                        "the program accepts a backward branch only as the back edge of a loop with one entry");
+                }
+            }
+        }
     }
 
     private ImmutableArray<NaturalLoop> FindLoops()

@@ -1,9 +1,12 @@
-// No Handwired source. Handwired has no translator. The refusal tests of task 3 (plan, section
+// No Handwired source. Handwired has no translator. The refusal tests of tasks 3 and 4 (plan, section
 // "Error message rules"): each refused construct gives the full message
 // "<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>" with the line of
-// the marker comment in Inputs/RefusedInputs.cs (a separate portable PDB). The errors of the method
-// itself are plain ArgumentException values with no location (rule 8).
+// the marker comment in Inputs/RefusedInputs.cs, Inputs/BranchInputs.cs or Inputs/CallInputs.cs (a
+// separate portable PDB) or in the F# inputs (an embedded portable PDB). A refusal in an inlined
+// method has the call sites after it (rule 4). The errors of the method itself are plain
+// ArgumentException values with no location (rule 8).
 
+using Sharpwired.IL.FSharpInputs;
 using Sharpwired.IL.Tests.Inputs;
 using static Sharpwired.IL.Tests.TranslationSupport;
 
@@ -14,6 +17,12 @@ public class RefusalTests
     private const string Refused = "RefusedInputs.cs";
 
     private const string IntRangeReason = "C# int arithmetic is exact up to 2^31, and FP32 only up to 2^24";
+
+    private const string PlainCallReason = "the program calls only [Handwired] methods, property getters, the Hw methods and the known methods of the lowering table";
+
+    private const string BackwardReason = "the program accepts a backward branch only as the back edge of a loop with one entry";
+
+    private const string ClosureReason = "the program has no function values; call a [Handwired] method";
 
     [Theory]
     [InlineData(nameof(RefusedInputs.DoubleStep), "double", "double arithmetic", "the program computes in FP32; write the expression in float")]
@@ -26,7 +35,7 @@ public class RefusalTests
     [InlineData(nameof(RefusedInputs.SquareRootF), "mathf-sqrt", "a call to System.MathF.Sqrt(Single)",
         "the lowering table has no exact construction for this method")]
     [InlineData(nameof(RefusedInputs.Print), "console", "a call to System.Console.WriteLine(Single)",
-        "the program calls only property getters, the Hw methods and the known methods of the lowering table")]
+        PlainCallReason)]
     [InlineData(nameof(RefusedInputs.WideInt), "wide-int", "an int value with a range past 2^24", IntRangeReason)]
     [InlineData(nameof(RefusedInputs.WideProduct), "wide-product", "an int value with a range past 2^24", IntRangeReason)]
     [InlineData(nameof(RefusedInputs.WideConstant), "wide-constant", "the int constant 20000000",
@@ -42,7 +51,7 @@ public class RefusalTests
         "a fused multiply-add rounds one time, and the program rounds the product and the sum one at a time")]
     [InlineData(nameof(RefusedInputs.FloatToInt), "float-to-int", "a conversion from float to int",
         "the program converts a float to int only for a value on a grid of 1 within -2^24..2^24")]
-    [InlineData(nameof(RefusedInputs.Branch), "branch", "a branch", "this version of the translator accepts only straight-line code")]
+    [InlineData(nameof(RefusedInputs.Loop), "loop", "a loop", "this version of the translator does not lower loops")]
     [InlineData(nameof(RefusedInputs.OpenAnimation), "open-animation",
         "a call to Sharpwired.Annotations.Hw.AnimatedObject(Single[], Single, Single, Single, Single, Boolean, Boolean)",
         "each float operand of Hw.AnimatedObject needs a finite declared range")]
@@ -96,4 +105,58 @@ public class RefusalTests
         Assert.True(error.IlOffset > 0);
         Assert.IsAssignableFrom<ArgumentException>(error);
     }
+
+    // Task 4: the backward branches outside a natural loop (review of task 2), with C# goto.
+    [Theory]
+    [InlineData(nameof(BranchInputs.IrreducibleCycle), "irreducible")]
+    [InlineData(nameof(BranchInputs.JumpIntoLoop), "into-loop")]
+    [InlineData(nameof(BranchInputs.BackwardJump), "backward-jump")]
+    public void A_backward_branch_outside_a_natural_loop_is_refused(string method, string marker) =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), method)), "BranchInputs.cs", marker,
+            "a backward branch outside a natural loop", BackwardReason);
+
+    [Fact]
+    public void A_call_to_a_method_without_Handwired_is_refused() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.CallsPlain))), "CallInputs.cs", "plain-call",
+            "a call to Sharpwired.IL.Tests.Inputs.CallInputs.Plain(Single)", PlainCallReason);
+
+    [Fact]
+    public void A_CSharp_lambda_is_refused() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.Lambda))), "CallInputs.cs", "lambda",
+            "the IL instruction ldftn", "the program has no delegates and no indirect calls");
+
+    // The refusal is in the callee, and the call site follows (plan, "Error message rules", rule 4).
+    [Fact]
+    public void Recursion_through_a_helper_is_refused_at_the_inner_call_with_the_outer_call_site()
+    {
+        const string construct = "recursion";
+        const string reason = "the program has a fixed size, so a [Handwired] method must not call itself";
+        var path = InputPath("CallInputs.cs");
+        AssertRefusedWith(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.Ping))),
+            $"{RefusalMessage(path, "pong", construct, reason)} (called from {Site(path, "ping")})", construct, reason);
+    }
+
+    // Review of task 2: a call on an address keeps only the value of the receiver, so the inliner
+    // refuses an instance method that changes this.
+    [Fact]
+    public void An_instance_method_that_writes_to_this_is_refused_with_the_call_site()
+    {
+        const string construct = "a store into this";
+        const string reason = "the translator passes the receiver as a value, so a [Handwired] method must not change this";
+        var path = InputPath("CallInputs.cs");
+        AssertRefusedWith(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.TallyTwice))),
+            $"{RefusalMessage(path, "store-this", construct, reason)} (called from {Site(path, "call-tally")})", construct, reason);
+    }
+
+    // The F# inputs have an embedded portable PDB.
+    [Fact]
+    public void An_FSharp_closure_that_a_NoInlining_function_receives_is_refused() =>
+        AssertRefusedWith(() => HandwiredTranslator.TranslateFunction(Input(typeof(Translation), "closure")),
+            RefusalMessage(FrontEndSupport.FSharpInputPath(), "fs-closure", "a closure", ClosureReason), "a closure", ClosureReason);
+
+    [Fact]
+    public void An_FSharp_seq_is_refused() =>
+        AssertRefusedWith(() => HandwiredTranslator.TranslateFunction(Input(typeof(Translation), "sequence")),
+            RefusalMessage(FrontEndSupport.FSharpInputPath(), "fs-seq", "an exception clause", "the program has no exceptions; remove the try statement"),
+            "an exception clause", "the program has no exceptions; remove the try statement");
 }

@@ -2,7 +2,8 @@
 // plan, section "Decisions", question 3: an abstract IL stack for each block; locals, arguments and
 // stack slots as variables; the phis of Braun, Buchwald, Hack, Leissa, Mallon and Zwinkau, "Simple
 // and Efficient Construction of Static Single Assignment Form" (2013), on the control-flow graph;
-// and a type for each value (Float, Int, Bit, Aggregate, Array, Address). The model types are in
+// and a type for each value (Float, Int, Bit, Aggregate, Array, Address). In an instance method of
+// a struct, ldarg.0 is the address of this. A store into this is refused. The model types are in
 // SsaModel.cs.
 
 using System.Collections.Immutable;
@@ -130,9 +131,17 @@ internal sealed class SsaBuilder
             case ILOpCode.Nop or ILOpCode.Tail:
                 return;
             case ILOpCode.Ldarg or ILOpCode.Ldarg_s or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
+                if (instruction.IntOperand == 0 && IsThisAddress())
+                {
+                    // In an instance method of a struct, ldarg.0 loads the address of this.
+                    stack.Add(NewAddress(op, new SsaAddress(This, null, []), method.Method.DeclaringType!, []));
+                    return;
+                }
+
                 stack.Add(Read(new SsaVariable(SsaVariableKind.Argument, instruction.IntOperand), currentBlock));
                 return;
             case ILOpCode.Starg or ILOpCode.Starg_s:
+                CheckNotThis(new SsaVariable(SsaVariableKind.Argument, instruction.IntOperand));
                 Write(new SsaVariable(SsaVariableKind.Argument, instruction.IntOperand), currentBlock,
                     Coerce(Pop(stack), ArgumentType(instruction.IntOperand)));
                 return;
@@ -241,6 +250,11 @@ internal sealed class SsaBuilder
                     var field = (FieldInfo)instruction.Operand!;
                     var value = Coerce(Pop(stack), field.FieldType);
                     var target = Pop(stack);
+                    if (target is { Kind: SsaValueKind.Argument, Index: 0 } && !method.Method.IsStatic)
+                    {
+                        CheckNotThis(This);
+                    }
+
                     if (target.Address is not { } address)
                     {
                         throw method.Refuse(currentOffset, "a field store into an object",
@@ -350,6 +364,8 @@ internal sealed class SsaBuilder
             throw method.Refuse(currentOffset, "a store through an address of an object or an array element",
                 "the program changes only a local or an argument");
         }
+
+        CheckNotThis(root);
 
         if (address.Fields.IsEmpty)
         {
@@ -604,6 +620,21 @@ internal sealed class SsaBuilder
         }
 
         return method.Method.GetParameters()[index].ParameterType;
+    }
+
+    private static readonly SsaVariable This = new(SsaVariableKind.Argument, 0);
+
+    private bool IsThisAddress() => !method.Method.IsStatic && method.Method.DeclaringType!.IsValueType;
+
+    // A call on an address passes only the value of the receiver (ApplyCall), so a change of this in
+    // an inlined instance method has no effect on the variable of the caller. The translator refuses it.
+    private void CheckNotThis(SsaVariable variable)
+    {
+        if (variable == This && !method.Method.IsStatic)
+        {
+            throw method.Refuse(currentOffset, "a store into this",
+                "the translator passes the receiver as a value, so a [Handwired] method must not change this");
+        }
     }
 
     private Type ReturnType() => method.Method is MethodInfo info ? info.ReturnType : typeof(void);

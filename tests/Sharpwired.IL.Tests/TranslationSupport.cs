@@ -1,4 +1,4 @@
-// No Handwired source. Helpers for the translator tests of task 3: the input methods, the path of an
+// No Handwired source. Helpers for the translator tests of tasks 3 and 4: the input methods, the path of an
 // input file, the value comparison of a translated program with its plain method over seeded source
 // tables, and the check of a refusal message with the file and line of a marker comment.
 
@@ -75,18 +75,22 @@ internal static class TranslationSupport
         Assert.True(same, $"plain {plain:R}, program {program:R}, {context}");
     }
 
-    /// <summary>The message of a refusal at the marker line of an input file.</summary>
-    public static string RefusalMessage(string fileName, string marker, string construct, string reason)
-    {
-        var path = InputPath(fileName);
-        return $"{path}:{FrontEndSupport.MarkerLine(path, marker)}: {construct} is not supported in a [Handwired] method: {reason}";
-    }
+    /// <summary>The message of a refusal at the marker line of a source file.</summary>
+    public static string RefusalMessage(string path, string marker, string construct, string reason) =>
+        $"{Site(path, marker)}: {construct} is not supported in a [Handwired] method: {reason}";
+
+    /// <summary>The location "file:line" of a marker comment, as a refusal and a call site name it.</summary>
+    public static string Site(string path, string marker) => $"{path}:{FrontEndSupport.MarkerLine(path, marker)}";
+
+    /// <summary>Checks that the action throws a TranslationException with the full message, at a marker of a C# input file.</summary>
+    public static TranslationException AssertRefused(Action translate, string fileName, string marker, string construct, string reason) =>
+        AssertRefusedWith(translate, RefusalMessage(InputPath(fileName), marker, construct, reason), construct, reason);
 
     /// <summary>Checks that the action throws a TranslationException with the full message.</summary>
-    public static TranslationException AssertRefused(Action translate, string fileName, string marker, string construct, string reason)
+    public static TranslationException AssertRefusedWith(Action translate, string message, string construct, string reason)
     {
         var error = Assert.Throws<TranslationException>(translate);
-        Assert.Equal(RefusalMessage(fileName, marker, construct, reason), error.Message);
+        Assert.Equal(message, error.Message);
         Assert.Equal(construct, error.Construct);
         Assert.Equal(reason, error.Reason);
         return error;

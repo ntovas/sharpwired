@@ -1,0 +1,136 @@
+// No Handwired source. C# inputs for the branch tests of the translator (plan, task 4, and section
+// "Decisions", question 4): the gates of c ? x : y, of an if statement, of && and || chains, and the
+// backward branches that the control-flow graph refuses. Each refused construct is on the line of
+// its marker comment ("marker: <name>").
+
+using Sharpwired.Annotations;
+
+namespace Sharpwired.IL.Tests.Inputs;
+
+public static class BranchInputs
+{
+    [Handwired]
+    public static float Choose(bool c, float x, float y) => c ? x : y;
+
+    [Handwired]
+    public static float ChooseConstants(bool c) => c ? 20f : 0f;
+
+    [Handwired]
+    public static float ChooseOffsetConstants(bool c) => c ? 3f : 1.5f;
+
+    [Handwired]
+    public static float ChooseOrZero(bool c, [Range(-100, 100)] float x) => c ? x : 0f;
+
+    [Handwired]
+    public static float DoubleWhen(bool c, float x)
+    {
+        float y = x;
+        if (c)
+        {
+            y = x * 2f;
+        }
+
+        return y;
+    }
+
+    [Handwired]
+    public static bool AllThree([Range(-100, 100)] float x, [Range(-100, 100)] float y, [Range(-100, 100)] float z) =>
+        x > 0f && y > 0f && z > 0f;
+
+    [Handwired]
+    public static float AllThreeBranch([Range(-100, 100)] float x, [Range(-100, 100)] float y, [Range(-100, 100)] float z, float a, float b)
+    {
+        if (x > 0f && y > 0f && z > 0f)
+        {
+            return a;
+        }
+
+        return b;
+    }
+
+    [Handwired]
+    public static bool AndNot(bool a, bool b) => a && !b;
+
+    [Handwired]
+    public static bool EitherAbove([Range(-100, 100)] float x, [Range(-100, 100)] float y) => x > 0f || y > 0f;
+
+    // The else side comes first in the IL of C#.
+    [Handwired]
+    public static float BothSides(bool c, [Range(-100, 100)] float x, [Range(-100, 100)] float y) => c ? x * y : MathF.Max(x, y);
+
+    // A struct value that a branch changes: one gate for each field that changes.
+    [Handwired]
+    public static Pair SwapWhen(bool c, Pair pair)
+    {
+        var result = pair;
+        if (c)
+        {
+            result = new Pair(pair.B, pair.A);
+        }
+
+        return result;
+    }
+
+    // An int equality branch. Roslyn writes "i < n" as bge in Release and as clt in Debug, so the
+    // relation of an ordered int branch depends on the configuration. An equality gives Equal in both.
+    [Handwired]
+    public static int IntEqual([Range(0, 8)] int i, [Range(0, 8)] int n)
+    {
+        if (i == n)
+        {
+            return i + 1;
+        }
+
+        return n;
+    }
+
+    // The gate statements of the plain toggle (plan, section "Decisions", question 1), with a helper
+    // call in place of InsideTrack.
+    [Handwired]
+    private static bool Positive([Range(-100, 100)] float v) => v > 0f;
+
+    [Handwired]
+    public static (bool On, bool Armed, float Destination) ToggleGates(
+        bool downActive, [Range(-100, 100)] float downX, bool upActive, [Range(-100, 100)] float upX, bool cancel, bool stateOn, bool stateArmed)
+    {
+        bool armedAfterDown = downActive ? Positive(downX) : stateArmed;
+        bool on = upActive && armedAfterDown && Positive(upX) ? !stateOn : stateOn;
+        bool armed = armedAfterDown && !upActive && !cancel;
+        float destination = on ? 20f : 0f;
+        return (on, armed, destination);
+    }
+
+    // The backward branches outside a natural loop (review of task 2). Each cycle has two entries:
+    // a bottom-tested cycle with a jump to its second statement, and a top-tested loop with a jump
+    // into its body. C# has no jump into a while block, so the loop uses labels. The blocks of each
+    // cycle are on the marker line.
+    [Handwired]
+    public static float IrreducibleCycle(bool c, [Range(0, 100)] float x)
+    {
+        if (c) goto second;
+        first: x = x * 0.5f; second: x = x + 1f; if (x < 10f) goto first; // marker: irreducible
+        return x;
+    }
+
+    [Handwired]
+    public static float JumpIntoLoop(bool c, [Range(0, 100)] float x)
+    {
+        if (c) goto inside;
+        top: if (x >= 100f) goto done; x = x * 0.5f; inside: x = x + 3f; goto top; // marker: into-loop
+        done: return x;
+    }
+
+    // A backward branch with no cycle.
+    [Handwired]
+    public static float BackwardJump(bool c, float x, float y)
+    {
+        goto test;
+    answer:
+        return x;
+    test:
+        if (c) goto answer; // marker: backward-jump
+        return y;
+    }
+}
+
+public readonly record struct Pair([Range(-100, 100)] float A, [Range(-100, 100)] float B);

@@ -1,6 +1,6 @@
 // No Handwired source. Handwired has no translator. The value kinds of the plan, section "Files"
-// (Values.cs): a wire, a constant, an affine form, NOT, AND, OR and XOR of bits, an aggregate and an
-// array. A symbolic value (an affine form, NOT, AND, OR, XOR) has no wire until the emit
+// (Values.cs): a wire, a constant, an affine form, NOT, AND, OR and XOR of bits, a gate, an aggregate
+// and an array. A symbolic value (an affine form, NOT, AND, OR, XOR, a gate) has no wire until the emit
 // (Emitter.cs). DataTypes reads the backing field of a property and the field stores of a data
 // constructor from their IL.
 
@@ -115,6 +115,20 @@ internal sealed class XorValue(ScalarValue left, ScalarValue right) : ScalarValu
     public ScalarValue Left { get; } = left;
 
     public ScalarValue Right { get; } = right;
+}
+
+/// <summary>
+/// A gate ITE(Condition, On, Off) of two numbers or two bits, with no wire (plan, section "Decisions",
+/// question 4). Condition is an exact bit. Gates.cs builds a gate with the gate rules 1 to 4; the emit
+/// applies the rules 5 to 7.
+/// </summary>
+internal sealed class GateValue(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind) : ScalarValue(kind)
+{
+    public ScalarValue Condition { get; } = condition;
+
+    public ScalarValue On { get; } = on;
+
+    public ScalarValue Off { get; } = off;
 }
 
 /// <summary>A struct, a record or a tuple: one value for each instance field, by field name.</summary>

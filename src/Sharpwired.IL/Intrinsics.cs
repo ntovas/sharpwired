@@ -87,7 +87,7 @@ internal static class Intrinsics
             return "the lowering table has no exact construction for this method";
         }
 
-        return "the program calls only property getters, the Hw methods and the known methods of the lowering table";
+        return "the program calls only [Handwired] methods, property getters, the Hw methods and the known methods of the lowering table";
     }
 
     private static Value LowerHw(OperationLowering lowering, MethodInfo callee, ImmutableArray<Value> operands, int offset)

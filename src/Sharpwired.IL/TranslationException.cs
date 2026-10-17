@@ -1,6 +1,7 @@
 // No Handwired source. Handwired has no translator. The error of a refused construct in a plain
 // method, with the message form of the plan, section "Error message rules":
-// "<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>".
+// "<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>", and for an
+// inlined method, one " (called from <file>:<line>)" for each call site, innermost first.
 
 namespace Sharpwired.IL;
 
@@ -10,10 +11,15 @@ namespace Sharpwired.IL;
 /// </summary>
 public sealed class TranslationException : ArgumentException
 {
+    private readonly SourceLocation location;
+    private readonly IReadOnlyList<SourceLocation> callSites;
+
     internal TranslationException(SourceLocation location, int ilOffset, string construct, string reason,
         IReadOnlyList<SourceLocation>? callSites = null)
         : base(FormatMessage(location, construct, reason, callSites))
     {
+        this.location = location;
+        this.callSites = callSites ?? [];
         SourceFile = location.File;
         Line = location.Line;
         IlOffset = ilOffset;
@@ -35,6 +41,13 @@ public sealed class TranslationException : ArgumentException
 
     /// <summary>One sentence that states the rule.</summary>
     public string Reason { get; }
+
+    /// <summary>
+    /// The same refusal with one more call site after the current ones. The inliner adds the call
+    /// site of each inlined method, so the call sites come innermost first (plan, "Error message
+    /// rules", rule 4).
+    /// </summary>
+    internal TranslationException CalledFrom(SourceLocation site) => new(location, IlOffset, Construct, Reason, [.. callSites, site]);
 
     private static string FormatMessage(SourceLocation location, string construct, string reason, IReadOnlyList<SourceLocation>? callSites)
     {

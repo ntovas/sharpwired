@@ -3,8 +3,10 @@
 // "a >= b, a > b, a === b" (Compare), "NOT, AND and OR", "Math.min(a, b), Math.max(a, b), clamps and
 // Math.abs(x)" (MinimumExact, MaximumExact, ClampExact, Absolute) and "table[index] at a computed
 // integer index" (IndexRead). The arithmetic follows $REF/docs/execution-model.md, section "FP32".
-// The lowering runs one time over the SSA form of straight-line code, in IL order, and gives the
-// value of the return instruction. A branch is refused.
+// The lowering runs one time over the blocks of the SSA form in IL order. At each merge block it
+// emits the gates of the phis that an operation reads (Gates.cs). The gate of a phi that only a
+// branch, a ret or another phi reads stays symbolic, so that an AND chain gives one AND. A call to a
+// [Handwired] method is inlined (Inliner.cs). A loop is refused until the loop lowering.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -15,7 +17,7 @@ using Sharpwired.Core;
 
 namespace Sharpwired.IL;
 
-/// <summary>The lowering of the operations of a straight-line method into builder calls.</summary>
+/// <summary>The lowering of the operations of a method into builder calls.</summary>
 internal sealed partial class OperationLowering
 {
     private readonly DecodedMethod method;
@@ -24,33 +26,46 @@ internal sealed partial class OperationLowering
     private readonly Dictionary<SsaValue, Value> values = [];
     private readonly Dictionary<SsaValue, int> uses = [];
 
+    // The uses of a value by an operation: not by a phi and not by a terminator.
+    private readonly Dictionary<SsaValue, int> operationUses = [];
+    private readonly Gates gates;
+    private ImmutableArray<SsaBlock> returns = [];
+
     // A cgt or clt whose only use is "ldc.i4.0; ceq": the ceq gives the comparison with the other relation.
     private readonly Dictionary<SsaValue, SsaValue> invertedComparisons = [];
 
-    private OperationLowering(DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments)
+    private OperationLowering(DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack)
     {
         this.method = method;
         this.ssa = ssa;
         Emitter = emitter;
         this.arguments = arguments;
+        CallStack = callStack;
+        gates = new Gates(this, ssa);
     }
 
     public Emitter Emitter { get; }
 
+    /// <summary>The method of this lowering and the methods that call it through inlining, outermost first.</summary>
+    public ImmutableArray<MethodBase> CallStack { get; }
+
     public Circuit Circuit => Emitter.Circuit;
 
     /// <summary>
-    /// Lowers the operations of a straight-line method and returns the value of its return
-    /// instruction with the IL offset of that instruction. Throws <see cref="TranslationException"/>
-    /// for a refused construct.
+    /// Lowers the operations of a method and returns its return value with the IL offset of its last
+    /// ret instruction. Throws <see cref="TranslationException"/> for a refused construct.
     /// </summary>
-    public static (Value Value, int IlOffset) Lower(DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments)
+    public static (Value Value, int IlOffset) Lower(
+        DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack)
     {
-        var lowering = new OperationLowering(method, ssa, emitter, arguments);
+        var lowering = new OperationLowering(method, ssa, emitter, arguments, callStack);
         return lowering.Run();
     }
 
     public TranslationException Refuse(int ilOffset, string construct, string reason) => method.Refuse(ilOffset, construct, reason);
+
+    /// <summary>The source location of an IL offset of this method.</summary>
+    public SourceLocation Locate(int ilOffset) => method.Locations.Locate(ilOffset);
 
     /// <summary>Emits a number or a bit value and returns its wire.</summary>
     public Wire Emit(Value value, int ilOffset) => value is ScalarValue scalar
@@ -76,19 +91,32 @@ internal sealed partial class OperationLowering
 
     private (Value Value, int IlOffset) Run()
     {
-        foreach (var block in ssa.Blocks)
+        if (ssa.Graph.Loops.FirstOrDefault() is { } loop)
         {
-            var terminator = block.Terminator.Instruction;
-            if (terminator is { IsBranch: true, IsJump: false } || terminator?.OpCode == ILOpCode.Switch || !block.Phis.IsEmpty)
-            {
-                throw Refuse(terminator?.Offset ?? block.Block.StartOffset, "a branch", "this version of the translator accepts only straight-line code");
-            }
+            var source = ssa.Graph.Blocks[loop.BackEdgeSources[^1]];
+            var last = method.Instructions[source.FirstInstruction + source.InstructionCount - 1];
+            throw Refuse(last.Offset, "a loop", "this version of the translator does not lower loops");
+        }
+
+        returns = [.. ssa.Blocks.Where(b => b.Terminator.Instruction?.OpCode == ILOpCode.Ret)];
+        if (returns.Any(block => block.Terminator.Operands.IsEmpty))
+        {
+            throw Refuse(returns[0].Terminator.Instruction!.Offset, "a method with no return value",
+                "the outputs of the program are the return value of the method");
         }
 
         CountUses();
-        foreach (var index in ssa.Graph.ReversePostorder)
+
+        // Each edge of the acyclic graph goes forward in IL order (ControlFlowGraph), so the block
+        // order is a topological order.
+        foreach (var block in ssa.Blocks)
         {
-            foreach (var operation in ssa.Blocks[index].Operations)
+            foreach (var phi in block.Phis.Where(phi => operationUses.GetValueOrDefault(phi) > 0))
+            {
+                EmitResults(gates.PhiValue(phi), phi.IlOffset);
+            }
+
+            foreach (var operation in block.Operations)
             {
                 if (operation.Address is not null || invertedComparisons.ContainsValue(operation))
                 {
@@ -100,16 +128,38 @@ internal sealed partial class OperationLowering
                     values[operation] = value;
                 }
             }
+
+            gates.LowerTerminator(block);
         }
 
-        var returns = ssa.Blocks.Where(b => b.Terminator.Instruction?.OpCode == ILOpCode.Ret).ToArray();
-        if (returns is not [var exit] || exit.Terminator.Operands is not [var result])
+        var returnType = method.Method is MethodInfo info ? info.ReturnType : typeof(void);
+        return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
+    }
+
+    // The emit of a gate at its merge block (plan, "Emission rules", rule 3): each leaf that a gate
+    // made, in the order of the fields.
+    private void EmitResults(Value value, int ilOffset)
+    {
+        switch (value)
         {
-            throw Refuse(returns.FirstOrDefault()?.Terminator.Instruction?.Offset ?? 0, "a method with no return value",
-                "the outputs of the program are the return value of the method");
-        }
+            case ScalarValue scalar when gates.IsResult(scalar):
+                Emit(scalar, ilOffset);
+                return;
+            case AggregateValue aggregate:
+                foreach (var field in DataTypes.InstanceFields(aggregate.Type).Where(field => aggregate.Fields.ContainsKey(field.Name)))
+                {
+                    EmitResults(aggregate.Fields[field.Name], ilOffset);
+                }
 
-        return (Get(result), exit.Terminator.Instruction!.Offset);
+                return;
+            case ArrayValue array:
+                foreach (var element in array.Elements)
+                {
+                    EmitResults(element, ilOffset);
+                }
+
+                return;
+        }
     }
 
     private void CountUses()
@@ -120,6 +170,11 @@ internal sealed partial class OperationLowering
             {
                 uses[operand] = uses.GetValueOrDefault(operand) + 1;
             }
+        }
+
+        foreach (var operand in ssa.Blocks.SelectMany(b => b.Operations).SelectMany(v => v.Operands))
+        {
+            operationUses[operand] = operationUses.GetValueOrDefault(operand) + 1;
         }
 
         var users = ssa.Blocks.SelectMany(b => b.Operations).SelectMany(user => user.Operands.Select(operand => (operand, user)))
@@ -136,9 +191,11 @@ internal sealed partial class OperationLowering
         }
     }
 
-    private Value Get(SsaValue value) => value.Kind switch
+    /// <summary>The value of an SSA value: an argument, a local at the entry, a constant, a phi or an operation.</summary>
+    public Value Get(SsaValue value) => value.Kind switch
     {
         SsaValueKind.Argument => arguments[value.Index],
+        SsaValueKind.Phi => gates.PhiValue(value),
         SsaValueKind.InitialLocal => DataTypes.Zero(method.LocalTypes[value.Index])
             ?? throw Refuse(value.IlOffset, $"a local of type {method.LocalTypes[value.Index].Name} with no value", "the program reads a local only after a store"),
         SsaValueKind.Constant => Constant(value),
@@ -160,7 +217,8 @@ internal sealed partial class OperationLowering
         ? throw Refuse(ilOffset, $"the int constant {number.ToString(CultureInfo.InvariantCulture)}", "FP32 holds each int exactly only within -2^24..2^24")
         : new ConstantValue(number, ScalarKind.Int);
 
-    private ScalarValue Scalar(SsaValue value, int ilOffset) => Get(value) as ScalarValue
+    /// <summary>The number or bit value of an SSA value. An aggregate is refused.</summary>
+    public ScalarValue Scalar(SsaValue value, int ilOffset) => Get(value) as ScalarValue
         ?? throw Refuse(ilOffset, "an aggregate as a number", "the operation reads a float, an int or a bool");
 
     private ScalarKind KindOf(SsaValue value) => value.Type.Kind switch
@@ -368,7 +426,7 @@ internal sealed partial class OperationLowering
                 return (operation.Op, bit) switch
                 {
                     (ILOpCode.And, 0) or (ILOpCode.Or, 1) => new ConstantValue(bit, ScalarKind.Bit),
-                    (ILOpCode.Xor, 1) => Not(other),
+                    (ILOpCode.Xor, 1) => Gates.Not(other),
                     _ => other,
                 };
             }
@@ -376,27 +434,11 @@ internal sealed partial class OperationLowering
 
         return operation.Op switch
         {
-            ILOpCode.And => new AndValue([.. Literals<AndValue>(left), .. Literals<AndValue>(right)]),
-            ILOpCode.Or => new OrValue([.. Literals<OrValue>(left), .. Literals<OrValue>(right)]),
+            ILOpCode.And => new AndValue([.. Gates.Literals<AndValue>(left), .. Gates.Literals<AndValue>(right)]),
+            ILOpCode.Or => new OrValue([.. Gates.Literals<OrValue>(left), .. Gates.Literals<OrValue>(right)]),
             _ => new XorValue(left, right),
         };
     }
-
-    // An AND that reads an AND with no wire takes its literals in order. The same holds for OR.
-    private static ImmutableArray<ScalarValue> Literals<T>(ScalarValue value)
-        where T : ScalarValue => value switch
-        {
-            AndValue { Wire: null } conjunction when typeof(T) == typeof(AndValue) => conjunction.Literals,
-            OrValue { Wire: null } disjunction when typeof(T) == typeof(OrValue) => disjunction.Literals,
-            _ => [value],
-        };
-
-    private static ScalarValue Not(ScalarValue value) => value switch
-    {
-        ConstantValue constant => new ConstantValue(1 - constant.Number, ScalarKind.Bit),
-        NotValue { Wire: null } negation => negation.Operand,
-        _ => new NotValue(value),
-    };
 
     // The comparison opcodes (plan, "Decisions", question 4). "cgt; ldc.i4.0; ceq" and
     // "clt; ldc.i4.0; ceq" give the other relation, also in the .un forms.
@@ -406,35 +448,49 @@ internal sealed partial class OperationLowering
         if (invertedComparisons.TryGetValue(operation, out var inner))
         {
             var relation = inner.Op is ILOpCode.Cgt or ILOpCode.Cgt_un ? Relation.LessOrEqual : Relation.GreaterOrEqual;
-            return Compare(inner, relation, inner.IlOffset);
+            return CompareOperands(inner.Operands[0], inner.Operands[1], relation, inner.Op is ILOpCode.Cgt_un or ILOpCode.Clt_un, inner.IlOffset);
         }
 
-        if (operation.Op == ILOpCode.Ceq)
+        var relationOfOp = operation.Op switch
         {
-            var left = Scalar(operation.Operands[0], offset);
-            var right = Scalar(operation.Operands[1], offset);
+            ILOpCode.Ceq => Relation.Equal,
+            ILOpCode.Cgt or ILOpCode.Cgt_un => Relation.Greater,
+            _ => Relation.Less,
+        };
+        return CompareOperands(operation.Operands[0], operation.Operands[1], relationOfOp, operation.Op is ILOpCode.Cgt_un or ILOpCode.Clt_un, offset);
+    }
+
+    /// <summary>
+    /// The comparison of two SSA values, for a comparison opcode and for a branch. An equality with
+    /// the bit constant 0 or 1 gives the NOT of the bit or the bit. An unsigned comparison of int
+    /// values is refused.
+    /// </summary>
+    public ScalarValue CompareOperands(SsaValue leftValue, SsaValue rightValue, Relation relation, bool unsigned, int offset)
+    {
+        var left = Scalar(leftValue, offset);
+        var right = Scalar(rightValue, offset);
+        if (unsigned && (left.Kind == ScalarKind.Int || right.Kind == ScalarKind.Int))
+        {
+            throw Refuse(offset, "an unsigned comparison", "the program has no unsigned int values");
+        }
+
+        if (relation == Relation.Equal)
+        {
             foreach (var (bit, constant) in new[] { (left, right), (right, left) })
             {
                 if (bit.Kind == ScalarKind.Bit && constant is ConstantValue { Number: 0 or 1 } value)
                 {
-                    return value.Number == 0 ? Not(bit) : bit;
+                    return value.Number == 0 ? Gates.Not(bit) : bit;
                 }
             }
-
-            return Compare(operation, Relation.Equal, offset);
         }
 
-        return Compare(operation, operation.Op is ILOpCode.Cgt or ILOpCode.Cgt_un ? Relation.Greater : Relation.Less, offset);
+        return CompareValues(left, right, relation, offset);
     }
 
-    private ScalarValue Compare(SsaValue comparison, Relation relation, int offset)
+    /// <summary>The comparison of two values at the instruction: a constant for two constants, otherwise the Compare macro.</summary>
+    public ScalarValue CompareValues(ScalarValue left, ScalarValue right, Relation relation, int offset)
     {
-        var left = Scalar(comparison.Operands[0], offset);
-        var right = Scalar(comparison.Operands[1], offset);
-        if (comparison.Op is ILOpCode.Cgt_un or ILOpCode.Clt_un && (left.Kind == ScalarKind.Int || right.Kind == ScalarKind.Int))
-        {
-            throw Refuse(offset, "an unsigned comparison", "the program has no unsigned int values");
-        }
 
         if (left is ConstantValue a && right is ConstantValue b)
         {
@@ -543,6 +599,11 @@ internal sealed partial class OperationLowering
             return known;
         }
 
+        if (callee.GetCustomAttribute<HandwiredAttribute>() is not null)
+        {
+            return Inliner.Inline(this, callee, operands, offset);
+        }
+
         if (!callee.IsStatic && callee.IsSpecialName && callee.Name.StartsWith("get_", StringComparison.Ordinal) && operands is [var receiver])
         {
             var property = callee.DeclaringType!.GetProperty(callee.Name[4..], BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -552,12 +613,7 @@ internal sealed partial class OperationLowering
             }
 
             throw Refuse(offset, $"a call to the computed property {callee.DeclaringType.Name}.{callee.Name[4..]}",
-                "straight-line translation reads only a property that returns its backing field");
-        }
-
-        if (callee.GetCustomAttribute<HandwiredAttribute>() is not null)
-        {
-            throw Refuse(offset, CallText(callee), "straight-line translation does not inline a call to a [Handwired] method");
+                "the program reads a property that returns its backing field, or a property getter with [Handwired]");
         }
 
         throw Refuse(offset, CallText(callee), Intrinsics.RefusalReason(callee));
@@ -568,6 +624,11 @@ internal sealed partial class OperationLowering
     private AggregateValue Construct(ConstructorInfo constructor, ImmutableArray<Value> parameters, int offset)
     {
         var type = constructor.DeclaringType!;
+        if (IsClosure(type))
+        {
+            throw Refuse(offset, "a closure", "the program has no function values; call a [Handwired] method");
+        }
+
         var fields = type.BaseType == typeof(object) || type.BaseType == typeof(ValueType) ? DataTypes.ConstructorFields(constructor) : null;
         if (fields is null)
         {
@@ -584,6 +645,21 @@ internal sealed partial class OperationLowering
         }
 
         return new AggregateValue(type, values.ToImmutable());
+    }
+
+    // A function value: a delegate, an F# function value (a subclass of FSharpFunc), or a closure
+    // class that the compiler makes.
+    private static bool IsClosure(Type type)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            if (current == typeof(Delegate) || current.FullName?.StartsWith("Microsoft.FSharp.Core.FSharpFunc`", StringComparison.Ordinal) == true)
+            {
+                return true;
+            }
+        }
+
+        return type.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() is not null;
     }
 
     private ArrayValue NewArray(SsaValue operation)
@@ -645,6 +721,12 @@ internal sealed partial class OperationLowering
     private void StoreElement(SsaValue operation)
     {
         var offset = operation.IlOffset;
+        if (!returns.All(block => ssa.Graph.Dominates(operation.Block, block.Block.Index)))
+        {
+            // The lowering changes the elements of the array value in place, so a store must run on each call.
+            throw Refuse(offset, "an array store under a branch", "the program stores into an array only in code that runs on each call");
+        }
+
         var array = Array(operation.Operands[0], offset);
         if (!array.IsLocal)
         {
