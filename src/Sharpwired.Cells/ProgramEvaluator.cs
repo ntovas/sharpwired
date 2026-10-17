@@ -18,10 +18,11 @@ public static class ProgramEvaluator
     /// time. Evaluate does not use reflection.
     /// </summary>
     /// <remarks>
-    /// The outputs of an object go in the MetadataToken order of its properties. For a derived
-    /// record, the properties of the base record come first. In a record, the positional properties
-    /// come before the properties of the body. A type with public instance fields, for example a
-    /// ValueTuple, is refused, because the walker reads only properties.
+    /// The outputs of an object go in the MetadataToken order of its properties. Within one type,
+    /// the positional properties of a record come before the properties of its body. Across a base
+    /// type and a derived type, the order follows the order of the type declarations in the source,
+    /// and it is not defined for a base type in another assembly. A type with public instance
+    /// fields, for example a ValueTuple, is refused, because the walker reads only properties.
     /// </remarks>
     public static ProgramEvaluator<TOutput> Create<TOutput>(FinishedTable program, TOutput output)
         where TOutput : notnull => new(program, output);

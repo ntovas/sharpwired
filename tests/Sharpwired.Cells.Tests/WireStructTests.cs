@@ -67,8 +67,9 @@ public class WireStructTests
             "the list at shown is a default ImmutableArray; use an empty array"));
     }
 
-    // The outputs of ProgramEvaluator go in MetadataToken order. The properties of the base record
-    // come first, then the positional properties, then the properties of the record body.
+    // The outputs of ProgramEvaluator go in MetadataToken order. BaseOutput is declared before
+    // DerivedOutput in this file, so its properties come first. Then come the positional
+    // properties of DerivedOutput, then the properties of its body.
     [Fact]
     public void ProgramEvaluator_orders_the_outputs_of_a_derived_record_base_first_then_positional_then_body()
     {

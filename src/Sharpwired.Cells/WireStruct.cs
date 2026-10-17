@@ -90,9 +90,11 @@ internal static class WireStruct
     /// <summary>
     /// Handwired collectLeaves: each wire of a value, with its path, for example ("thumb.offset", 27).
     /// The fields go in declaration order, as Object.entries gives them in Handwired. Here the
-    /// declaration order is the MetadataToken order of the properties. For a derived record, the
-    /// properties of the base record come first. In a record, the positional properties come before
-    /// the properties of the body. ProgramEvaluator writes its outputs in this order.
+    /// declaration order is the MetadataToken order of the properties. Within one type, the
+    /// positional properties of a record come before the properties of its body. Across a base type
+    /// and a derived type, the order follows the order of the type declarations in the source, and
+    /// it is not defined for a base type in another assembly. ProgramEvaluator writes its outputs in
+    /// this order.
     /// </summary>
     public static List<(string Path, Wire Wire)> CollectLeaves(object? value, string path, List<(string Path, Wire Wire)> leaves)
     {
@@ -149,8 +151,9 @@ internal static class WireStruct
     }
 
     // The public instance properties of a type, with the first letter of each name in lower case.
-    // The order is the MetadataToken order. For a derived record, the properties of the base record
-    // come first. In a record, the positional properties come before the properties of the body.
+    // The order is the MetadataToken order. Within one type, the positional properties of a record
+    // come before the properties of its body. Across a base type and a derived type, the order
+    // follows the order of the type declarations in the source.
     // A type with public instance fields is refused: the walker reads only properties, so a struct
     // with fields or a ValueTuple would give no leaf.
     private static (string Name, PropertyInfo Property)[] Fields(Type type)
