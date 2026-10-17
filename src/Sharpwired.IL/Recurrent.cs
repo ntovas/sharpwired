@@ -15,8 +15,10 @@
 // the range of the back-edge value, with the state ranges refined by c. The translator tries at most
 // 8 rounds. A cell whose range still changes in round 8 gets a wide range: -2^23..2^23 with grid 1 for
 // an int, -float.MaxValue..float.MaxValue for a float. The int range is 2^23, so that a body step such
-// as count + 1 stays exact within 2^24. The cell validator refuses a next value outside the range.
-// RecurrentRunner is the CPU runner.
+// as count + 1 stays exact within 2^24. After the widening, more rounds run: a cell that is not wide
+// and whose range changes also gets the wide range, until a round changes no range. That last round
+// is the fixed-point check: the next-state range of each cell that is not wide lies inside its cell
+// range. The cell validator checks a next value of a wide cell. RecurrentRunner is the CPU runner.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -79,7 +81,11 @@ public sealed class RecurrentFunction
 /// </summary>
 public sealed record RecurrentResult(ImmutableArray<float> Outputs, int Steps, bool Completed);
 
-/// <summary>The CPU runner of a step program. Phase 5 adds a GPU runner of the same step table (R5.4).</summary>
+/// <summary>
+/// The CPU runner of a step program. Phase 5 adds a GPU runner of the same step table (R5.4). A runner
+/// reuses its evaluators and their result arrays, so one runner must not run on two threads at the
+/// same time.
+/// </summary>
 public sealed class RecurrentRunner
 {
     private readonly TranslatedEvaluator prefix;
@@ -127,7 +133,8 @@ internal sealed class RecurrentTranslator
 {
     private const int Rounds = 8;
 
-    // 2^23: a body step of an int with a small constant stays exact within 2^24.
+    // 2^23: a body step of an int with a small constant stays exact within 2^24. With 2^24, the body
+    // form count + 1 passes 2^24, and the exactness rule of int forms refuses it.
     private const double WideInt = 8_388_608;
 
     private readonly MethodInfo method;
@@ -195,8 +202,11 @@ internal sealed class RecurrentTranslator
         return new TranslatedFunction(null, null, finished, inputs, outputs, null, [.. emitter.Overflows]);
     }
 
-    // The least fixed point of the state ranges in at most 8 rounds, else the wide range for each
-    // cell whose range changed in the last round.
+    // The least fixed point of the state ranges in at most 8 rounds. Else each cell whose range
+    // changed in round 8 gets the wide range, and more rounds run (review of task 6, round 1): a cell
+    // that is not wide and whose range changes also gets the wide range. Each such round widens at
+    // least one cell, so the rounds end after one round for each cell. The round that changes no range
+    // is the fixed-point check.
     private void FixStateRanges()
     {
         var changed = new bool[statePlans.Length];
@@ -211,11 +221,29 @@ internal sealed class RecurrentTranslator
             }
         }
 
-        statePlans = [.. statePlans.Select((plan, index) => !changed[index] ? plan : plan with
+        var wide = changed;
+        statePlans = [.. statePlans.Select((plan, index) => wide[index] ? Widen(plan) : plan)];
+        for (var round = 0; round <= statePlans.Length; round++)
         {
-            Range = plan.Kind == ScalarKind.Int ? new NumericRange(-WideInt, WideInt) : new NumericRange(-float.MaxValue, float.MaxValue),
-        })];
+            var next = Round(statePlans);
+            var grown = next.Select((plan, index) => !wide[index] && plan.Range != statePlans[index].Range).ToArray();
+            if (!grown.Any(item => item))
+            {
+                return;
+            }
+
+            wide = [.. wide.Zip(grown, (before, now) => before || now)];
+            statePlans = [.. statePlans.Select((plan, index) => grown[index] ? Widen(plan) : plan)];
+        }
+
+        throw new TranslationException(Location, shape.TestOffset, "a loop state with no fixed range",
+            "the ranges of the loop state do not reach a fixed point; declare smaller ranges");
     }
+
+    private static CellPlan Widen(CellPlan plan) => plan with
+    {
+        Range = plan.Kind == ScalarKind.Int ? new NumericRange(-WideInt, WideInt) : new NumericRange(-float.MaxValue, float.MaxValue),
+    };
 
     // One round: the state ranges joined with the ranges of the back-edge values, on the state ranges
     // refined by the continue bit.

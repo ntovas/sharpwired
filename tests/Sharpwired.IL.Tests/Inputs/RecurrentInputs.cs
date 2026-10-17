@@ -64,6 +64,42 @@ public static class RecurrentInputs
         return x;
     }
 
+    // c has no fixed point in 8 rounds and gets the wide range. m stays 0..0 in the 8 rounds, because
+    // c - 20 is below 0 there. After the widening of c, m changes and must also widen (review of
+    // task 6, round 1).
+    [Handwired]
+    public static int Q1Lag([Range(0, 100)] int n)
+    {
+        int x = n, c = 0, m = 0;
+        while (x > 0)
+        {
+            m = Math.Max(m, c - 20);
+            c++;
+            x--;
+        }
+
+        return m;
+    }
+
+    // Three state cells that widen one after the other: c widens after round 8, m widens in the next
+    // round, and p widens in the round after it. The counter x has a fixed point. With "c < n" as the
+    // loop test, the constant counter c gives loop form 2. p reads m with no arithmetic, because in the
+    // probe m is the product of an active bit, which has no grid, and an int affine form of it is refused.
+    [Handwired]
+    public static int ChainLag([Range(0, 100)] int n)
+    {
+        int x = n, c = 0, m = 0, p = 0;
+        while (x > 0)
+        {
+            p = Math.Max(p, m);
+            m = Math.Max(m, c - 20);
+            c++;
+            x--;
+        }
+
+        return p;
+    }
+
     // Refused loops.
 
     [Handwired]
@@ -99,8 +135,8 @@ public static class RecurrentInputs
         return s;
     }
 
-    // A loop with no maximum whose state range has no fixed point in 8 rounds, and whose body passes
-    // the FP32 range in the wide range.
+    // A loop with no maximum whose float state range has no fixed point in 8 rounds. The wide float
+    // range gives the step values whose range is not finite.
     [Handwired]
     public static float Grow([Range(1, 2)] float x)
     {

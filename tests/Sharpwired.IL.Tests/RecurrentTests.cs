@@ -99,6 +99,43 @@ public class RecurrentTests
         Assert.Equal(1, circuit.Grids[count.Position]);
     }
 
+    // After the widening of c, m changes, so m also gets the wide range. The runner then equals the
+    // plain method, and the steps are n.
+    [Fact]
+    public void A_cell_that_changes_after_a_widening_also_widens()
+    {
+        var function = Translate(nameof(RecurrentInputs.Q1Lag));
+        var runner = new RecurrentRunner(function);
+        foreach (var source in Arguments(function, 1206, [43f], [100f], [21f], [0f]))
+        {
+            var result = runner.Run(source, StepLimit);
+            Assert.True(result.Completed);
+            Assert.Equal((int)source[0], result.Steps);
+            Assert.Equal(function.EvaluatePlain(source)[0], result.Outputs[0]);
+        }
+
+        Assert.Equal(22f, runner.Run([43f], StepLimit).Outputs[0]);
+    }
+
+    [Fact]
+    public void A_widening_that_forces_a_second_widening_gives_each_cell_the_wide_range()
+    {
+        var function = Translate(nameof(RecurrentInputs.ChainLag));
+        var circuit = function.Step.Table.Circuit;
+        Assert.Equal(4, function.Step.State.Length);
+        var wide = new NumericRange(-8_388_608, 8_388_608);
+        Assert.Equal(new NumericRange(0, 100), circuit.Ranges[function.Step.State.Single(cell => cell.Path == "local0").Wire.Position]);
+        Assert.Equal(3, function.Step.State.Count(cell => circuit.Ranges[cell.Wire.Position] == wide));
+        var runner = new RecurrentRunner(function);
+        foreach (var source in Arguments(function, 1207, [100f], [27f], [26f], [0f]))
+        {
+            var result = runner.Run(source, StepLimit);
+            Assert.True(result.Completed);
+            Assert.Equal((int)source[0], result.Steps);
+            Assert.Equal(function.EvaluatePlain(source)[0], result.Outputs[0]);
+        }
+    }
+
     // The step table.
 
     [Fact]
@@ -206,7 +243,9 @@ public class RecurrentTests
         AssertRefused(() => Translate(nameof(RecurrentInputs.LoopInLoop)), RecurrentFile, "loop-in-loop", "a loop with no maximum inside a loop",
             "the loop of a step program must be at the top level of the method; declare a maximum for the inner loop");
 
-    // x *= 2 has no fixed point in 8 rounds. The wide float range is finite, and 2x passes FP32 in it.
+    // x *= 2 has no fixed point in 8 rounds, because the float state has no refinement by the continue
+    // bit. No widened float cell can translate: over -float.MaxValue..float.MaxValue the range of the
+    // values of the step, for example Select(c, state, back), is not finite, and decision 11 refuses it.
     [Fact]
     public void A_state_with_no_fixed_point_whose_body_passes_the_fp32_range_is_refused() =>
         AssertRefused(() => Translate(nameof(RecurrentInputs.Grow)), RecurrentFile, "grow", "a value past the FP32 range",
