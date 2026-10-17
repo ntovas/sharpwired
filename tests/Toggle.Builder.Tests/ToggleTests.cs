@@ -1,4 +1,4 @@
-// Handwired source: template/toggle.test.ts (scriptedTrace and its three tests).
+// Handwired source: template/toggle.test.ts (the three tests of scriptedTrace; ToggleTrace.cs holds scriptedTrace).
 // Each test name holds the Handwired test name. A test with no Handwired twin says so in its comment.
 // Handwired compares the numbers with toEqual and toBe, which use Object.is. These tests use Js.Is.
 
@@ -6,50 +6,12 @@ using Sharpwired.Cells;
 using Sharpwired.Core.Tests;
 using Sharpwired.Timing;
 using Xunit.Abstractions;
+using Frame = Toggle.Builder.Tests.ToggleTrace.Frame;
 
 namespace Toggle.Builder.Tests;
 
 public class ToggleTests(ITestOutputHelper output)
 {
-    // Moving tells whether the thumb still moves before the frame, so that a step that must land in the
-    // middle of an animation does.
-    private sealed record Frame(double TimeMs, ToggleEvent[] Events, (double On, double Armed)? Expected = null, bool? Moving = null);
-
-    // Handwired scriptedTrace: frames 16 ms apart at 1280 × 800, where the track spans x 614..666 and
-    // y 384..416. Each event arrives 3 ms before its frame.
-    private static List<Frame> ScriptedTrace()
-    {
-        var frames = new List<Frame>();
-        double timeMs = 1000;
-        void Idle(int count, double gapMs = 16, bool? moving = null)
-        {
-            for (var index = 0; index < count; index++) frames.Add(new Frame(timeMs += gapMs, [], null, moving));
-        }
-        void Pointer(ToggleEventKind kind, double x, double y, double on, double armed, bool? moving = null)
-        {
-            timeMs += 16;
-            frames.Add(new Frame(timeMs, [new ToggleEvent(kind, x, y, timeMs - 3)], (on, armed), moving));
-        }
-        Idle(2);
-        Pointer(ToggleEventKind.Down, 640, 400, 0, 1, false); // a press on the track arms the switch
-        Pointer(ToggleEventKind.Up, 640, 400, 1, 0); // a release on the track while armed flips it on
-        Idle(3);
-        Pointer(ToggleEventKind.Down, 630.25, 399.5, 1, 1, true);
-        Pointer(ToggleEventKind.Up, 630.25, 399.5, 0, 0, true); // a click while the thumb moves flips it back
-        Idle(60);
-        Pointer(ToggleEventKind.Down, 613.984375, 400, 0, 0, false); // 1/64 px left of the track
-        Pointer(ToggleEventKind.Down, 614, 384, 0, 1); // exactly on the left and top edges
-        Pointer(ToggleEventKind.Up, 666, 400, 0, 0); // exactly on the right edge, which is outside, so it only disarms
-        Pointer(ToggleEventKind.Down, 640, 400, 0, 1);
-        Pointer(ToggleEventKind.Cancel, 0, 0, 0, 0); // a pointercancel disarms
-        Pointer(ToggleEventKind.Up, 640, 400, 0, 0); // so this release does not flip
-        Pointer(ToggleEventKind.Down, 665.984375, 415.984375, 0, 1);
-        Pointer(ToggleEventKind.Up, 665.984375, 415.984375, 1, 0); // 1/64 px inside the bottom right corner
-        Idle(1, 500, true); // a 500 ms stall while the thumb moves
-        Idle(60);
-        return frames;
-    }
-
     [Fact]
     public void The_program_and_plain_CSharp_agree_on_every_frame_and_every_scripted_step_takes_effect()
     {
@@ -57,7 +19,7 @@ public class ToggleTests(ITestOutputHelper output)
         var reference = new ToggleReference();
         double largestThumbError = 0;
         var animatingFrames = 0;
-        foreach (var frame in ScriptedTrace())
+        foreach (var frame in ToggleTrace.ScriptedTrace())
         {
             if (frame.Moving is { } moving) Assert.Equal(moving, machine.Clock.IsRunning);
             foreach (var item in frame.Events) machine.Queue(item);

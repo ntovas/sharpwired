@@ -98,10 +98,18 @@ public static class ToggleProgram
     }
 
     /// <summary>Handwired buildToggle: declare the cells, build the behavior, pair the state cells, and finish.</summary>
-    public static BuiltToggle Build()
+    public static BuiltToggle Build() => Build(Declare);
+
+    /// <summary>
+    /// Handwired buildToggle with another declaration of the 20 cells. The behavior is the same. The
+    /// order of the cells changes the wire numbers, so the phase 4 tests use this overload to build the
+    /// toggle with the cells in the order of a translated plain method.
+    /// </summary>
+    public static BuiltToggle Build(Func<ICellScope, ToggleCells> declare)
     {
+        ArgumentNullException.ThrowIfNull(declare);
         var table = new SourceTable();
-        var cells = Declare(table);
+        var cells = declare(table);
         var circuit = table.CreateCircuit();
 
         // Layout. C#: trackLeft = viewportWidth / 2 - trackWidth / 2

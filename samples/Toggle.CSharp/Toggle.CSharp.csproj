@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Toggle.Builder\Toggle.Builder.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.IL\Sharpwired.IL.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Raylib\Sharpwired.Raylib.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Timing\Sharpwired.Timing.csproj" />
   </ItemGroup>

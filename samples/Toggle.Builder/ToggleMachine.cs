@@ -31,7 +31,7 @@ public readonly record struct ToggleOutput(double TrackLeft, double TrackTop, do
 /// </summary>
 public sealed class ToggleMachine
 {
-    private readonly ProgramEvaluator<ToggleOutputWires> evaluator;
+    private readonly ISourceTableEvaluator evaluator;
     private readonly HostLoop<ToggleEvent> loop;
     // The spring matrix of each step count that a frame can plan, 0 to MaxStepsPerFrame.
     private readonly SpringMatrix[] matrices;
@@ -39,9 +39,26 @@ public sealed class ToggleMachine
 
     /// <summary>Build the toggle program and its evaluator, and compute the spring matrices one time.</summary>
     public ToggleMachine(WriteBack writeBack = WriteBack.EventsAndSettleChecks)
+        : this(ToggleProgram.Build(), writeBack)
     {
-        Built = ToggleProgram.Build();
-        evaluator = ProgramEvaluator.Create(Built.Table, Built.Output);
+    }
+
+    private ToggleMachine(BuiltToggle built, WriteBack writeBack)
+        : this(built, ProgramEvaluator.Create(built.Table, built.Output), writeBack)
+    {
+    }
+
+    /// <summary>
+    /// A machine on another toggle program with the same cells and outputs, for example a translated
+    /// plain method. The evaluator reads source tables of <paramref name="built"/>, and its result
+    /// must give a value for each output wire of <paramref name="built"/>. Compute the spring matrices one time.
+    /// </summary>
+    public ToggleMachine(BuiltToggle built, ISourceTableEvaluator evaluator, WriteBack writeBack = WriteBack.EventsAndSettleChecks)
+    {
+        ArgumentNullException.ThrowIfNull(built);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        Built = built;
+        this.evaluator = evaluator;
         var step = SpringMatrix.SpringStepMatrix(ToggleLayout.Spring);
         matrices = [.. Enumerable.Range(0, SpringClockConfig.Default.MaxStepsPerFrame + 1).Select(steps => SpringMatrix.SpringMatrixPower(step, steps))];
         Source = [.. Built.Table.InitialSource];
