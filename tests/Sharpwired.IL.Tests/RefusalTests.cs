@@ -115,6 +115,13 @@ public class RefusalTests
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), method)), "BranchInputs.cs", marker,
             "a backward branch outside a natural loop", BackwardReason);
 
+    // Review of task 4, finding 2: a gate of two local arrays makes an alias, and a later store
+    // through the chosen array changes the wrong array.
+    [Fact]
+    public void A_choice_between_two_local_arrays_is_refused() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), nameof(BranchInputs.ChooseArray))), "BranchInputs.cs",
+            "choose-array", "a choice between two arrays", "the program changes an array in place, so a branch must not choose between two arrays");
+
     [Fact]
     public void A_call_to_a_method_without_Handwired_is_refused() =>
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.CallsPlain))), "CallInputs.cs", "plain-call",

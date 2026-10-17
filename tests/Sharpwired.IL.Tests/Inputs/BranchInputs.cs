@@ -1,7 +1,7 @@
 // No Handwired source. C# inputs for the branch tests of the translator (plan, task 4, and section
-// "Decisions", question 4): the gates of c ? x : y, of an if statement, of && and || chains, and the
-// backward branches that the control-flow graph refuses. Each refused construct is on the line of
-// its marker comment ("marker: <name>").
+// "Decisions", question 4): the gates of c ? x : y, of an if statement, of && and || chains, the
+// backward branches that the control-flow graph refuses, and a choice between two local arrays.
+// Each refused construct is on the line of its marker comment ("marker: <name>").
 
 using Sharpwired.Annotations;
 
@@ -118,6 +118,18 @@ public static class BranchInputs
         if (c) goto inside;
         top: if (x >= 100f) goto done; x = x * 0.5f; inside: x = x + 3f; goto top; // marker: into-loop
         done: return x;
+    }
+
+    // A choice between two local arrays, and a store through the chosen array (review of task 4,
+    // finding 2).
+    [Handwired]
+    public static float ChooseArray(bool c, [Range(-100, 100)] float x)
+    {
+        var p = new float[1];
+        var q = new float[1];
+        var a = c ? p : q; // marker: choose-array
+        a[0] = x;
+        return p[0];
     }
 
     // A backward branch with no cycle.

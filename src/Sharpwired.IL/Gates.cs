@@ -88,7 +88,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         var merge = phi.Block;
         var predecessors = Graph.Blocks[merge].Predecessors;
         var value = Region(Graph.ImmediateDominator(merge), merge,
-            block => lowering.Get(phi.Operands[predecessors.IndexOf(block)]), TypeOf(phi.Type))
+            block => lowering.Get(phi.Operands[predecessors.IndexOf(block)]), TypeOf(phi.Type), phi.IlOffset)
             ?? throw new InvalidOperationException($"the phi {phi} has no value on a path from its dominator");
         phiValues[phi] = value;
         return value;
@@ -108,15 +108,16 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
             dominator = Graph.ImmediateDominator(dominator);
         }
 
-        return Region(dominator, -1, block => lowering.Get(ssa.Blocks[block].Terminator.Operands[0]), returnType)
+        return Region(dominator, -1, block => lowering.Get(ssa.Blocks[block].Terminator.Operands[0]), returnType, returns[0].Terminator.Instruction!.Offset)
             ?? throw new InvalidOperationException("the return value has no value on a path from its dominator");
     }
 
     /// <summary>
     /// The gate rules 1 to 4: ITE(condition, on, off). A null operand comes from an edge that does not
     /// reach the merge. The gate of two aggregates or two arrays is the gate of each field or element.
+    /// A gate of two different arrays when one of them is a local array is refused at the IL offset.
     /// </summary>
-    public Value? Make(ScalarValue condition, Value? on, Value? off, Type? type)
+    public Value? Make(ScalarValue condition, Value? on, Value? off, Type? type, int ilOffset)
     {
         if (on is null || off is null || ReferenceEquals(on, off))
         {
@@ -125,7 +126,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
         if (condition is NotValue { Wire: null } negation)
         {
-            return Make(negation.Operand, off, on, type);
+            return Make(negation.Operand, off, on, type, ilOffset);
         }
 
         if (condition is ConstantValue constant)
@@ -142,15 +143,20 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
                     var fields = ImmutableDictionary.CreateBuilder<string, Value>(StringComparer.Ordinal);
                     foreach (var field in DataTypes.InstanceFields(x.Type).Where(field => x.Fields.ContainsKey(field.Name)))
                     {
-                        fields[field.Name] = Make(condition, x.Fields[field.Name], y.Fields[field.Name], field.FieldType)!;
+                        fields[field.Name] = Make(condition, x.Fields[field.Name], y.Fields[field.Name], field.FieldType, ilOffset)!;
                     }
 
                     return fields.All(pair => ReferenceEquals(pair.Value, x.Fields[pair.Key])) ? x : new AggregateValue(x.Type, fields.ToImmutable());
                 }
 
+            case (ArrayValue x, ArrayValue y) when x.IsLocal || y.IsLocal:
+                // The lowering changes a local array in place. A gate of two arrays is a new array
+                // value, so a later store through the chosen variable or through the first array
+                // does not reach the other one (review of task 4, finding 2).
+                throw lowering.Refuse(ilOffset, "a choice between two arrays", "the program changes an array in place, so a branch must not choose between two arrays");
             case (ArrayValue x, ArrayValue y) when x.ElementType == y.ElementType && x.Elements.Length == y.Elements.Length:
                 {
-                    Value[] elements = [.. x.Elements.Zip(y.Elements, (a, b) => Make(condition, a, b, x.ElementType)!)];
+                    Value[] elements = [.. x.Elements.Zip(y.Elements, (a, b) => Make(condition, a, b, x.ElementType, ilOffset)!)];
                     return elements.Select((element, index) => ReferenceEquals(element, x.Elements[index])).All(same => same)
                         ? x
                         : new ArrayValue(x.ElementType, elements, x.IsLocal && y.IsLocal);
@@ -163,7 +169,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
     // value(B) for the blocks of the region from the dominator to the merge (-1: a merge after the
     // ret blocks). operandOf gives the phi operand of a predecessor of the merge, or the return value
     // of a ret block. Each block gets its value one time.
-    private Value? Region(int dominator, int merge, Func<int, Value> operandOf, Type? type)
+    private Value? Region(int dominator, int merge, Func<int, Value> operandOf, Type? type, int ilOffset)
     {
         var values = new Dictionary<int, Value?>();
         var reaches = new Dictionary<int, bool>();
@@ -205,12 +211,12 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
                 value = Edge(index, block.Next!.Value);
                 for (var k = cases.Length - 1; k >= 0; k--)
                 {
-                    value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type);
+                    value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type, ilOffset);
                 }
             }
             else if (block.Jump is { } jump && block.Next is { } next)
             {
-                value = Make(jumpLiterals[index], Edge(index, jump), Edge(index, next), type);
+                value = Make(jumpLiterals[index], Edge(index, jump), Edge(index, next), type, ilOffset);
             }
             else
             {

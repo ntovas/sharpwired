@@ -48,13 +48,34 @@ internal sealed class Emitter(Circuit circuit)
     /// True when the affine form is exact: each coefficient of the stored form and its bias are FP32
     /// values, and the stored form has a grid. Then each partial sum in any order is an exact FP32
     /// value, and so is each intermediate value of the C# expression (plan, "Emission rules", step 2).
+    /// A form that reads a rounded affine wire, which the builder composes, is not exact.
     /// </summary>
     public bool IsExact(IReadOnlyList<Term> terms, double bias)
     {
+        if (terms.Any(term => IsRoundedProducer(term.Wire)))
+        {
+            return false;
+        }
+
         var (storedTerms, storedBias) = Circuit.PreviewAffine(terms, bias);
         return storedTerms.All(term => (double)(float)term.Coefficient == term.Coefficient)
             && (double)(float)storedBias == storedBias
             && Circuit.FormGrid(storedTerms, storedBias) is not null;
+    }
+
+    // True for a wire that Circuit.Affine composes into its reader (an ordinary affine operation with
+    // few terms) and that has no grid. Such a wire holds a rounded value, and the composition puts
+    // its unrounded form into the reader, so a form that reads the wire is not exact (review of
+    // task 4, finding 1). A constant folds with no change of its value, so it is not in this rule.
+    private bool IsRoundedProducer(Wire wire)
+    {
+        if (Circuit.Grids[wire.Position] is not null)
+        {
+            return false;
+        }
+
+        var (terms, bias) = Circuit.PreviewAffine([new Term(wire, 2)], 0);
+        return !terms.IsEmpty && !(terms is [var only] && only.Wire == wire && only.Coefficient == 2 && bias == 0);
     }
 
     /// <summary>

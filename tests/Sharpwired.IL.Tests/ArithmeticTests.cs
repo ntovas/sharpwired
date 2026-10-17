@@ -230,6 +230,62 @@ public class ArithmeticTests
         AssertMatchesPlain(translated, 417, ZeroSign.MayDiffer);
     }
 
+    // Review of task 4, finding 1: a local with two uses emits as an ordinary affine with no grid.
+    // A reader that composes it loses the rounding of the local, so the reader is a round affine.
+    [Fact]
+    public void A_reader_of_a_rounded_shared_sum_gives_a_round_affine()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(0, 10), grid: 1), Cell.Input(new NumericRange(-1e9, 1e9)));
+        var (a, b) = (expected.Cells[0], expected.Cells[1]);
+        var t = expected.Circuit.Affine([(a, 1), (b, 1)]);
+        expected.Circuit.RoundAffine([(t, 1), (b, -1)]);
+        var translated = Translate(nameof(ArithmeticInputs.SharedSum));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [1f, 1e8f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 419, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_reader_of_a_rounded_shared_offset_gives_a_round_affine()
+    {
+        var expected = new ExpectedProgram(Hundred);
+        var p0 = expected.Cells[0];
+        var t0 = expected.Circuit.Affine([(p0, 1)], -0.75);
+        expected.Circuit.RoundAffine([(t0, 1), (p0, -1)]);
+        var translated = Translate(nameof(ArithmeticInputs.SharedOffset));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [-31.875803f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 420, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_chain_after_a_rounded_shared_offset_gives_a_round_affine_chain()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(-5e7, 1e8)));
+        var p0 = expected.Cells[0];
+        var t0 = expected.Circuit.Affine([(p0, 1)], -0.1f);
+        var t3 = expected.Circuit.RoundAffine([(t0, 1), (p0, -1)]);
+        expected.Circuit.RoundAffine([(t3, -1)], -2);
+        var translated = Translate(nameof(ArithmeticInputs.SharedOffsetChain));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [74153180f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 421, ZeroSign.MayDiffer);
+    }
+
+    [Fact]
+    public void A_chain_after_a_rounded_shared_quarter_offset_gives_a_round_affine_chain()
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(-5e7, 1e8)));
+        var p0 = expected.Cells[0];
+        var t0 = expected.Circuit.Affine([(p0, 1)], -0.25);
+        var t3 = expected.Circuit.RoundAffine([(t0, 1), (p0, -1)]);
+        expected.Circuit.RoundAffine([(t3, -1)], -2);
+        var translated = Translate(nameof(ArithmeticInputs.SharedQuarterChain));
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlainAt(translated, [74153180f], ZeroSign.MayDiffer);
+        AssertMatchesPlain(translated, 422, ZeroSign.MayDiffer);
+    }
+
     [Fact]
     public void A_chain_with_exact_intermediate_values_gives_one_affine()
     {

@@ -68,6 +68,42 @@ public static class ArithmeticInputs
     [Handwired]
     public static float CancelledProducts([Range(0, 16777216), Grid(1)] float x) => x * 3f - x * 2f;
 
+    // A local with two uses emits as an ordinary affine with no grid. A reader must not compose it,
+    // because C# rounds the local (review of task 4, finding 1).
+    [Handwired]
+    public static (float, float) SharedSum([Range(0, 10), Grid(1)] float a, [Range(-1e9, 1e9)] float b)
+    {
+        float t = a + b;
+        return (t - b, t);
+    }
+
+    [Handwired]
+    public static (float, float) SharedOffset([Range(-100, 100)] float p0)
+    {
+        float t0 = p0 - 0.75f;
+        float t1 = t0 - p0;
+        return (t1, t0);
+    }
+
+    [Handwired]
+    public static (float, float) SharedOffsetChain([Range(-5e7, 1e8)] float p0)
+    {
+        float t0 = p0 - 0.1f;
+        float t3 = t0 - p0;
+        float t5 = -2f - t3;
+        return (t5, t0);
+    }
+
+    // The same chain with the offset 0.25: the composed form is the exact constant -1.75.
+    [Handwired]
+    public static (float, float) SharedQuarterChain([Range(-5e7, 1e8)] float p0)
+    {
+        float t0 = p0 - 0.25f;
+        float t3 = t0 - p0;
+        float t5 = -2f - t3;
+        return (t5, t0);
+    }
+
     // Each intermediate value is exact: the chain stays one affine.
     [Handwired]
     public static float ExactTwoSteps([Range(0, 1000), Grid(1)] float x, [Range(0, 1000), Grid(1)] float y) => (x + y) * 0.5f - 3f;
