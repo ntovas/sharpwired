@@ -152,6 +152,133 @@ public static class LoopInputs
         return a[0] + a[2];
     }
 
+    // A state that grows in each copy (review of task 5, finding 1). With n up to 200 the range of
+    // the state passes FP32. With n up to 60 (30 for the product, because the inferred range of a
+    // product of two signed values grows faster than its value) the range stays finite.
+    [Handwired]
+    public static float Doubling([Range(0, 200)] int n, [Range(-1, 1)] float s)
+    {
+        for (int i = 0; i < n; i++) s = s * 2f + 1f; // marker: doubling
+        return s;
+    }
+
+    [Handwired]
+    public static float SelfSum([Range(0, 200)] int n, [Range(-1, 1)] float s)
+    {
+        for (int i = 0; i < n; i++) s += s; // marker: self-sum
+        return s;
+    }
+
+    [Handwired]
+    public static float Power([Range(0, 200)] int n, [Range(-2, 2)] float x)
+    {
+        float s = 1f;
+        for (int i = 0; i < n; i++) s = s * x; // marker: power
+        return s;
+    }
+
+    [Handwired]
+    public static float DoublingShort([Range(0, 60)] int n, [Range(-1, 1)] float s)
+    {
+        for (int i = 0; i < n; i++) s = s * 2f + 1f;
+        return s;
+    }
+
+    [Handwired]
+    public static float SelfSumShort([Range(0, 60)] int n, [Range(-1, 1)] float s)
+    {
+        for (int i = 0; i < n; i++) s += s;
+        return s;
+    }
+
+    [Handwired]
+    public static float PowerShort([Range(0, 30)] int n, [Range(-2, 2)] float x)
+    {
+        float s = 1f;
+        for (int i = 0; i < n; i++) s = s * x;
+        return s;
+    }
+
+    // The counter i changes in each second copy, so the continue bit of some copies is the
+    // constant 1 while the active bit is a runtime bit (review of task 5, finding 2).
+    [Handwired, MaxIterations(10)]
+    public static int TwoStepCount([Range(0, 4)] int n)
+    {
+        int s = 0, i = 0, j = 0;
+        while (i < n)
+        {
+            s += 1;
+            j++;
+            if (j >= 2)
+            {
+                i++;
+                j = 0;
+            }
+        }
+
+        return s;
+    }
+
+    [Handwired, MaxIterations(10)]
+    public static float TwoStepSum([Range(0, 4)] int n, [Range(-100, 100)] float x)
+    {
+        float s = 0f;
+        int i = 0, j = 0;
+        while (i < n)
+        {
+            s += x;
+            j++;
+            if (j >= 2)
+            {
+                i++;
+                j = 0;
+            }
+        }
+
+        return s;
+    }
+
+    // Loop tests that span two or more blocks (review of task 5, finding 3).
+    [Handwired, MaxIterations(20)]
+    public static float OrCondition([Range(0, 8)] int n, [Range(0, 100)] float x)
+    {
+        int i = 0;
+        while (x > 1f || i < n)
+        {
+            x *= 0.5f;
+            i++;
+        }
+
+        return x;
+    }
+
+    [Handwired, MaxIterations(20)]
+    public static float AndCondition([Range(0, 8)] int n, [Range(0, 100)] float x)
+    {
+        int i = 0;
+        while (i < n && x > 1f)
+        {
+            x *= 0.5f;
+            i++;
+        }
+
+        return x;
+    }
+
+    [Handwired]
+    public static float ForAndCondition([Range(0, 8)] int n, [Range(-100, 100)] float x)
+    {
+        float s = 0f;
+        int i = 0;
+        for (; i < n && i < 3;)
+        {
+            s += x;
+            i++;
+        }
+
+        return s;
+    }
+
     // Refused loops.
 
     [Handwired]
@@ -189,6 +316,19 @@ public static class LoopInputs
     {
         while (x > 1f) x *= 0.5f; // marker: no-maximum
         return x;
+    }
+
+    [Handwired]
+    public static float ReturnInside([Range(0, 8)] int n, [Range(-100, 100)] float x)
+    {
+        float s = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            if (s > 50f) return s * 2f; // marker: return-inside
+            s += x;
+        }
+
+        return s;
     }
 
     [Handwired]

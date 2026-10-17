@@ -115,7 +115,8 @@ internal sealed partial class OperationLowering
     }
 
     // One block: the gates of its phis that an operation reads (not the phis of a loop header, which
-    // hold the loop state), its operations in IL order, and the literals of its branch.
+    // hold the loop state), its operations in IL order, and the literals of its branch. After each
+    // step, a value past the FP32 range is refused (LoopForms.cs).
     private void LowerBlock(SsaBlock block)
     {
         currentBlock = block.Block.Index;
@@ -124,6 +125,7 @@ internal sealed partial class OperationLowering
             foreach (var phi in block.Phis.Where(phi => operationUses.GetValueOrDefault(phi) > 0))
             {
                 EmitResults(gates.PhiValue(phi), phi.IlOffset);
+                CheckRanges(phi.IlOffset);
             }
         }
 
@@ -138,9 +140,12 @@ internal sealed partial class OperationLowering
             {
                 values[operation] = value;
             }
+
+            CheckRanges(operation.IlOffset);
         }
 
         gates.LowerTerminator(block);
+        CheckRanges(block.Terminator.Instruction?.Offset ?? block.Block.StartOffset);
     }
 
     // The emit of a gate at its merge block (plan, "Emission rules", rule 3): each leaf that a gate
@@ -403,6 +408,7 @@ internal sealed partial class OperationLowering
         var leftWire = Emit(left, offset);
         var rightWire = Emit(right, offset);
         var product = Macro(offset, "a product", () => Circuit.Multiply(leftWire, rightWire));
+        Emitter.NoteValue(product, [leftWire, rightWire]);
         if (kind == ScalarKind.Int)
         {
             var range = Circuit.Ranges[product.Position];

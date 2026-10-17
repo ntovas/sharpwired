@@ -114,6 +114,10 @@ public static class RefusedInputs
     [Handwired]
     public static float Fused([Range(0, 1)] float a, [Range(0, 1)] float b, [Range(0, 1)] float c) => MathF.FusedMultiplyAdd(a, b, c); // marker: fma
 
+    // A float value whose range passes FP32 in straight-line code (review of task 5, finding 1).
+    [Handwired]
+    public static float PastFloatRange([Range(-10, 10)] float x) => x * 1e30f * 1e30f; // marker: past-float-range
+
     [Handwired]
     public static float FloatToInt([Range(0, 10)] float x) => (int)x; // marker: float-to-int
 

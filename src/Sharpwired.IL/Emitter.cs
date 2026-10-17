@@ -26,6 +26,33 @@ internal sealed class Emitter(Circuit circuit)
     /// </summary>
     public List<LoopOverflow> Overflows { get; } = [];
 
+    // True when an emitted value passed the FP32 range after the last CheckRanges.
+    private bool pastRange;
+
+    /// <summary>
+    /// Returns false when a value that the translator emitted after the last check has a range that is
+    /// not finite while each wire that the value reads has a finite range: the value can overflow FP32.
+    /// The rule checks the value wires (an affine form, a gate, a product), and not the operations in
+    /// a macro, because a macro can use a saturation with a range that is not finite.
+    /// </summary>
+    public bool CheckRanges()
+    {
+        var passes = !pastRange;
+        pastRange = false;
+        return passes;
+    }
+
+    /// <summary>Notes a value wire and the wires that it reads, for <see cref="CheckRanges"/>.</summary>
+    public void NoteValue(Wire value, IEnumerable<Wire> operands)
+    {
+        if (!IsFinite(Circuit.Ranges[value.Position]) && operands.All(operand => IsFinite(Circuit.Ranges[operand.Position])))
+        {
+            pastRange = true;
+        }
+    }
+
+    private static bool IsFinite(NumericRange range) => double.IsFinite(range.Minimum) && double.IsFinite(range.Maximum);
+
     /// <summary>Emits the value and returns its wire. A value that has a wire gives that wire.</summary>
     public Wire Emit(ScalarValue value)
     {
@@ -50,6 +77,16 @@ internal sealed class Emitter(Circuit circuit)
         if (value is not ConstantValue)
         {
             value.Wire = emitted;
+        }
+
+        switch (value)
+        {
+            case AffineValue affine:
+                NoteValue(emitted, affine.Terms.Select(term => term.Wire));
+                break;
+            case GateValue gate:
+                NoteValue(emitted, new[] { gate.Condition, gate.On, gate.Off }.Select(operand => operand.Wire).OfType<Wire>());
+                break;
         }
 
         return emitted;

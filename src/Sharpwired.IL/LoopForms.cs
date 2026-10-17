@@ -8,10 +8,12 @@
 //   The translator follows the branch and emits no operation for the condition. A block that a
 //   constant branch skips in a copy is not lowered in that copy.
 // - Form 2: the continue bit c_k is a runtime bit. The active bit of copy k + 1 is
-//   r_(k+1) = AND(r_k, c_k), with r_0 = 1. The value of a loop variable after the loop is
-//   Select(r_k, value before copy k, value of copy k) for each copy k. Copy k + 1 reads the value of
-//   copy k with no Select: a copy matters only when it is active, and then the two values are equal.
-//   So a loop counter stays a constant, and each copy computes the bit k < n.
+//   r_(k+1) = AND(r_k, c_k), with r_0 = 1. Copy k + 1 reads the kept state
+//   Select(r_(k+1), state before, value of copy k), so an inactive copy computes on the kept state.
+//   A constant back-edge value stays a constant, so a loop counter stays a constant, and each copy
+//   computes the bit k < n. A value after the loop is the value of the last active copy:
+//   Select(r_k, value before copy k, value of copy k). A Select is not made when r_k is the
+//   constant 1.
 // - The range refinement keeps an interval for each int wire that a comparison with a constant
 //   reads, on the active path of the current copy. The literals of the loop entry condition and of
 //   each continue bit shrink the intervals. A comparison of an int form +-w + b with a constant whose
@@ -20,8 +22,10 @@
 //   body. The bit "the loop needs one more copy" after copy N, AND the entry condition of the loop,
 //   is the overflow bit of the loop.
 // - A loop with a runtime continue bit whose copy shrinks no interval, and no [MaxIterations], has no
-//   maximum (form 3, plan task 6). A loop with two exits, with no exit, or with more than 65536
+//   maximum (form 3, plan task 6). A loop with two exit blocks, with no exit, or with more than 65536
 //   copies of its body is refused.
+// - An emitted operation whose range passes FP32, while the wires that it reads have finite
+//   ranges, is refused (in loops and in straight-line code).
 // - The lowering changes a local array in place, so a store in a loop copy is accepted only when
 //   the copy always runs: its active bit is the constant 1 and constant branches reach the store.
 
@@ -38,6 +42,12 @@ internal sealed partial class OperationLowering
 
     private const string NoMaximumReason =
         "the loop count has no declared maximum; declare [Range] on the count or [MaxIterations] on the method, or translate the loop as a step program (form 3)";
+
+    /// <summary>The construct of a value whose range passes FP32.</summary>
+    public const string OverflowConstruct = "a value past the FP32 range";
+
+    /// <summary>The reason of a value whose range passes FP32.</summary>
+    public const string OverflowReason = "the value can overflow FP32; declare smaller ranges";
 
     private static readonly ConstantValue Zero = new(0, ScalarKind.Bit);
 
@@ -158,12 +168,13 @@ internal sealed partial class OperationLowering
     private void Unroll(NaturalLoop loop)
     {
         var graph = ssa.Graph;
-        var exit = CheckExits(loop);
-        var testOffset = LastOffset(exit.From);
+        CheckExits(loop);
+        var exitSources = loop.ExitEdges.Select(edge => edge.From).Distinct().ToArray();
+        var testOffset = LastOffset(exitSources.Contains(loop.Header) ? loop.Header : exitSources.Min());
 
-        // A copy count is a count of copies of the body. When the header holds the exit test, the
+        // A copy count is a count of copies of the body. When the header holds an exit test, the
         // last pass runs only the test, so the header runs one more time than the body.
-        var extra = exit.From == loop.Header ? 1 : 0;
+        var extra = exitSources.Contains(loop.Header) ? 1 : 0;
         var maximum = method.Method.GetCustomAttribute<MaxIterationsAttribute>()?.Count;
         int? limitPasses = maximum is { } count && count <= MaximumCopies ? count + extra : null;
         var hardPasses = MaximumCopies + extra;
@@ -182,10 +193,15 @@ internal sealed partial class OperationLowering
         var state = headerPhis.Select(gates.EntryValue).ToArray();
         var liveOuts = LiveOuts(loop);
         var held = new Dictionary<SsaValue, Value>();
-        ImmutableArray<int> order = [loop.Header, .. loop.Body.Where(block => block != loop.Header).Order()];
+        var order = CopyOrder(loop);
+        var testBlocks = BlocksBefore(loop, exitSources);
+
+        // kept[i]: a Select of the active bit keeps the state of header phi i; previous[i]: the state
+        // of the pass before.
+        var kept = new bool[headerPhis.Length];
+        var previous = new Value?[headerPhis.Length];
         var outerCopy = copy;
         ScalarValue active = One;
-        var steady = true;
         try
         {
             for (var pass = 0; ; pass++)
@@ -199,20 +215,29 @@ internal sealed partial class OperationLowering
                     Inliner.EmitLeaves(Emitter, state[index]);
                 }
 
+                CheckRanges(testOffset);
+
                 // The last pass of a loop with a runtime active bit at its limit lowers only the blocks
                 // that the exit test reads.
-                var lowered = LowerRegion(order, loop, atLimit && active is not ConstantValue ? BlocksBefore(loop, exit.From) : null);
+                var lowered = LowerRegion(order, loop, atLimit && active is not ConstantValue ? testBlocks : null);
                 var proceed = Gates.Not(gates.ExitReach(loop, testOffset));
                 foreach (var value in liveOuts)
                 {
                     if (CurrentValue(value, loop, lowered) is { } current)
                     {
-                        held[value] = steady || !held.TryGetValue(value, out var before)
+                        // The value after the loop is the value of the last active copy. A Select is
+                        // not needed when the copy is always active, or when the state of a header phi
+                        // already is the Select of the active bit over the value that held keeps.
+                        var phiIndex = value.Kind == SsaValueKind.Phi && value.Block == loop.Header ? headerPhis.IndexOf(value) : -1;
+                        held[value] = active is ConstantValue || !held.TryGetValue(value, out var before)
+                            || (phiIndex >= 0 && kept[phiIndex] && ReferenceEquals(before, previous[phiIndex]))
                             ? current
                             : gates.Make(active, current, before, Gates.TypeOf(value.Type), testOffset)!;
                         EmitResults(held[value], testOffset);
                     }
                 }
+
+                CheckRanges(testOffset);
 
                 var next = And(active, proceed);
                 var narrowed = next is not ConstantValue && facts.Add(proceed);
@@ -248,9 +273,14 @@ internal sealed partial class OperationLowering
                     Emit(next, testOffset);
                 }
 
-                state = [.. headerPhis.Select(phi => gates.BackEdgeValue(phi)
-                    ?? throw new InvalidOperationException($"the phi {phi} has no value on the back edges"))];
-                steady = proceed is ConstantValue;
+                for (var index = 0; index < headerPhis.Length; index++)
+                {
+                    var back = gates.BackEdgeValue(headerPhis[index])
+                        ?? throw new InvalidOperationException($"the phi {headerPhis[index]} has no value on the back edges");
+                    previous[index] = state[index];
+                    (state[index], kept[index]) = Keep(next, back, state[index], Gates.TypeOf(headerPhis[index].Type), testOffset);
+                }
+
                 active = next;
             }
         }
@@ -272,22 +302,106 @@ internal sealed partial class OperationLowering
         }
     }
 
-    // A loop must have one exit edge (plan, question 5). The second exit is the first exit edge in IL
-    // order from a block other than the header, for example the branch of a break.
-    private (int From, int To) CheckExits(NaturalLoop loop)
+    // A loop must have one exit (plan, question 5). Two or more exit edges are one exit when they go
+    // to one block, and each phi of that block reads one value on each of them. This holds for a loop
+    // test that spans two or more blocks, for example "i < n && x > 1f" in Release, and for a break
+    // to the end of the loop. A return in the loop gives a second exit block.
+    private void CheckExits(NaturalLoop loop)
     {
         if (loop.ExitEdges.IsEmpty)
         {
             throw Refuse(LastOffset(loop.BackEdgeSources[^1]), "a loop with no exit", "the program has a fixed size, so each loop must end");
         }
 
-        if (loop.ExitEdges.Length > 1)
+        // The blocks from which control reaches the exit block on an exit edge: the exit sources and
+        // the forwarding blocks after them.
+        var graph = ssa.Graph;
+        var target = graph.ExitBlock(loop);
+        var sources = new HashSet<int>();
+        foreach (var (from, to) in loop.ExitEdges)
         {
-            var second = loop.ExitEdges.Where(edge => edge.From != loop.Header).Select(edge => edge.From).DefaultIfEmpty(loop.ExitEdges[1].From).Min();
-            throw Refuse(LastOffset(second), "a loop with two exits", "a loop must have one exit edge; remove the break or the return in the loop");
+            sources.Add(from);
+            for (var block = to; block != target && graph.Forward(block) != block; block = graph.Blocks[block].Jump ?? graph.Blocks[block].Next!.Value)
+            {
+                sources.Add(block);
+            }
         }
 
-        return loop.ExitEdges[0];
+        var predecessors = graph.Blocks[target].Predecessors;
+        var oneExit = loop.ExitEdges.All(edge => graph.Forward(edge.To) == target)
+            && ssa.Blocks[target].Phis.All(phi => predecessors.Where(sources.Contains).Select(source => phi.Operands[predecessors.IndexOf(source)]).Distinct().Count() == 1);
+        if (!oneExit)
+        {
+            var second = loop.ExitEdges.Where(edge => edge.From != loop.Header).Select(edge => edge.From).DefaultIfEmpty(loop.ExitEdges[1].From).Min();
+            throw Refuse(LastOffset(second), "a loop with two exits", "a loop must have one exit block; remove the return in the loop");
+        }
+    }
+
+    // The loop state for the next copy (docs/design.md: a select keeps the old loop state when the bit
+    // is 0): Select(next, state before, back-edge value). An inactive copy then computes on the kept
+    // state, so its values stay in the ranges of the active copies. A constant back-edge value, for
+    // example a loop counter, stays a constant: an active copy reads the same constant, and the value
+    // of an inactive copy is not read. Returns true when a Select keeps the state.
+    private (Value State, bool Kept) Keep(ScalarValue next, Value back, Value old, Type? type, int offset) =>
+        next is ConstantValue || back is ConstantValue || ReferenceEquals(back, old)
+            ? (back, false)
+            : (gates.Make(next, back, old, type, offset)!, true);
+
+    // A topological order of the loop body with no back edges. A loop inside the body is one unit.
+    // The header comes first. Among the units whose units before them are placed, the unit with the
+    // lowest block index comes next, so the order is the IL order when the IL order is topological.
+    private ImmutableArray<int> CopyOrder(NaturalLoop loop)
+    {
+        var graph = ssa.Graph;
+        var unitOf = loop.Body.ToDictionary(block => block, block => graph.OutermostLoopIn(block, loop)?.Header ?? block);
+        var members = loop.Body.GroupBy(block => unitOf[block]).ToDictionary(group => group.Key, group => group.Order().ToArray());
+        var incoming = members.Keys.ToDictionary(unit => unit, _ => new HashSet<int>());
+        foreach (var block in loop.Body)
+        {
+            foreach (var successor in graph.Blocks[block].Successors)
+            {
+                if (unitOf.TryGetValue(successor, out var target) && target != unitOf[block] && !graph.IsBackEdge(block, successor))
+                {
+                    incoming[target].Add(unitOf[block]);
+                }
+            }
+        }
+
+        var placed = new HashSet<int>();
+        var ready = new SortedSet<(int First, int Unit)>(members.Where(pair => pair.Value.Contains(loop.Header)).Select(pair => (pair.Value[0], pair.Key)));
+        var order = ImmutableArray.CreateBuilder<int>();
+        while (ready.Count > 0)
+        {
+            var next = ready.Min;
+            ready.Remove(next);
+            placed.Add(next.Unit);
+            order.AddRange(next.Unit == loop.Header ? [loop.Header, .. members[next.Unit].Where(block => block != loop.Header)] : members[next.Unit]);
+            foreach (var (unit, sources) in incoming)
+            {
+                if (!placed.Contains(unit) && sources.Count > 0 && sources.All(placed.Contains))
+                {
+                    ready.Add((members[unit][0], unit));
+                }
+            }
+        }
+
+        if (placed.Count != members.Count)
+        {
+            throw Refuse(LastOffset(loop.Header), "a backward branch outside a natural loop",
+                "the program accepts a backward branch only as the back edge of a loop with one entry");
+        }
+
+        return order.ToImmutable();
+    }
+
+    // Refuses a value past the FP32 range: an emitted operation whose range is not finite while each
+    // wire that it reads has a finite range.
+    private void CheckRanges(int offset)
+    {
+        if (!Emitter.CheckRanges())
+        {
+            throw Refuse(offset, OverflowConstruct, OverflowReason);
+        }
     }
 
     private void AddOverflow(ScalarValue bit, int testOffset, int copies)
@@ -300,12 +414,12 @@ internal sealed partial class OperationLowering
         Emitter.Overflows.Add(new LoopOverflow(Emit(bit, testOffset), Locate(testOffset), copies));
     }
 
-    // The blocks of the loop that reach the target block without a back edge, with the target.
-    private HashSet<int> BlocksBefore(NaturalLoop loop, int target)
+    // The blocks of the loop that reach a target block without a back edge, with the targets.
+    private HashSet<int> BlocksBefore(NaturalLoop loop, int[] targets)
     {
         var graph = ssa.Graph;
-        var found = new HashSet<int> { target };
-        var work = new Stack<int>([target]);
+        var found = new HashSet<int>(targets);
+        var work = new Stack<int>(targets);
         while (work.Count > 0)
         {
             var block = work.Pop();
@@ -431,7 +545,10 @@ internal sealed partial class OperationLowering
             var narrowed = false;
             foreach (var literal in Gates.Literals<AndValue>(condition))
             {
-                narrowed |= AddLiteral(literal);
+                // NOT(OR(l1, ..., ln)) = AND(NOT l1, ..., NOT ln).
+                narrowed |= literal is NotValue { Operand: OrValue { Wire: null } disjunction }
+                    ? disjunction.Literals.Aggregate(false, (any, inner) => Add(Gates.Not(inner)) | any)
+                    : AddLiteral(literal);
             }
 
             return narrowed;

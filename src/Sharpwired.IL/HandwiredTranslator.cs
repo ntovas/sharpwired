@@ -35,6 +35,7 @@ public static class HandwiredTranslator
         var leaves = new List<(string Path, ScalarValue Value)>();
         var shape = CellLayout.Output(method.ReturnType, result, "", top: true, location, leaves);
         var outputs = leaves.Select(leaf => new NamedWire(leaf.Path, emitter.Emit(leaf.Value))).ToImmutableArray();
+        CheckRanges(emitter, location);
         var finished = table.Finish();
         var inputs = layout.Leaves.Select(leaf => new NamedWire(leaf.Path, circuit.Source(leaf.Cell))).ToImmutableArray();
         return new TranslatedFunction(method, layout, finished, inputs, outputs, shape, [.. emitter.Overflows]);
@@ -73,6 +74,7 @@ public static class HandwiredTranslator
 
         var nextWires = nextLeaves.Select(leaf => emitter.Emit(leaf.Value)).ToArray();
         var outputs = outputLeaves.Select(leaf => new NamedWire(leaf.Path, emitter.Emit(leaf.Value))).ToImmutableArray();
+        CheckRanges(emitter, location);
         var stateLeaves = layout.Leaves.Where(leaf => leaf.Spec.Policy == CellPolicy.State).ToArray();
         if (stateLeaves.Length != nextWires.Length)
         {
@@ -87,6 +89,15 @@ public static class HandwiredTranslator
         var finished = table.Finish();
         var cells = layout.Leaves.Select(leaf => new NamedWire(leaf.Path, circuit.Source(leaf.Cell))).ToImmutableArray();
         return new TranslatedStep(method, layout, finished, cells, outputs, nextShape, outputShape);
+    }
+
+    // The output leaves emit at the return, so a value past the FP32 range among them has the location of the return.
+    private static void CheckRanges(Emitter emitter, SourceLocation location)
+    {
+        if (!emitter.CheckRanges())
+        {
+            throw new TranslationException(location, 0, OperationLowering.OverflowConstruct, OperationLowering.OverflowReason);
+        }
     }
 
     // The errors of the method itself are plain ArgumentException values (plan, "Error message rules", rule 8).

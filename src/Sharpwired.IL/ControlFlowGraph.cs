@@ -119,6 +119,29 @@ internal sealed class ControlFlowGraph
         return found;
     }
 
+    /// <summary>
+    /// The exit block of a loop: the target of its first exit edge, after each forwarding block. A
+    /// forwarding block has one predecessor and only nop and br instructions, for example the block of
+    /// a break in Debug.
+    /// </summary>
+    public int ExitBlock(NaturalLoop loop) => Forward(loop.ExitEdges[0].To);
+
+    /// <summary>The block after each forwarding block from the block, or the block.</summary>
+    public int Forward(int block)
+    {
+        for (var steps = 0; steps < Blocks.Length && IsForwarding(Blocks[block]); steps++)
+        {
+            block = Blocks[block].Jump ?? Blocks[block].Next!.Value;
+        }
+
+        return block;
+    }
+
+    private bool IsForwarding(BasicBlock block) =>
+        block.Predecessors.Length == 1 && block.SwitchTargets.IsEmpty && (block.Terminator?.IsJump ?? block.Next is not null)
+        && Enumerable.Range(block.FirstInstruction, block.InstructionCount)
+            .All(index => Method.Instructions[index].OpCode == ILOpCode.Nop || Method.Instructions[index].IsJump);
+
     /// <summary>True for a back edge: an edge whose target dominates its source (plan, "Decisions", question 5).</summary>
     public bool IsBackEdge(int from, int to) => Dominates(to, from);
 

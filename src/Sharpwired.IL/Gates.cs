@@ -139,7 +139,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
     /// <summary>The bit that is 1 when one copy of the loop leaves through its exit edge.</summary>
     public ScalarValue ExitReach(NaturalLoop loop, int ilOffset) =>
-        (ScalarValue)Region(loop.Header, loop.ExitEdges[0].To, _ => new ConstantValue(1, ScalarKind.Bit), typeof(bool), ilOffset,
+        (ScalarValue)Region(loop.Header, Graph.ExitBlock(loop), _ => new ConstantValue(1, ScalarKind.Bit), typeof(bool), ilOffset,
             new ConstantValue(0, ScalarKind.Bit))!;
 
     /// <summary>True when the literal of the edge is the constant 0 in the current lowering of the source block.</summary>

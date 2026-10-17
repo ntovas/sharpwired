@@ -23,6 +23,10 @@ public class LoopTests
     private const string NoMaximumReason =
         "the loop count has no declared maximum; declare [Range] on the count or [MaxIterations] on the method, or translate the loop as a step program (form 3)";
 
+    private const string OverflowConstruct = "a value past the FP32 range";
+
+    private const string OverflowReason = "the value can overflow FP32; declare smaller ranges";
+
     private static CellSpec Open => Cell.Input(Cell.AnyNumber);
 
     private static CellSpec Hundred => Cell.Input(new NumericRange(-100, 100));
@@ -143,12 +147,13 @@ public class LoopTests
 
     // Form 2.
 
-    // Copy k computes the bit k < n. The active bit of copy k + 1 is AND(r_k, k < n). The loop
-    // counter stays a constant in each copy, because a copy matters only when it is active. The
-    // range refinement gives n >= k + 1 on the active path, so in copy 8 the bit 8 < n is the
-    // constant 0 and the unroll stops after 8 copies of the body. The result after copy k is
-    // Select(r_k, result before, s_k); the first one is Multiply(r_1, x), because the result before
-    // copy 1 is the constant 0.
+    // Copy k computes the bit k < n. The active bit of copy k + 1 is r_(k+1) = AND(r_k, k < n). The
+    // loop counter is a constant back-edge value, so it stays a constant. The range refinement gives
+    // n >= k + 1 on the active path, so in copy 8 the bit 8 < n is the constant 0 and the unroll stops
+    // after 8 copies of the body. Copy k reads the kept state K_k = Select(r_k, K_(k-1), K_(k-1) + x),
+    // which emits at the start of the copy (the header is a merge block). The first one is
+    // Multiply(r_1, x), because the state before copy 1 is the constant 0. The value after the loop
+    // is the last kept state.
     [Fact]
     public void A_counted_loop_unrolls_eight_copies_with_active_bits()
     {
@@ -156,26 +161,17 @@ public class LoopTests
         var (n, x) = (expected.Cells[0], expected.Cells[1]);
         var circuit = expected.Circuit;
         var c0 = circuit.Compare(circuit.Constant(0), Relation.Less, n);
+        var kept = circuit.Multiply(c0, x);
         var c1 = circuit.Compare(circuit.Constant(1), Relation.Less, n);
-        var held = circuit.Multiply(c0, x);
         var active = circuit.Reglu([], 1, [(c0, 1), (c1, 1)], -1);
-        var sum = circuit.Affine([(x, 1), (x, 1)]);
         for (var k = 2; k <= 8; k++)
         {
-            if (k > 2)
-            {
-                sum = k % 2 == 1 ? circuit.RoundAffine([(sum, 1), (x, 1)]) : circuit.Affine([(sum, 1), (x, 1)]);
-            }
-
+            var sum = circuit.Affine([(kept, 1), (x, 1)]);
+            kept = circuit.Select(active, kept, sum);
             if (k < 8)
             {
                 var condition = circuit.Compare(circuit.Constant(k), Relation.Less, n);
-                held = circuit.Select(active, held, sum);
                 active = circuit.Reglu([], 1, [(active, 1), (condition, 1)], -1);
-            }
-            else
-            {
-                circuit.Select(active, held, sum);
             }
         }
 
@@ -194,7 +190,9 @@ public class LoopTests
     // the lower end of the interval. In the eighth copy the test i + 1 == n is the constant 1, so the
     // loop stops after 8 copies (refinement through !=).
     // The sum s + x has two uses (the header phi and the phi after the loop), so it emits at its
-    // instruction, before the test of the copy.
+    // instruction, before the test of the copy. Copy k reads the kept state
+    // K_k = Select(r_k, K_(k-1), sum of copy k - 1); the first one is Multiply(r_1, x). The value
+    // after the loop is the sum of the last active copy: Select(r_k, value before, sum of copy k).
     [Fact]
     public void An_FSharp_for_in_loop_to_n_minus_1_unrolls_eight_copies()
     {
@@ -208,9 +206,11 @@ public class LoopTests
         var active = circuit.Affine([(e1, -1)], 1);
         Wire held = x;
         Wire sum = x;
+        Wire kept = x;
         for (var k = 1; k <= 7; k++)
         {
-            sum = k == 1 ? circuit.Affine([(x, 1), (x, 1)]) : k % 2 == 0 ? circuit.RoundAffine([(sum, 1), (x, 1)]) : circuit.Affine([(sum, 1), (x, 1)]);
+            kept = k == 1 ? circuit.Multiply(active, x) : circuit.Select(active, kept, sum);
+            sum = circuit.Affine([(kept, 1), (x, 1)]);
             Wire? condition = k < 7 ? circuit.Compare(circuit.Constant(k + 1), Relation.Equal, n) : null;
             held = circuit.Select(active, held, sum);
             if (condition is { } bit)
@@ -306,12 +306,69 @@ public class LoopTests
         AssertRefused(() => HandwiredTranslator.TranslateStep(Input(typeof(LoopInputs), nameof(LoopInputs.HalveStep))), LoopFile, "halve-step",
             "a loop with an overflow bit in a step method", "a step program does not check a loop overflow bit; declare [Range] on the loop count");
 
+    // Review of task 5, finding 1: a state that doubles in each copy. With n up to 200 the range of
+    // the state passes FP32, so the translator refuses the loop. With a smaller maximum of n the
+    // values equal the plain method.
+    [Theory]
+    [InlineData(nameof(LoopInputs.Doubling), "doubling")]
+    [InlineData(nameof(LoopInputs.SelfSum), "self-sum")]
+    [InlineData(nameof(LoopInputs.Power), "power")]
+    public void A_loop_state_whose_range_passes_FP32_is_refused(string name, string marker) =>
+        AssertRefused(() => Translate(name), LoopFile, marker, OverflowConstruct, OverflowReason);
+
+    [Theory]
+    [InlineData(nameof(LoopInputs.DoublingShort))]
+    [InlineData(nameof(LoopInputs.SelfSumShort))]
+    [InlineData(nameof(LoopInputs.PowerShort))]
+    public void A_loop_state_that_grows_within_FP32_gives_the_plain_values(string name)
+    {
+        var translated = Translate(name);
+        AssertMatchesPlain(translated, 1114, ZeroSign.MayDiffer);
+        foreach (var n in new[] { 0f, 1f, 11f, 30f })
+        {
+            AssertMatchesPlainAt(translated, [n, 0f], ZeroSign.MayDiffer);
+            AssertMatchesPlainAt(translated, [n, 1f], ZeroSign.MayDiffer);
+            AssertMatchesPlainAt(translated, [n, -1f], ZeroSign.MayDiffer);
+        }
+    }
+
+    // Review of task 5, finding 2: the continue bit of a copy is the constant 1, and the active bit
+    // is a runtime bit. The value after the loop must keep the value of the last active copy.
+    [Theory]
+    [InlineData(nameof(LoopInputs.TwoStepCount))]
+    [InlineData(nameof(LoopInputs.TwoStepSum))]
+    public void A_copy_with_a_constant_continue_bit_and_a_runtime_active_bit_keeps_the_last_active_value(string name)
+    {
+        var translated = Translate(name);
+        var count = translated.Inputs.Length;
+        foreach (var n in new[] { 0f, 1f, 2f, 3f, 4f })
+        {
+            AssertMatchesPlainAt(translated, count == 1 ? [n] : [n, 7.5f], ZeroSign.MayDiffer);
+        }
+
+        AssertMatchesPlain(translated, 1115, ZeroSign.MayDiffer);
+    }
+
+    // Review of task 5, finding 3: the test of each loop spans two or more blocks.
+    [Theory]
+    [InlineData(nameof(LoopInputs.OrCondition))]
+    [InlineData(nameof(LoopInputs.AndCondition))]
+    [InlineData(nameof(LoopInputs.ForAndCondition))]
+    public void A_loop_test_with_two_or_more_blocks_gives_the_plain_values(string name) =>
+        AssertMatchesPlain(Translate(name), 1116, ZeroSign.MayDiffer);
+
     // The row "all" and the loops with no maximum.
 
+    // A break to the end of the loop goes to the exit block of the loop test, with the same values, so
+    // the loop has one exit (the same IL as a loop test with two blocks).
     [Fact]
-    public void A_loop_with_a_break_is_refused() =>
-        AssertRefused(() => Translate(nameof(LoopInputs.Break)), LoopFile, "break", "a loop with two exits",
-            "a loop must have one exit edge; remove the break or the return in the loop");
+    public void A_loop_with_a_break_to_its_end_gives_the_plain_values() =>
+        AssertMatchesPlain(Translate(nameof(LoopInputs.Break)), 1117, ZeroSign.MayDiffer);
+
+    [Fact]
+    public void A_loop_with_a_return_inside_is_refused() =>
+        AssertRefused(() => Translate(nameof(LoopInputs.ReturnInside)), LoopFile, "return-inside", "a loop with two exits",
+            "a loop must have one exit block; remove the return in the loop");
 
     [Fact]
     public void A_loop_with_no_exit_is_refused() =>
