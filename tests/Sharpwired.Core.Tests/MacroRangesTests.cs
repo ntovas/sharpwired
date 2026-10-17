@@ -331,7 +331,7 @@ public class MacroRangesTests
         Js.Is(double.PositiveInfinity, EvaluateMultiply(1e20, 1e20));
     }
 
-    // 'a proven-nonnegative operand lowers emitMultiply to one reglu' (reference part).
+    // 'a proven-nonnegative operand lowers emitMultiply to one reglu'.
     [Fact]
     public void A_proven_nonnegative_operand_lowers_multiply_to_one_reglu()
     {

@@ -1,6 +1,7 @@
 // Handwired source: no Handwired case. These tests check the C# shape of the public types: the
 // rules that TypeScript types give Handwired, for example that a number is not a Wire.
 
+using System.Collections.Immutable;
 using System.Reflection;
 
 namespace Sharpwired.Core.Tests;
@@ -52,5 +53,54 @@ public class ApiShapeTests
         Assert.Single(circuit.Operations);
         circuit.Affine([(circuit.Source(0), 2), (circuit.Source(1), 1)], 1);
         Assert.Equal(2, circuit.Operations.Count);
+    }
+
+    // A caller cannot change a compiled program through a property of a program type: each list is
+    // an ImmutableArray<T> or an UnsignedIndices, and no program type has a public field.
+    [Fact]
+    public void The_program_types_expose_no_writable_array()
+    {
+        Type[] programTypes = [typeof(TensorGatherCompute), typeof(TensorGatherRead), typeof(TensorIndexRead), typeof(TensorLayer), typeof(TensorProgram)];
+        Type[] allowedTypes =
+        [
+            typeof(int),
+            typeof(bool),
+            typeof(UnsignedIndices),
+            typeof(ImmutableArray<float>),
+            typeof(ImmutableArray<TensorGatherCompute>),
+            typeof(ImmutableArray<TensorGatherRead>),
+            typeof(ImmutableArray<TensorIndexRead>),
+            typeof(ImmutableArray<TensorLayer>),
+        ];
+        foreach (var type in programTypes)
+        {
+            Assert.Empty(type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static));
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.Name != "EqualityContract");
+            Assert.NotEmpty(properties);
+            Assert.All(properties, property => Assert.True(
+                allowedTypes.Contains(property.PropertyType),
+                $"{type.Name}.{property.Name} has the type {property.PropertyType}"));
+        }
+    }
+
+    // UnsignedIndices is read-only: no public setter, no public field, and no public member that
+    // returns an array, a span or a memory over its storage.
+    [Fact]
+    public void UnsignedIndices_has_no_public_setter()
+    {
+        var type = typeof(UnsignedIndices);
+        Assert.All(
+            type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static),
+            property => Assert.False(property.SetMethod?.IsPublic ?? false, $"UnsignedIndices.{property.Name} has a public setter"));
+        Assert.Empty(type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static));
+        var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+        Assert.All(methods, method =>
+        {
+            var returnType = method.ReturnType;
+            var exposesStorage = returnType.IsArray || (returnType.IsGenericType && returnType.GetGenericTypeDefinition() is var definition
+                && (definition == typeof(Span<>) || definition == typeof(Memory<>)));
+            Assert.False(exposesStorage, $"UnsignedIndices.{method.Name} returns {returnType}");
+        });
     }
 }

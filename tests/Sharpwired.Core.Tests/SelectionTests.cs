@@ -311,8 +311,8 @@ public class SelectionTests
 
     // random-hardened.test.ts 'hardened random verification' / 'non-dyadic macro circuits preserve every
     // live FP32 wire'. Handwired calls validateTensorEvaluation, which compares each wire of wireOrder
-    // with ===. The PHASE2 list also asks for Object.is on each wire of wireOrder, so this port also
-    // compares the tensor value with the reference value with Js.ObjectIs.
+    // with ===. This port also compares the tensor value with the reference value on each wire of
+    // wireOrder with Js.ObjectIs, so that the sign of zero must also agree.
     [Fact]
     public void Non_dyadic_macro_circuits_preserve_every_live_FP32_wire()
     {

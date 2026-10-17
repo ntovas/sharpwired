@@ -13,27 +13,27 @@ This checklist is the definition of done. Each phase owns the items under it.
 
 ### Phase 1: core runtime (`src/Sharpwired.Core`)
 
-- [ ] R1.1 `Wire` is a distinct type. A plain `int` does not convert to a `Wire` implicitly.
-- [ ] R1.2 `Circuit` holds the four instructions (`affine`, `reglu`, `boolean`, `index`) with the FP32 (32-bit float) rules of Handwired `docs/execution-model.md`.
-- [ ] R1.3 The builder composes small affine producers (fewer than 4 terms), folds constants, normalizes term order, and reuses identical expressions, as Handwired does. `RoundAffine` keeps the term order and the operand wires.
-- [ ] R1.4 Range inference follows each FP32 rounding step. Grid inference follows Handwired rules.
-- [ ] R1.5 Declarations: `AssumeRange`, `AssumeGrid`, `AssumeOneHot`, `AssumeBit`, with the "existing readers" refusal and the `allowExistingReaders` option.
-- [ ] R1.6 Rounding points: the four kinds, `MarkRoundingPoint`, `RoundingPoints()`.
-- [ ] R1.7 Index reads: `IndexRead`, `IndexReadAffine`, the `clamp` and `zero` rules, candidate tables, the ±2^24 index range contract.
-- [ ] R1.8 The reference evaluator gives the same value as Handwired `evaluateReference` for each wire.
-- [ ] R1.9 Macros, each with its Handwired exactness contract: relu, multiply, select, minimum, maximum, compare (integer bits, sign cascade, `endWithBoolean`), the exact minimum, maximum and clamp, spring, spring matrix, animated object, argmax, first active.
-- [ ] R1.10 `InlineCircuit`, with the transfer of declarations, groups and rounding points.
-- [ ] R1.11 Validators: `ValidateCircuit`, `ValidateOneHotGroups`, `ValidateIndexReads`, `ValidateGrids`, `ValidateNoNaN`, `DescribeFirstNaN`.
-- [ ] R1.12 The reference backward pass, with the `booleanGradient` and `indexGradient` options and the macro records for multiply and select.
-- [ ] R1.13 A test proves that .NET `float` arithmetic matches `Math.fround` semantics and does not contract a multiply and an add into an FMA (fused multiply-add).
-- [ ] R1.14 The Handwired tests of `tests/runtime/` that cover the phase 1 parts are ported to xUnit. Each assertion that needs the tensor evaluator is recorded for phase 2.
+- [x] R1.1 `Wire` is a distinct type. A plain `int` does not convert to a `Wire` implicitly.
+- [x] R1.2 `Circuit` holds the four instructions (`affine`, `reglu`, `boolean`, `index`) with the FP32 (32-bit float) rules of Handwired `docs/execution-model.md`.
+- [x] R1.3 The builder composes small affine producers (fewer than 4 terms), folds constants, normalizes term order, and reuses identical expressions, as Handwired does. `RoundAffine` keeps the term order and the operand wires.
+- [x] R1.4 Range inference follows each FP32 rounding step. Grid inference follows Handwired rules.
+- [x] R1.5 Declarations: `AssumeRange`, `AssumeGrid`, `AssumeOneHot`, `AssumeBit`, with the "existing readers" refusal and the `allowExistingReaders` option.
+- [x] R1.6 Rounding points: the four kinds, `MarkRoundingPoint`, `RoundingPoints()`.
+- [x] R1.7 Index reads: `IndexRead`, `IndexReadAffine`, the `clamp` and `zero` rules, candidate tables, the ±2^24 index range contract.
+- [x] R1.8 The reference evaluator gives the same value as Handwired `evaluateReference` for each wire.
+- [x] R1.9 Macros, each with its Handwired exactness contract: relu, multiply, select, minimum, maximum, compare (integer bits, sign cascade, `endWithBoolean`), the exact minimum, maximum and clamp, spring, spring matrix, animated object, argmax, first active.
+- [x] R1.10 `InlineCircuit`, with the transfer of declarations, groups and rounding points.
+- [x] R1.11 Validators: `ValidateCircuit`, `ValidateOneHotGroups`, `ValidateIndexReads`, `ValidateGrids`, `ValidateNoNaN`, `DescribeFirstNaN`.
+- [x] R1.12 The reference backward pass, with the `booleanGradient` and `indexGradient` options and the macro records for multiply and select.
+- [x] R1.13 A test proves that .NET `float` arithmetic matches `Math.fround` semantics and does not contract a multiply and an add into an FMA (fused multiply-add).
+- [x] R1.14 The Handwired tests of `tests/runtime/` that cover the phase 1 parts are ported to xUnit. Each assertion that needs the tensor evaluator is recorded for phase 2.
 
 ### Phase 2: compiler and tensor evaluator
 
-- [ ] R2.1 The compiler builds layers of sparse matrices, removes dead operations, and reports `wireOrder`, `valueCount` and `sourceSize`.
-- [ ] R2.2 Gather lowering for declared one-hot groups, index read tables with base and stride, and the `recomputeDepths` option.
-- [ ] R2.3 `TensorEvaluator`, `CreateTensorEvaluator`, `CreateTensorProgramEvaluator` with `PackedValues`, and `ValidateTensorEvaluation`, `ValidateTensorProgram`.
-- [ ] R2.4 Differential tests: seeded random programs give equal values in the reference evaluator and the tensor evaluator. The recorded phase 1 assertions are ported.
+- [x] R2.1 The compiler builds layers of sparse matrices, removes dead operations, and reports `wireOrder`, `valueCount` and `sourceSize`.
+- [x] R2.2 Gather lowering for declared one-hot groups, index read tables with base and stride, and the `recomputeDepths` option.
+- [x] R2.3 `TensorEvaluator`, `CreateTensorEvaluator`, `CreateTensorProgramEvaluator` with `PackedValues`, and `ValidateTensorEvaluation`, `ValidateTensorProgram`.
+- [x] R2.4 Differential tests: seeded random programs give equal values in the reference evaluator and the tensor evaluator. The recorded phase 1 assertions are ported.
 
 ### Phase 3: cells, timing, toggle with the builder API
 
