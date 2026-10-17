@@ -752,3 +752,8 @@ The user decided question 2 on 2026-10-17: add the pattern recognition to phase 
   - The expected counts follow Handwired: K − 1 comparisons for K results in O(1) layers (expressions.md row 14); the prefix network counts follow `PrefixNetworkTests`.
   - A loop that looks like a running total but has a non-associative combine (for example `-`) keeps its normal form.
 - Closes: the design.md step 4 sentence on patterns.
+
+## Decisions after task 3
+
+8. Decision 7 widens. An affine operation starts its sum at f(bias) = +0, so `-x`, `x * c` and `a + b` give +0 where C# gives -0. Handwired defines exactness as "equality to the stated FP32 calculation, ignoring the sign of zero" (execution-model.md, "Exactness"). The value tests therefore compare float outputs of affine, `Multiply`, `Select`, `MinimumExact` and `MaximumExact` with `==`. Bit outputs, index reads, `Hw` outputs and constants compare with `Js.Is`. For the toggle (tasks 7 and 8): the translated program against the builder program uses `Js.Is` on every output, because both are circuits with the same operations. The translated program against the plain method uses `Js.Is` on the bit outputs and `==` on the float outputs.
+9. A cell with no `[Initial]` starts at the value of its range and grid nearest to 0.
