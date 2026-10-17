@@ -78,8 +78,8 @@ public class AdvanceFrameTests
         };
     }
 
-    // Handwired frameTimesAt.
-    private static List<double> FrameTimesAt(double hz, double durationMs, (double StartMs, double LengthMs)? stall = null)
+    // Handwired frameTimesAt. SpringTraceApp and SpringTraceTests use it too.
+    internal static List<double> FrameTimesAt(double hz, double durationMs, (double StartMs, double LengthMs)? stall = null)
     {
         var times = new List<double>();
         for (var frame = 0; ; frame++)
