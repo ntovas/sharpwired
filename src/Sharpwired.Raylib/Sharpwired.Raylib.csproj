@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Task 7 adds the Raylib-cs package. HostLoop and IFrameClock do not use it. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Sharpwired.Timing\Sharpwired.Timing.csproj" />
+  </ItemGroup>
+
+</Project>
