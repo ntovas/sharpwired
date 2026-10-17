@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The F# test inputs of the IL translator. The PDB is embedded in the assembly, so the tests
+       cover the embedded portable PDB. The C# inputs in Sharpwired.IL.Tests use a separate PDB. -->
+
+  <PropertyGroup>
+    <DebugType>embedded</DebugType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Inputs.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The IL translator. System.Reflection.Metadata is in the .NET shared framework, so the
+       decoder and the PDB reader need no package. -->
+
+  <PropertyGroup>
+    <!-- The decoder pins the IL bytes for System.Reflection.Metadata.BlobReader. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharpwired.IL.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+    <ProjectReference Include="..\Sharpwired.Cells\Sharpwired.Cells.csproj" />
+    <ProjectReference Include="..\Sharpwired.Core\Sharpwired.Core.csproj" />
+  </ItemGroup>
+
+</Project>
