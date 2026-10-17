@@ -1,7 +1,9 @@
-// Handwired source: src/runtime/numeric-ui-core.ts (the function that
-// Circuit.createTensorProgramEvaluator returns, with its packedValues property; TensorWorkspace,
-// createTensorWorkspace, executeTensorProgram, sparseMatmulAddBias, applyGathers, applyIndexReads,
-// evaluateTensorProgram, and the ECMAScript ToInt32 of an Int32Array store).
+// Handwired source: src/runtime/numeric-ui-core.ts. The function that
+// Circuit.createTensorProgramEvaluator returns, with its packedValues property. TensorWorkspace,
+// createTensorWorkspace, executeTensorProgram, sparseMatmulAddBias, applyGathers, applyIndexReads
+// and evaluateTensorProgram. The ECMAScript ToInt32 of an Int32Array store.
+
+using System.Numerics;
 
 namespace Sharpwired.Core;
 
@@ -10,9 +12,21 @@ namespace Sharpwired.Core;
 /// circuit, runs the layers in one workspace, and returns the values of the roots.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The evaluator does not allocate after it is made. The arrays that <see cref="PackedValues"/> and
 /// <see cref="Evaluate"/> return are the arrays of the evaluator, and the next call overwrites them.
-/// Copy the values to keep them. One evaluator must not run on two threads at the same time.
+/// Copy the values to keep them.
+/// </para>
+/// <para>
+/// Use one evaluator on one thread only. For more threads, make one evaluator for each thread with
+/// <see cref="Circuit.CreateTensorProgramEvaluator"/> on one shared program. Each call reads the
+/// ranges of the circuit to check the source table. Do not change the circuit while evaluators run.
+/// </para>
+/// <para>
+/// The evaluator expects a program that passes <see cref="Validation.ValidateTensorProgram"/>. A
+/// program that fails it can make Evaluate throw an exception, for example
+/// <see cref="IndexOutOfRangeException"/>. Handwired reads undefined in the same case.
+/// </para>
 /// </remarks>
 public sealed class TensorEvaluator
 {
@@ -110,7 +124,7 @@ internal sealed class TensorWorkspace
 internal static class TensorExecution
 {
     // Handwired evaluateTensorProgram: run the program in a new workspace and return the value of
-    // each wire of the circuit, with 0 for each wire that the program removed.
+    // each wire of the circuit. The value is 0 for each wire that the program removed.
     public static float[] EvaluateTensorProgram(ReadOnlySpan<float> source, TensorProgram program)
     {
         var workspace = new TensorWorkspace(program);
@@ -124,9 +138,9 @@ internal static class TensorExecution
     }
 
     // Handwired executeTensorProgram. The packed values are the source cells, then the outputs of
-    // each layer. Each layer copies its inputs, computes its projection rows with the sparse matrix,
-    // applies the gather reads, the index reads, the gates and the boolean atoms, and appends its
-    // outputs.
+    // each layer. Each layer copies its inputs and computes its projection rows with the sparse
+    // matrix. Then it applies the gather reads, the index reads, the gates and the boolean atoms,
+    // and appends its outputs.
     public static void ExecuteTensorProgram(ReadOnlySpan<float> source, TensorProgram program, TensorWorkspace workspace)
     {
         if (source.Length != program.SourceSize) throw new ArgumentException("source table has the wrong length");
@@ -138,10 +152,7 @@ internal static class TensorExecution
         foreach (var layer in program.Layers)
         {
             var outputSize = layer.OutputSize;
-            for (var column = 0; column < layer.InputSize; column++)
-            {
-                input[column] = packedValues[layer.InputIndices[column]];
-            }
+            CopyInputs(layer.InputIndices, layer.InputSize, packedValues, input);
             SparseMatmulAddBias(projection, layer.Weights.AsSpan(), layer.Columns, layer.RowOffsets, input, layer.Bias.AsSpan());
             if (layer.GatherReads.Length > 0) ApplyGathers(layer, packedValues, projection, workspace.GatherIndices, workspace.GatherMasses);
             if (layer.IndexReads.Length > 0) ApplyIndexReads(layer, packedValues, projection);
@@ -162,11 +173,11 @@ internal static class TensorExecution
     }
 
     // Handwired applyGathers. Each compute resolves one slot: the dot product of the bits with
-    // 0..N-1 and the sum of the bits, in double, as Handwired computes in float64. For exact bits of 0
-    // and 1 these are small integers, with no rounding. The index store applies ToInt32, as an
-    // Int32Array store does, and the mass store rounds to FP32, as a Float32Array store does. Each
-    // read then adds the selected candidate (times the mass for a group that allows all zeros) to
-    // the bias of its row, with one FP32 round.
+    // 0..N-1 and the sum of the bits. Both are in double, as Handwired computes in float64. For
+    // exact bits of 0 and 1 these are small integers, with no rounding. The index store applies
+    // ToInt32, as an Int32Array store does, and the mass store rounds to FP32, as a Float32Array
+    // store does. Each read then adds the selected candidate to the bias of its row, with one FP32
+    // round. For a group that allows all zeros, the read first multiplies the candidate by the mass.
     private static void ApplyGathers(TensorLayer layer, float[] packedValues, float[] projection, int[] gatherIndices, float[] gatherMasses)
     {
         foreach (var compute in layer.GatherComputes)
@@ -226,9 +237,32 @@ internal static class TensorExecution
         }
     }
 
+    // Copy the packed values InputIndices[0] to InputIndices[inputSize - 1] into the input columns.
+    // The loop reads the stored elements through a span of their type, with no call of the indexer.
+    private static void CopyInputs(UnsignedIndices inputIndices, int inputSize, float[] packedValues, float[] input)
+    {
+        switch (inputIndices.ElementBits)
+        {
+            case 8: CopyInputs(inputIndices.Bytes, inputSize, packedValues, input); break;
+            case 16: CopyInputs(inputIndices.Shorts, inputSize, packedValues, input); break;
+            default: CopyInputs(inputIndices.Words, inputSize, packedValues, input); break;
+        }
+    }
+
+    private static void CopyInputs<TIndex>(ReadOnlySpan<TIndex> inputIndices, int inputSize, float[] packedValues, float[] input)
+        where TIndex : unmanaged, IBinaryInteger<TIndex>
+    {
+        for (var column = 0; column < inputSize; column++)
+        {
+            input[column] = packedValues[int.CreateTruncating(inputIndices[column])];
+        }
+    }
+
     // Handwired sparseMatmulAddBias: row r is f(bias[r]), then f(value + f(weight × input)) for each
     // stored weight of the row, in stored term order. These are the three FP32 steps of
-    // Circuit.EvaluateTerms, so each row gives the reference value bit for bit.
+    // Circuit.EvaluateTerms, so each row gives the reference value bit for bit. The two dispatch
+    // steps select the element types of the columns and of the row offsets. The loop then reads the
+    // stored elements through spans, with no call of the indexer.
     private static void SparseMatmulAddBias(
         float[] output,
         ReadOnlySpan<float> weights,
@@ -237,12 +271,48 @@ internal static class TensorExecution
         float[] input,
         ReadOnlySpan<float> bias)
     {
+        switch (columns.ElementBits)
+        {
+            case 8: SparseMatmulAddBias(output, weights, columns.Bytes, rowOffsets, input, bias); break;
+            case 16: SparseMatmulAddBias(output, weights, columns.Shorts, rowOffsets, input, bias); break;
+            default: SparseMatmulAddBias(output, weights, columns.Words, rowOffsets, input, bias); break;
+        }
+    }
+
+    private static void SparseMatmulAddBias<TColumn>(
+        float[] output,
+        ReadOnlySpan<float> weights,
+        ReadOnlySpan<TColumn> columns,
+        UnsignedIndices rowOffsets,
+        float[] input,
+        ReadOnlySpan<float> bias)
+        where TColumn : unmanaged, IBinaryInteger<TColumn>
+    {
+        switch (rowOffsets.ElementBits)
+        {
+            case 8: SparseMatmulAddBias(output, weights, columns, rowOffsets.Bytes, input, bias); break;
+            case 16: SparseMatmulAddBias(output, weights, columns, rowOffsets.Shorts, input, bias); break;
+            default: SparseMatmulAddBias(output, weights, columns, rowOffsets.Words, input, bias); break;
+        }
+    }
+
+    private static void SparseMatmulAddBias<TColumn, TOffset>(
+        float[] output,
+        ReadOnlySpan<float> weights,
+        ReadOnlySpan<TColumn> columns,
+        ReadOnlySpan<TOffset> rowOffsets,
+        float[] input,
+        ReadOnlySpan<float> bias)
+        where TColumn : unmanaged, IBinaryInteger<TColumn>
+        where TOffset : unmanaged, IBinaryInteger<TOffset>
+    {
         for (var row = 0; row < bias.Length; row++)
         {
             var value = bias[row];
-            for (var index = rowOffsets[row]; index < rowOffsets[row + 1]; index++)
+            var end = int.CreateTruncating(rowOffsets[row + 1]);
+            for (var index = int.CreateTruncating(rowOffsets[row]); index < end; index++)
             {
-                var product = (float)(weights[index] * input[columns[index]]);
+                var product = (float)(weights[index] * input[int.CreateTruncating(columns[index])]);
                 value = (float)(value + product);
             }
             output[row] = value;

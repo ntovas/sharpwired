@@ -41,6 +41,14 @@ public sealed class UnsignedIndices : IReadOnlyList<int>
 
     public int Count { get; }
 
+    // The elements as a span of their stored type, for the loops of the evaluator. ElementBits tells
+    // which span holds the elements. The other two spans are empty.
+    internal ReadOnlySpan<byte> Bytes => bytes;
+
+    internal ReadOnlySpan<ushort> Shorts => shorts;
+
+    internal ReadOnlySpan<uint> Words => words;
+
     public int this[int index]
     {
         get
@@ -90,15 +98,15 @@ public sealed class UnsignedIndices : IReadOnlyList<int>
 }
 
 /// <summary>
-/// One group index that a layer resolves: the executor reads the packed one-hot bits, takes their
-/// dot product with 0..N-1, and stores the index and the mass for the gather reads of the layer.
-/// The executor computes it one time for each group and each evaluation.
+/// One group index that a layer resolves. The executor reads the packed one-hot bits and takes
+/// their dot product with 0..N-1. It stores the index and the mass for the gather reads of the
+/// layer. The executor computes it one time for each group and each evaluation.
 /// </summary>
 public sealed record TensorGatherCompute(int Slot, UnsignedIndices BitPositions);
 
 /// <summary>
 /// One lowered masked sum: the executor finds the packed position of the selected candidate and
-/// adds that value to the bias of the row. When Masked is true (a group that allows all zeros),
+/// adds that value to the bias of the row. Masked is true for a group that allows all zeros. Then
 /// the executor first multiplies the value by the group mass, so an inactive group adds 0.
 /// </summary>
 public sealed record TensorGatherRead(int Row, int Slot, bool Masked, UnsignedIndices CandidatePositions);
@@ -121,9 +129,10 @@ public sealed record TensorIndexRead(
 
 /// <summary>
 /// One layer of a compiled program. The layer reads the packed values InputIndices into its input
-/// columns and computes its projection rows with one sparse matrix: first one row for each output,
-/// then one gate row for each ReGLU (GateRows gives its output row), then one index row for each
-/// index read. Then it applies the gates, the boolean atoms, the gather reads and the index reads.
+/// columns. It computes its projection rows with one sparse matrix. First come the output rows,
+/// one for each output. Then come the gate rows, one for each ReGLU (GateRows gives its output
+/// row). Then come the index rows, one for each index read. Then the layer applies the gates, the
+/// boolean atoms, the gather reads and the index reads.
 /// </summary>
 public sealed record TensorLayer
 {
@@ -141,7 +150,7 @@ public sealed record TensorLayer
     public required UnsignedIndices BooleanRows { get; init; }
 
     /// <summary>
-    /// The sparse matrix in CSR (compressed sparse row) form: row r stores the columns and the
+    /// The sparse matrix in CSR (compressed sparse row) form. Row r stores the columns and the
     /// weights RowOffsets[r] to RowOffsets[r + 1] - 1, in the term order of its operation.
     /// </summary>
     public required UnsignedIndices RowOffsets { get; init; }
@@ -162,6 +171,10 @@ public sealed record TensorLayer
 /// A compiled program: the layers of the live operations. The packed values are the source cells,
 /// then the outputs of each layer in layer order. WireOrder gives the wire of each packed value.
 /// </summary>
+/// <remarks>
+/// A program is immutable. Threads can share one program. Make one evaluator for each thread from
+/// the shared program with <see cref="Circuit.CreateTensorProgramEvaluator"/>.
+/// </remarks>
 public sealed record TensorProgram
 {
     public required ImmutableArray<TensorLayer> Layers { get; init; }
