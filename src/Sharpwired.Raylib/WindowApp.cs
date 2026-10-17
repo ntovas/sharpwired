@@ -86,7 +86,8 @@ public sealed record WindowRunOptions(int? FrameLimit, string? ScreenshotPath)
     /// <summary>
     /// Read the options from the command line. Throw <see cref="ArgumentException"/> for an unknown
     /// option, an option with no value, an option that is given two times, or a frame count that is
-    /// not a positive integer.
+    /// not a positive integer. A value that starts with "--" is the next option, so the option before
+    /// it has no value.
     /// </summary>
     public static WindowRunOptions Parse(IReadOnlyList<string> args)
     {
@@ -96,7 +97,10 @@ public sealed record WindowRunOptions(int? FrameLimit, string? ScreenshotPath)
         {
             var option = args[index];
             if (option != "--frames" && option != "--screenshot") throw new ArgumentException($"unknown option {option}");
-            if (index + 1 >= args.Count || args[index + 1].Length == 0) throw new ArgumentException($"{option} needs a value");
+            if (index + 1 >= args.Count || args[index + 1].Length == 0 || args[index + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                throw new ArgumentException($"{option} needs a value");
+            }
             var value = args[++index];
             if (option == "--frames")
             {

@@ -9,8 +9,9 @@ namespace Sharpwired.Raylib;
 /// <summary>The window host: it reads the input of each frame, calls the app, and draws the commands.</summary>
 public static class RaylibWindow
 {
-    // The value 0 lets Raylib compute the segment count of each rounded corner from its radius.
-    private const int AutomaticSegments = 0;
+    // A fixed segment count for each rounded corner. With the value 0, Raylib computes the count from
+    // the radius in logical pixels, which gives a corner with visible edges on a 2 × display.
+    private const int CornerSegments = 16;
 
     /// <summary>
     /// Open a window for the app and run it until the person closes the window (the close button or
@@ -22,17 +23,22 @@ public static class RaylibWindow
     public static void Run(IWindowApp app, IFrameClock clock, WindowRunOptions? options = null)
     {
         options ??= WindowRunOptions.Default;
-        Raylib_cs.Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint);
+        Raylib_cs.Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint | ConfigFlags.HighDpiWindow);
         Raylib_cs.Raylib.InitWindow(app.InitialWidth, app.InitialHeight, app.Title);
+        // CloseWindow is for a window that opened. When InitWindow fails, no window is closed.
+        if (!Raylib_cs.Raylib.IsWindowReady()) throw new InvalidOperationException("the Raylib window did not open");
         try
         {
-            if (!Raylib_cs.Raylib.IsWindowReady()) throw new InvalidOperationException("the Raylib window did not open");
             Raylib_cs.Raylib.SetTargetFPS(60);
             var focus = new FocusEdge(Raylib_cs.Raylib.IsWindowFocused());
             IReadOnlyList<DrawCommand> commands = [];
             var framesDrawn = 0;
             while (!Raylib_cs.Raylib.WindowShouldClose() && !options.StopsAfter(framesDrawn))
             {
+                // Limit: Raylib gives only the button state of each input poll, one poll for each
+                // frame. A press and a release inside one poll give no edge, so the window loses a
+                // click that is shorter than one frame. Raylib-cs gives no button event callback.
+                // See decision 6 of the phase 3 plan.
                 var pointer = Raylib_cs.Raylib.GetMousePosition();
                 var input = new WindowInput(
                     pointer.X,
@@ -68,7 +74,7 @@ public static class RaylibWindow
                     Raylib_cs.Raylib.DrawRectangleRounded(
                         new Rectangle((float)rectangle.X, (float)rectangle.Y, (float)rectangle.Width, (float)rectangle.Height),
                         (float)rectangle.Roundness,
-                        AutomaticSegments,
+                        CornerSegments,
                         ToColor(rectangle.Color));
                     break;
                 default:

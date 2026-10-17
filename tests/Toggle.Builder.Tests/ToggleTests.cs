@@ -99,6 +99,8 @@ public class ToggleTests(ITestOutputHelper output)
             ([new(1016, [At(ToggleEventKind.Down, 1013)]), new(1032, [At(ToggleEventKind.Up, 1029), At(ToggleEventKind.Down, 1029)])], 1, 0),
             // A cancel and a press at one timestamp: the cancel applies after the press, so the switch stays disarmed.
             ([new(1016, [At(ToggleEventKind.Cancel, 1013), At(ToggleEventKind.Down, 1013)])], 0, 0),
+            // A press and then a cancel at one timestamp: the cancel applies after the press, so the switch stays disarmed.
+            ([new(1016, [At(ToggleEventKind.Down, 1013), At(ToggleEventKind.Cancel, 1013)])], 0, 0),
             // The same release and press 1/64 ms apart apply one after the other, so the press arms the switch again.
             ([new(1016, [At(ToggleEventKind.Down, 1013)]), new(1032, [At(ToggleEventKind.Up, 1029), At(ToggleEventKind.Down, 1029.015625)])], 1, 1),
         ];
@@ -183,6 +185,8 @@ public class ToggleTests(ITestOutputHelper output)
         Assert.Equal(ExpectedLayers, layers);
     }
 
+    // A regression record: the port measured these counts from the C# program. Handwired states no
+    // operation count and no layer count for the toggle.
     private const int ExpectedOperations = 69;
     private const int ExpectedLayers = 21;
 

@@ -71,6 +71,10 @@ public class WindowAppTests
     [InlineData(new[] { "--frames", "1.5" }, "--frames must be a positive integer, got 1.5")]
     [InlineData(new[] { "--screenshot" }, "--screenshot needs a value")]
     [InlineData(new[] { "--screenshot", "" }, "--screenshot needs a value")]
+    // A value that starts with -- is the next option, so the option before it has no value.
+    [InlineData(new[] { "--screenshot", "--frames", "3" }, "--screenshot needs a value")]
+    [InlineData(new[] { "--frames", "--screenshot", "a.png" }, "--frames needs a value")]
+    [InlineData(new[] { "--frames", "--3" }, "--frames needs a value")]
     [InlineData(new[] { "--frames", "2", "--frames", "3" }, "--frames is given two times")]
     [InlineData(new[] { "--screenshot", "a.png", "--screenshot", "b.png" }, "--screenshot is given two times")]
     [InlineData(new[] { "--fps", "60" }, "unknown option --fps")]
