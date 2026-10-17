@@ -4,7 +4,9 @@
 // at the call, so a helper result is one wire, as a builder local function returns one wire.
 // Recursion is refused. A refusal in the callee gives the location in the callee, and each call site
 // follows, innermost first (section "Error message rules", rule 4). Property getters and data
-// constructors are not inlined: OperationLowering reads their backing fields.
+// constructors are not inlined: OperationLowering reads their backing fields. The callee gets the
+// active condition of the call, so that the overflow bit of a loop in the callee is 0 when the
+// caller does not run the call (LoopForms.cs).
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -32,7 +34,7 @@ internal static class Inliner
             var decoded = IlDecoder.Decode(callee);
             var ssa = SsaBuilder.Build(ControlFlowGraph.Build(decoded));
             var arguments = operands.Select(Pass).ToArray();
-            var (result, _) = OperationLowering.Lower(decoded, ssa, caller.Emitter, arguments, caller.CallStack.Add(callee));
+            var (result, _) = OperationLowering.Lower(decoded, ssa, caller.Emitter, arguments, caller.CallStack.Add(callee), caller.ActiveCondition);
             EmitLeaves(caller.Emitter, result);
             return result;
         }
@@ -47,8 +49,8 @@ internal static class Inliner
     private static Value Pass(Value value) =>
         value is ArrayValue { IsLocal: true } array ? new ArrayValue(array.ElementType, [.. array.Elements], isLocal: false) : value;
 
-    // Each number or bit leaf of the return value emits at the call. A constant needs no operation.
-    private static void EmitLeaves(Emitter emitter, Value value)
+    /// <summary>Emits each number or bit leaf of the value. A constant needs no operation.</summary>
+    public static void EmitLeaves(Emitter emitter, Value value)
     {
         switch (value)
         {

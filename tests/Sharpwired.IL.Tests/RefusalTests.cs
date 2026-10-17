@@ -51,7 +51,6 @@ public class RefusalTests
         "a fused multiply-add rounds one time, and the program rounds the product and the sum one at a time")]
     [InlineData(nameof(RefusedInputs.FloatToInt), "float-to-int", "a conversion from float to int",
         "the program converts a float to int only for a value on a grid of 1 within -2^24..2^24")]
-    [InlineData(nameof(RefusedInputs.Loop), "loop", "a loop", "this version of the translator does not lower loops")]
     [InlineData(nameof(RefusedInputs.OpenAnimation), "open-animation",
         "a call to Sharpwired.Annotations.Hw.AnimatedObject(Single[], Single, Single, Single, Single, Boolean, Boolean)",
         "each float operand of Hw.AnimatedObject needs a finite declared range")]

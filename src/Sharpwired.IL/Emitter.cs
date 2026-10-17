@@ -3,17 +3,28 @@
 // RoundAffine chain in C# order), and the bit forms and the gate rules 5 to 7 of section
 // "Decisions", question 4. The bit forms follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT
 // is 1 - bit, AND of N bits is relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is
-// relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off".
+// relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off". The emitter also keeps
+// the overflow bits of the loops with [MaxIterations] (LoopForms.cs), because the inlined methods
+// share it.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
 
 namespace Sharpwired.IL;
 
+/// <summary>The overflow bit of a loop with [MaxIterations] (plan, "Decisions", question 5, form 2).</summary>
+internal sealed record LoopOverflow(Wire Bit, SourceLocation Location, int Copies);
+
 /// <summary>Emits symbolic values into the circuit. After the emit, a value holds its wire.</summary>
 internal sealed class Emitter(Circuit circuit)
 {
     public Circuit Circuit { get; } = circuit;
+
+    /// <summary>
+    /// The overflow bits of the loops of form 2 with [MaxIterations], in the order of the unroll, also
+    /// of the loops in inlined methods. A bit is 1 when the plain loop needs more copies.
+    /// </summary>
+    public List<LoopOverflow> Overflows { get; } = [];
 
     /// <summary>Emits the value and returns its wire. A value that has a wire gives that wire.</summary>
     public Wire Emit(ScalarValue value)

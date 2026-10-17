@@ -6,7 +6,8 @@
 // The lowering runs one time over the blocks of the SSA form in IL order. At each merge block it
 // emits the gates of the phis that an operation reads (Gates.cs). The gate of a phi that only a
 // branch, a ret or another phi reads stays symbolic, so that an AND chain gives one AND. A call to a
-// [Handwired] method is inlined (Inliner.cs). A loop is refused until the loop lowering.
+// [Handwired] method is inlined (Inliner.cs). A loop is unrolled at the position of its first block
+// in IL order (LoopForms.cs).
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -34,13 +35,16 @@ internal sealed partial class OperationLowering
     // A cgt or clt whose only use is "ldc.i4.0; ceq": the ceq gives the comparison with the other relation.
     private readonly Dictionary<SsaValue, SsaValue> invertedComparisons = [];
 
-    private OperationLowering(DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack)
+    private OperationLowering(
+        DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack,
+        Func<ScalarValue>? entryCondition)
     {
         this.method = method;
         this.ssa = ssa;
         Emitter = emitter;
         this.arguments = arguments;
         CallStack = callStack;
+        this.entryCondition = entryCondition;
         gates = new Gates(this, ssa);
     }
 
@@ -53,12 +57,15 @@ internal sealed partial class OperationLowering
 
     /// <summary>
     /// Lowers the operations of a method and returns its return value with the IL offset of its last
-    /// ret instruction. Throws <see cref="TranslationException"/> for a refused construct.
+    /// ret instruction. Throws <see cref="TranslationException"/> for a refused construct. The entry
+    /// condition is the bit that is 1 when the caller runs the call (null: the method runs on each
+    /// evaluation). The loop overflow bits read it.
     /// </summary>
     public static (Value Value, int IlOffset) Lower(
-        DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack)
+        DecodedMethod method, SsaMethod ssa, Emitter emitter, IReadOnlyList<Value> arguments, ImmutableArray<MethodBase> callStack,
+        Func<ScalarValue>? entryCondition = null)
     {
-        var lowering = new OperationLowering(method, ssa, emitter, arguments, callStack);
+        var lowering = new OperationLowering(method, ssa, emitter, arguments, callStack, entryCondition);
         return lowering.Run();
     }
 
@@ -91,13 +98,6 @@ internal sealed partial class OperationLowering
 
     private (Value Value, int IlOffset) Run()
     {
-        if (ssa.Graph.Loops.FirstOrDefault() is { } loop)
-        {
-            var source = ssa.Graph.Blocks[loop.BackEdgeSources[^1]];
-            var last = method.Instructions[source.FirstInstruction + source.InstructionCount - 1];
-            throw Refuse(last.Offset, "a loop", "this version of the translator does not lower loops");
-        }
-
         returns = [.. ssa.Blocks.Where(b => b.Terminator.Instruction?.OpCode == ILOpCode.Ret)];
         if (returns.Any(block => block.Terminator.Operands.IsEmpty))
         {
@@ -107,33 +107,40 @@ internal sealed partial class OperationLowering
 
         CountUses();
 
-        // Each edge of the acyclic graph goes forward in IL order (ControlFlowGraph), so the block
-        // order is a topological order.
-        foreach (var block in ssa.Blocks)
+        // Each edge outside a loop goes forward in IL order (ControlFlowGraph), so the block order is
+        // a topological order. A loop is unrolled at its first block.
+        LowerRegion([.. ssa.Blocks.Select(block => block.Block.Index)], null);
+        var returnType = method.Method is MethodInfo info ? info.ReturnType : typeof(void);
+        return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
+    }
+
+    // One block: the gates of its phis that an operation reads (not the phis of a loop header, which
+    // hold the loop state), its operations in IL order, and the literals of its branch.
+    private void LowerBlock(SsaBlock block)
+    {
+        currentBlock = block.Block.Index;
+        if (ssa.Graph.LoopAt(currentBlock) is null)
         {
             foreach (var phi in block.Phis.Where(phi => operationUses.GetValueOrDefault(phi) > 0))
             {
                 EmitResults(gates.PhiValue(phi), phi.IlOffset);
             }
-
-            foreach (var operation in block.Operations)
-            {
-                if (operation.Address is not null || invertedComparisons.ContainsValue(operation))
-                {
-                    continue;
-                }
-
-                if (LowerOperation(operation) is { } value)
-                {
-                    values[operation] = value;
-                }
-            }
-
-            gates.LowerTerminator(block);
         }
 
-        var returnType = method.Method is MethodInfo info ? info.ReturnType : typeof(void);
-        return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
+        foreach (var operation in block.Operations)
+        {
+            if (operation.Address is not null || invertedComparisons.ContainsValue(operation))
+            {
+                continue;
+            }
+
+            if (LowerOperation(operation) is { } value)
+            {
+                values[operation] = value;
+            }
+        }
+
+        gates.LowerTerminator(block);
     }
 
     // The emit of a gate at its merge block (plan, "Emission rules", rule 3): each leaf that a gate
@@ -491,7 +498,6 @@ internal sealed partial class OperationLowering
     /// <summary>The comparison of two values at the instruction: a constant for two constants, otherwise the Compare macro.</summary>
     public ScalarValue CompareValues(ScalarValue left, ScalarValue right, Relation relation, int offset)
     {
-
         if (left is ConstantValue a && right is ConstantValue b)
         {
             var holds = relation switch
@@ -505,9 +511,17 @@ internal sealed partial class OperationLowering
             return new ConstantValue(holds ? 1 : 0, ScalarKind.Bit);
         }
 
+        var bound = BoundOf(left, right, relation);
+        if (DecideInLoop(bound) is { } decided)
+        {
+            return decided;
+        }
+
         var leftWire = Emit(left, offset);
         var rightWire = Emit(right, offset);
-        return new WireValue(Macro(offset, "a comparison", () => Circuit.Compare(leftWire, relation, rightWire)), ScalarKind.Bit);
+        var bit = Macro(offset, "a comparison", () => Circuit.Compare(leftWire, relation, rightWire));
+        RecordComparison(bit, bound);
+        return new WireValue(bit, ScalarKind.Bit);
     }
 
     // conv.r4: an int value as a float, with no change of the value. An int form is exact within 2^24.
@@ -721,10 +735,13 @@ internal sealed partial class OperationLowering
     private void StoreElement(SsaValue operation)
     {
         var offset = operation.IlOffset;
-        if (!returns.All(block => ssa.Graph.Dominates(operation.Block, block.Block.Index)))
+        if (!RunsOnEachCall(operation.Block))
         {
             // The lowering changes the elements of the array value in place, so a store must run on each call.
-            throw Refuse(offset, "an array store under a branch", "the program stores into an array only in code that runs on each call");
+            throw copy is null
+                ? Refuse(offset, "an array store under a branch", "the program stores into an array only in code that runs on each call")
+                : Refuse(offset, "an array store under a runtime condition in a loop",
+                    "the program changes an array in place, so a store in a loop must run in each copy of the loop");
         }
 
         var array = Array(operation.Operands[0], offset);

@@ -105,3 +105,67 @@ module Translation =
     [<Handwired>]
     let sequence (x: float32) =
         Seq.sum (seq { yield x; yield x * 2.0f }) // marker: fs-seq
+
+/// The inputs of the loop tests of task 5 (plan, section "Decisions", question 5): the F# loop
+/// shapes for ... in, for ... to and while, with a constant count (form 1) and with a runtime count
+/// with a maximum (form 2).
+module Loops =
+    [<Handwired>]
+    let repeatAddForIn (x: float32) =
+        let mutable s = 0.0f
+        for _ in 0 .. 3 do
+            s <- s + x
+        s
+
+    [<Handwired>]
+    let repeatAddForTo (x: float32) =
+        let mutable s = 0.0f
+        for i = 0 to 3 do
+            s <- s + x
+        s
+
+    [<Handwired>]
+    let repeatAddWhile (x: float32) =
+        let mutable s = 0.0f
+        let mutable i = 0
+        while i < 4 do
+            s <- s + x
+            i <- i + 1
+        s
+
+    [<Handwired>]
+    let countedSum ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+        let mutable s = 0.0f
+        for _ in 0 .. n - 1 do
+            s <- s + x
+        s
+
+    [<Handwired>]
+    let countedSumTo ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+        let mutable s = 0.0f
+        for i = 1 to n do
+            s <- s + x
+        s
+
+    [<Handwired>]
+    let countedSumWhile ([<Range(0.0, 8.0)>] n: int) (x: float32) =
+        let mutable s = 0.0f
+        let mutable i = 0
+        while i < n do
+            s <- s + x
+            i <- i + 1
+        s
+
+    [<Handwired; MaxIterations(12)>]
+    let halve ([<Range(0.0, 4096.0)>] x: float32) =
+        let mutable y = x
+        while y > 1.0f do
+            y <- y * 0.5f
+        y
+
+    [<Handwired>]
+    let noMaximum ([<Range(0.0, 1000000.0)>] x: float32) =
+        let mutable y = x
+        while y > 1.0f do // marker: fs-no-maximum
+            y <- y * 0.5f
+        y

@@ -8,6 +8,11 @@
 // ITE(c, value(T), value(F)) when B branches on the literal c to T and F. An edge to a block that
 // does not reach M gives no value, because the phi never reads it: ITE(c, x, none) = x. The return
 // value of a method with two or more ret instructions is the gate of a merge after the ret blocks.
+//
+// Loops (plan, question 5, and LoopForms.cs): a region does not follow a back edge, so each region
+// is acyclic. A region that enters a loop at its header continues at the exit edge of the loop,
+// because the unrolled loop always leaves through that edge. A constant literal follows only its
+// edge, so a region does not read the values of a block that a constant branch skips.
 
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
@@ -94,6 +99,72 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         return value;
     }
 
+    /// <summary>Sets the value of a phi: the loop state of a header phi in one copy, or the value after a loop.</summary>
+    public void SetPhiValue(SsaValue phi, Value value) => phiValues[phi] = value;
+
+    /// <summary>Removes the values of the phis, so that the next copy of a loop computes them again.</summary>
+    public void ForgetPhis(IEnumerable<SsaValue> phis)
+    {
+        foreach (var phi in phis)
+        {
+            phiValues.Remove(phi);
+        }
+    }
+
+    /// <summary>The value of a header phi at the loop entry: the gate of the operands of the edges from outside the loop.</summary>
+    public Value EntryValue(SsaValue phi)
+    {
+        var header = phi.Block;
+        var predecessors = Graph.Blocks[header].Predecessors;
+        return Region(Graph.ImmediateDominator(header), header,
+            block => lowering.Get(phi.Operands[predecessors.IndexOf(block)]), TypeOf(phi.Type), phi.IlOffset)
+            ?? throw new InvalidOperationException($"the phi {phi} has no value at the loop entry");
+    }
+
+    /// <summary>The value of a header phi after one copy of the loop: the gate of the operands of the back edges.</summary>
+    public Value? BackEdgeValue(SsaValue phi)
+    {
+        var header = phi.Block;
+        var predecessors = Graph.Blocks[header].Predecessors;
+        return Region(header, header, block => lowering.Get(phi.Operands[predecessors.IndexOf(block)]), TypeOf(phi.Type), phi.IlOffset);
+    }
+
+    /// <summary>
+    /// The bit that is 1 when control goes from the start block to the target block, with the
+    /// literals of the blocks between them. The start block dominates the target block.
+    /// </summary>
+    public ScalarValue Reach(int start, int target, int ilOffset) => start == target
+        ? new ConstantValue(1, ScalarKind.Bit)
+        : (ScalarValue)Region(start, target, _ => new ConstantValue(1, ScalarKind.Bit), typeof(bool), ilOffset, new ConstantValue(0, ScalarKind.Bit))!;
+
+    /// <summary>The bit that is 1 when one copy of the loop leaves through its exit edge.</summary>
+    public ScalarValue ExitReach(NaturalLoop loop, int ilOffset) =>
+        (ScalarValue)Region(loop.Header, loop.ExitEdges[0].To, _ => new ConstantValue(1, ScalarKind.Bit), typeof(bool), ilOffset,
+            new ConstantValue(0, ScalarKind.Bit))!;
+
+    /// <summary>True when the literal of the edge is the constant 0 in the current lowering of the source block.</summary>
+    public bool EdgeIsDead(int from, int to)
+    {
+        var block = Graph.Blocks[from];
+        if (!block.SwitchTargets.IsEmpty)
+        {
+            var cases = caseLiterals[from];
+            if (cases.Any(literal => literal is ConstantValue { Number: not 0 }))
+            {
+                return !Enumerable.Range(0, cases.Length).Any(k => block.SwitchTargets[k] == to && cases[k] is ConstantValue { Number: not 0 });
+            }
+
+            return block.Next != to && Enumerable.Range(0, cases.Length).All(k => block.SwitchTargets[k] != to || cases[k] is ConstantValue { Number: 0 });
+        }
+
+        if (block.Jump is { } jump && block.Next is { } next && jump != next && jumpLiterals[from] is ConstantValue { Number: var bit })
+        {
+            return to == jump ? bit == 0 : bit != 0;
+        }
+
+        return false;
+    }
+
     /// <summary>The return value of a method: the value of its one ret, or the gate of a merge after two or more ret blocks.</summary>
     public Value ReturnValue(IReadOnlyList<SsaBlock> returns, Type returnType)
     {
@@ -168,11 +239,17 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
     // value(B) for the blocks of the region from the dominator to the merge (-1: a merge after the
     // ret blocks). operandOf gives the phi operand of a predecessor of the merge, or the return value
-    // of a ret block. Each block gets its value one time.
-    private Value? Region(int dominator, int merge, Func<int, Value> operandOf, Type? type, int ilOffset)
+    // of a ret block. An edge that does not reach the merge gives missing. Each block gets its value
+    // one time. A back edge reaches only a merge that is its target. A loop header other than the
+    // dominator, in a loop that does not hold the merge, continues at the exit edge of its loop.
+    private Value? Region(int dominator, int merge, Func<int, Value> operandOf, Type? type, int ilOffset, Value? missing = null)
     {
         var values = new Dictionary<int, Value?>();
         var reaches = new Dictionary<int, bool>();
+
+        // The loop that a region enters at its header, or null.
+        NaturalLoop? Entered(int block) =>
+            block != dominator && Graph.LoopAt(block) is { } loop && (merge < 0 || !loop.Body.Contains(merge)) ? loop : null;
 
         bool Reaches(int block)
         {
@@ -183,14 +260,18 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
             if (!reaches.TryGetValue(block, out var found))
             {
-                found = Graph.Blocks[block].Successors.Any(successor => successor == merge || Reaches(successor));
+                found = Entered(block) is { } loop
+                    ? loop.ExitEdges[0].To == merge || Reaches(loop.ExitEdges[0].To)
+                    : Graph.Blocks[block].Successors.Any(successor =>
+                        successor == merge || (!Graph.IsBackEdge(block, successor) && Reaches(successor)));
                 reaches[block] = found;
             }
 
             return found;
         }
 
-        Value? Edge(int from, int to) => to == merge ? operandOf(from) : Reaches(to) ? ValueAt(to) : null;
+        Value? Edge(int from, int to) =>
+            to == merge ? operandOf(from) : !Graph.IsBackEdge(from, to) && Reaches(to) ? ValueAt(to) : missing;
 
         Value? ValueAt(int index)
         {
@@ -201,22 +282,40 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
             var block = Graph.Blocks[index];
             Value? value;
-            if (block.Terminator?.OpCode == ILOpCode.Ret)
+            if (Entered(index) is { } loop)
             {
-                value = merge < 0 ? operandOf(index) : null;
+                value = Edge(loop.ExitEdges[0].From, loop.ExitEdges[0].To);
+            }
+            else if (block.Terminator?.OpCode == ILOpCode.Ret)
+            {
+                value = merge < 0 ? operandOf(index) : missing;
             }
             else if (!block.SwitchTargets.IsEmpty)
             {
                 var cases = caseLiterals[index];
-                value = Edge(index, block.Next!.Value);
-                for (var k = cases.Length - 1; k >= 0; k--)
+                var taken = Enumerable.Range(0, cases.Length).FirstOrDefault(k => cases[k] is ConstantValue { Number: not 0 }, -1);
+                if (taken >= 0)
                 {
-                    value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type, ilOffset);
+                    value = Edge(index, block.SwitchTargets[taken]);
+                }
+                else
+                {
+                    value = Edge(index, block.Next!.Value);
+                    for (var k = cases.Length - 1; k >= 0; k--)
+                    {
+                        if (cases[k] is not ConstantValue)
+                        {
+                            value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type, ilOffset);
+                        }
+                    }
                 }
             }
             else if (block.Jump is { } jump && block.Next is { } next)
             {
-                value = Make(jumpLiterals[index], Edge(index, jump), Edge(index, next), type, ilOffset);
+                var literal = jumpLiterals[index];
+                value = literal is ConstantValue { Number: var bit }
+                    ? Edge(index, bit != 0 ? jump : next)
+                    : Make(literal, Edge(index, jump), Edge(index, next), type, ilOffset);
             }
             else
             {
@@ -298,7 +397,8 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
             : ScalarKind.Int;
     }
 
-    private static Type? TypeOf(SsaType type) => type.Kind switch
+    /// <summary>The .NET type of an SSA type: float, int, bool, or the type of an aggregate or an array.</summary>
+    public static Type? TypeOf(SsaType type) => type.Kind switch
     {
         SsaTypeKind.Float => typeof(float),
         SsaTypeKind.Int => typeof(int),

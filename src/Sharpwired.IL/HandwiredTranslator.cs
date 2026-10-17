@@ -3,7 +3,9 @@
 // TranslatedStep. A translation checks the method, walks the cells (CellLayout.cs), decodes the IL,
 // builds the CFG and the SSA form, lowers the operations (OperationLowering.cs), emits the output
 // leaves at the return in walk order, pairs each state cell with its next value, and finishes the
-// source table. The translator caches nothing between calls.
+// source table. The translator caches nothing between calls. The evaluator of a TranslatedFunction
+// checks the overflow bit of each loop with [MaxIterations] (plan, question 5, form 2) after each
+// evaluation.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -35,7 +37,7 @@ public static class HandwiredTranslator
         var outputs = leaves.Select(leaf => new NamedWire(leaf.Path, emitter.Emit(leaf.Value))).ToImmutableArray();
         var finished = table.Finish();
         var inputs = layout.Leaves.Select(leaf => new NamedWire(leaf.Path, circuit.Source(leaf.Cell))).ToImmutableArray();
-        return new TranslatedFunction(method, layout, finished, inputs, outputs, shape);
+        return new TranslatedFunction(method, layout, finished, inputs, outputs, shape, [.. emitter.Overflows]);
     }
 
     /// <summary>
@@ -62,6 +64,13 @@ public static class HandwiredTranslator
         var nextShape = CellLayout.Output(nextType, tuple.Fields["Item1"], "", top: false, location, nextLeaves);
         var outputLeaves = new List<(string Path, ScalarValue Value)>();
         var outputShape = CellLayout.Output(outputType, tuple.Fields["Item2"], "", top: false, location, outputLeaves);
+        if (emitter.Overflows.FirstOrDefault() is { } overflow)
+        {
+            // A step program has no evaluation that checks the bit.
+            throw new TranslationException(overflow.Location, 0, "a loop with an overflow bit in a step method",
+                "a step program does not check a loop overflow bit; declare [Range] on the loop count");
+        }
+
         var nextWires = nextLeaves.Select(leaf => emitter.Emit(leaf.Value)).ToArray();
         var outputs = outputLeaves.Select(leaf => new NamedWire(leaf.Path, emitter.Emit(leaf.Value))).ToImmutableArray();
         var stateLeaves = layout.Leaves.Where(leaf => leaf.Spec.Policy == CellPolicy.State).ToArray();
@@ -125,14 +134,20 @@ public sealed class TranslatedFunction
     private readonly CellLayout layout;
     private readonly OutputShape shape;
 
-    internal TranslatedFunction(MethodInfo method, CellLayout layout, FinishedTable table, ImmutableArray<NamedWire> inputs, ImmutableArray<NamedWire> outputs, OutputShape shape)
+    private readonly ImmutableArray<LoopOverflow> overflows;
+
+    internal TranslatedFunction(
+        MethodInfo method, CellLayout layout, FinishedTable table, ImmutableArray<NamedWire> inputs, ImmutableArray<NamedWire> outputs, OutputShape shape,
+        ImmutableArray<LoopOverflow> overflows)
     {
         this.method = method;
         this.layout = layout;
         this.shape = shape;
+        this.overflows = overflows;
         Table = table;
         Inputs = inputs;
         Outputs = outputs;
+        LoopOverflowBits = [.. overflows.Select(overflow => overflow.Bit)];
     }
 
     public FinishedTable Table { get; }
@@ -143,12 +158,18 @@ public sealed class TranslatedFunction
     /// <summary>The output leaves of the return value in walk order. A return value of one leaf has the path "".</summary>
     public ImmutableArray<NamedWire> Outputs { get; }
 
-    /// <summary>The overflow bits of the loops with a maximum. A method with no loop has none.</summary>
-    public ImmutableArray<Wire> LoopOverflowBits { get; } = [];
+    /// <summary>
+    /// The overflow bits of the loops with [MaxIterations] whose active bit is a runtime bit, in the
+    /// order of the unroll. A bit is 1 when the plain loop needs more copies of its body than the
+    /// maximum. A method with no such loop has none.
+    /// </summary>
+    public ImmutableArray<Wire> LoopOverflowBits { get; }
 
-    /// <summary>A program evaluator whose outputs are the output wires in the order of Outputs.</summary>
-    public ProgramEvaluator<IReadOnlyList<Wire>> CreateEvaluator() =>
-        ProgramEvaluator.Create<IReadOnlyList<Wire>>(Table, Outputs.Select(output => output.Wire).ToArray());
+    /// <summary>
+    /// An evaluator whose outputs are the output wires in the order of Outputs. After each
+    /// evaluation it checks that each loop overflow bit is 0.
+    /// </summary>
+    public TranslatedEvaluator CreateEvaluator() => new(Table, Outputs, overflows);
 
     /// <summary>Runs the plain method by reflection on the leaves of the source table, and returns the output leaves.</summary>
     public float[] EvaluatePlain(ReadOnlySpan<float> source)
@@ -261,5 +282,84 @@ public sealed class TranslatedStep
 
             throw new ArgumentException($"wire {output} is not an output");
         }
+    }
+}
+
+/// <summary>
+/// The evaluator of a translated function: a program evaluator of the outputs and the loop overflow
+/// bits. Evaluate throws <see cref="InvalidOperationException"/> when an overflow bit is 1, with the
+/// location of its loop.
+/// </summary>
+public sealed class TranslatedEvaluator : ISourceTableEvaluator
+{
+    private readonly ProgramEvaluator<IReadOnlyList<Wire>> program;
+    private readonly ImmutableArray<LoopOverflow> overflows;
+    private readonly int outputCount;
+    private readonly ImmutableArray<NamedWire> outputs;
+
+    internal TranslatedEvaluator(FinishedTable table, ImmutableArray<NamedWire> outputs, ImmutableArray<LoopOverflow> overflows)
+    {
+        this.outputs = outputs;
+        this.overflows = overflows;
+        outputCount = outputs.Length;
+        program = ProgramEvaluator.Create<IReadOnlyList<Wire>>(table, [.. outputs.Select(output => output.Wire), .. overflows.Select(overflow => overflow.Bit)]);
+    }
+
+    /// <summary>The compiled program. Its roots are the next values, the outputs, then the overflow bits.</summary>
+    public TensorProgram Program => program.Program;
+
+    /// <summary>
+    /// Evaluates one source table and returns the outputs in the order of Outputs. Throws
+    /// <see cref="InvalidOperationException"/> when a loop overflow bit is 1.
+    /// </summary>
+    public TranslatedEvaluation Evaluate(ReadOnlySpan<float> source)
+    {
+        var evaluation = program.Evaluate(source);
+        for (var index = 0; index < overflows.Length; index++)
+        {
+            if (evaluation.Outputs[outputCount + index] != 0)
+            {
+                var overflow = overflows[index];
+                throw new InvalidOperationException(
+                    $"{overflow.Location}: the loop needs more than {overflow.Copies.ToString(System.Globalization.CultureInfo.InvariantCulture)} copies of its body; the overflow bit is 1");
+            }
+        }
+
+        return new TranslatedEvaluation([.. evaluation.NextValues], evaluation.Outputs[..outputCount], outputs);
+    }
+
+    ISourceTableEvaluation ISourceTableEvaluator.Evaluate(ReadOnlySpan<float> source) => Evaluate(source);
+}
+
+/// <summary>The result of one call of <see cref="TranslatedEvaluator.Evaluate"/>: the next values and the outputs.</summary>
+public sealed class TranslatedEvaluation : ISourceTableEvaluation
+{
+    private readonly ImmutableArray<NamedWire> outputs;
+
+    internal TranslatedEvaluation(float[] nextValues, float[] values, ImmutableArray<NamedWire> outputs)
+    {
+        NextValues = nextValues;
+        Outputs = values;
+        this.outputs = outputs;
+    }
+
+    /// <summary>One value for each cell, in cell order.</summary>
+    public float[] NextValues { get; }
+
+    /// <summary>One value for each output leaf, in the order of TranslatedFunction.Outputs.</summary>
+    public float[] Outputs { get; }
+
+    /// <summary>The value of the first output leaf that holds the wire.</summary>
+    public float Read(Wire output)
+    {
+        for (var index = 0; index < outputs.Length; index++)
+        {
+            if (outputs[index].Wire == output)
+            {
+                return Outputs[index];
+            }
+        }
+
+        throw new ArgumentException($"wire {output} is not an output");
     }
 }

@@ -3,7 +3,9 @@
 // ret and switch; the edges come from the branches, the fall-through and the switch targets. The
 // dominators use the iterative algorithm of Cooper, Harvey and Kennedy, "A Simple, Fast Dominance
 // Algorithm" (2001). A natural loop (question 5) has a back edge: an edge whose target dominates
-// its source. A backward branch outside a natural loop is refused (section "Emission rules").
+// its source. A backward branch outside a natural loop is refused (section "Emission rules"). The
+// loop lowering (LoopForms.cs) reads the loop of a header, the outermost loop of a block and the
+// back edges.
 
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
@@ -82,6 +84,43 @@ internal sealed class ControlFlowGraph
 
     /// <summary>The natural loops, one for each header, in header order.</summary>
     public ImmutableArray<NaturalLoop> Loops { get; }
+
+    /// <summary>The natural loop whose header is the block, or null.</summary>
+    public NaturalLoop? LoopAt(int header)
+    {
+        foreach (var loop in Loops)
+        {
+            if (loop.Header == header)
+            {
+                return loop;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The outermost natural loop that holds the block, inside the enclosing loop (null: the whole
+    /// method), with a header other than the header of the enclosing loop. Natural loops with
+    /// different headers are nested or disjoint, so the outermost one has the largest body.
+    /// </summary>
+    public NaturalLoop? OutermostLoopIn(int block, NaturalLoop? enclosing)
+    {
+        NaturalLoop? found = null;
+        foreach (var loop in Loops)
+        {
+            if (loop != enclosing && loop.Body.Contains(block) && (enclosing is null || enclosing.Body.Contains(loop.Header))
+                && (found is null || loop.Body.Length > found.Body.Length))
+            {
+                found = loop;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>True for a back edge: an edge whose target dominates its source (plan, "Decisions", question 5).</summary>
+    public bool IsBackEdge(int from, int to) => Dominates(to, from);
 
     /// <summary>The immediate dominator of a block, or -1 for the entry.</summary>
     public int ImmediateDominator(int block) => immediateDominators[block];
