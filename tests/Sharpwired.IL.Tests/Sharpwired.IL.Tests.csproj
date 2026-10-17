@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Sharpwired.Core.Tests\Js.cs" Link="Js.cs" />
+    <Compile Include="..\Sharpwired.Core.Tests\TensorChecks.cs" Link="TensorChecks.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Sharpwired.IL\Sharpwired.IL.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Cells\Sharpwired.Cells.csproj" />

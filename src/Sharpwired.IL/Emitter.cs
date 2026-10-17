@@ -1,0 +1,180 @@
+// No Handwired source. Handwired has no translator. The emit of a symbolic value, after the plan,
+// section "Emission rules": the C#-equal rule of an affine form (exact form, one C# operation, or a
+// RoundAffine chain in C# order), and the bit forms of section "Decisions", question 4. The bit forms
+// follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT is 1 - bit, AND of N bits is
+// relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is relu(a - b) + relu(b - a).
+
+using System.Collections.Immutable;
+using Sharpwired.Core;
+
+namespace Sharpwired.IL;
+
+/// <summary>Emits symbolic values into the circuit. After the emit, a value holds its wire.</summary>
+internal sealed class Emitter(Circuit circuit)
+{
+    public Circuit Circuit { get; } = circuit;
+
+    /// <summary>Emits the value and returns its wire. A value that has a wire gives that wire.</summary>
+    public Wire Emit(ScalarValue value)
+    {
+        if (value.Wire is { } wire)
+        {
+            return wire;
+        }
+
+        var emitted = value switch
+        {
+            ConstantValue constant => Circuit.Constant(constant.Number),
+            AffineValue affine => EmitAffine(affine),
+            NotValue negation => Circuit.Affine([(Emit(negation.Operand), -1)], 1),
+            AndValue conjunction => EmitAnd(conjunction.Literals),
+            OrValue disjunction => EmitOr(disjunction.Literals),
+            XorValue xor => EmitXor(Emit(xor.Left), Emit(xor.Right)),
+            _ => throw new InvalidOperationException($"the value {value.GetType().Name} has no emit rule"),
+        };
+
+        // A constant has no single wire: each emit asks the circuit, which keeps one wire for each value.
+        if (value is not ConstantValue)
+        {
+            value.Wire = emitted;
+        }
+
+        return emitted;
+    }
+
+    /// <summary>
+    /// True when the affine form is exact: each coefficient of the stored form and its bias are FP32
+    /// values, and the stored form has a grid. Then each partial sum in any order is an exact FP32
+    /// value, and so is each intermediate value of the C# expression (plan, "Emission rules", step 2).
+    /// </summary>
+    public bool IsExact(IReadOnlyList<Term> terms, double bias)
+    {
+        var (storedTerms, storedBias) = Circuit.PreviewAffine(terms, bias);
+        return storedTerms.All(term => (double)(float)term.Coefficient == term.Coefficient)
+            && (double)(float)storedBias == storedBias
+            && Circuit.FormGrid(storedTerms, storedBias) is not null;
+    }
+
+    // The C#-equal rule of the plan, section "Emission rules".
+    private Wire EmitAffine(AffineValue form)
+    {
+        if (IsExact(form.Terms, form.Bias))
+        {
+            return Circuit.Affine(form.Terms, form.Bias);
+        }
+
+        if (form.IsOneInstruction)
+        {
+            var (storedTerms, storedBias) = Circuit.PreviewAffine(form.Terms, form.Bias);
+            var (normalTerms, normalBias) = Normalize(form.Terms, form.Bias);
+            var elements = storedTerms.Length + (storedBias != 0 ? 1 : 0);
+            if (elements <= 2 && SameForm(storedTerms, storedBias, normalTerms, normalBias))
+            {
+                return Circuit.Affine(form.Terms, form.Bias);
+            }
+        }
+
+        if (form.Kind == ScalarKind.Int)
+        {
+            throw new InvalidOperationException("an int form that is not exact reached the emit; the lowering refuses it at its instruction");
+        }
+
+        return EmitRounded(form);
+    }
+
+    // Step 4: one RoundAffine operation for each IL instruction, with the operands in C# order. A
+    // RoundAffine operation is never composed into a reader.
+    private Wire EmitRounded(AffineValue form)
+    {
+        if (form.Wire is { } done)
+        {
+            return done;
+        }
+
+        var terms = new List<Term>();
+        var bias = 0.0;
+        void Operand(ScalarValue operand, double coefficient)
+        {
+            if (operand is ConstantValue constant)
+            {
+                bias += coefficient * constant.Number;
+                return;
+            }
+
+            terms.Add(new Term(operand is AffineValue { Wire: null } open ? EmitRounded(open) : Emit(operand), coefficient));
+        }
+
+        switch (form.Op)
+        {
+            case AffineOp.Add:
+                Operand(form.Left, 1);
+                Operand(form.Right!, 1);
+                break;
+            case AffineOp.Subtract:
+                Operand(form.Left, 1);
+                Operand(form.Right!, -1);
+                break;
+            case AffineOp.Negate:
+                Operand(form.Left, -1);
+                break;
+            case AffineOp.Scale:
+                Operand(form.Left, form.Factor);
+                break;
+            case AffineOp.Convert:
+                // conv.r4 of an exact int form changes no value.
+                form.Wire = form.Left is AffineValue { Wire: null } inner ? EmitRounded(inner) : Emit(form.Left);
+                return form.Wire.Value;
+            default:
+                throw new InvalidOperationException($"unknown affine instruction {form.Op}");
+        }
+
+        var wire = Circuit.RoundAffine(terms, bias);
+        form.Wire = wire;
+        return wire;
+    }
+
+    // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.
+    private Wire EmitAnd(ImmutableArray<ScalarValue> literals)
+    {
+        var wires = literals.Select(Emit).ToArray();
+        return Circuit.Reglu([], 1, [.. wires.Select(wire => new Term(wire, 1))], 1 - wires.Length);
+    }
+
+    // OR of literals: 1 - relu(1 - sum).
+    private Wire EmitOr(ImmutableArray<ScalarValue> literals)
+    {
+        var wires = literals.Select(Emit).ToArray();
+        var none = Circuit.Reglu([], 1, [.. wires.Select(wire => new Term(wire, -1))], 1);
+        return Circuit.Affine([(none, -1)], 1);
+    }
+
+    // XOR of two bits: relu(a - b) + relu(b - a).
+    private Wire EmitXor(Wire left, Wire right) => Circuit.Affine([
+        (Circuit.Reglu([], 1, [(left, 1), (right, -1)], 0), 1),
+        (Circuit.Reglu([], 1, [(right, 1), (left, -1)], 0), 1),
+    ]);
+
+    // The terms sorted by wire, the terms of one wire merged, and the zero coefficients dropped, as
+    // the builder normalizes a form before it folds constants and composes producers.
+    private static (ImmutableArray<Term> Terms, double Bias) Normalize(IReadOnlyList<Term> terms, double bias)
+    {
+        var merged = new List<Term>();
+        foreach (var term in terms.OrderBy(term => term.Wire.Position))
+        {
+            if (merged.Count > 0 && merged[^1].Wire == term.Wire)
+            {
+                merged[^1] = merged[^1] with { Coefficient = merged[^1].Coefficient + term.Coefficient };
+            }
+            else
+            {
+                merged.Add(term);
+            }
+        }
+
+        return ([.. merged.Where(term => term.Coefficient != 0)], bias);
+    }
+
+    private static bool SameForm(ImmutableArray<Term> left, double leftBias, ImmutableArray<Term> right, double rightBias) =>
+        leftBias == rightBias && left.Length == right.Length
+        && left.Zip(right).All(pair => pair.First.Wire == pair.Second.Wire && pair.First.Coefficient == pair.Second.Coefficient);
+}
