@@ -225,6 +225,51 @@ internal static class TensorChecks
         }
     }
 
+    // Handwired toEqual on two operation lists, for example cells.test.ts:101 and :126. Each field of
+    // each operation, each term with Object.is on the coefficient, and the content of each candidate
+    // table. Record equality is not used, because it compares the term arrays by reference.
+    public static void AssertSameOperations(IReadOnlyList<Operation> expected, IReadOnlyList<Operation> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (var index = 0; index < expected.Count; index++)
+        {
+            var expectedOperation = expected[index];
+            var actualOperation = actual[index];
+            var label = $"operation {index}";
+            Assert.True(expectedOperation.Kind == actualOperation.Kind, $"{label}: kind {actualOperation.Kind}, expected {expectedOperation.Kind}");
+            AssertSameTerms(expectedOperation.LeftTerms, actualOperation.LeftTerms, $"{label} left terms");
+            Assert.True(Js.ObjectIs(expectedOperation.LeftBias, actualOperation.LeftBias), $"{label}: left bias {actualOperation.LeftBias:R}, expected {expectedOperation.LeftBias:R}");
+            AssertSameTerms(expectedOperation.GateTerms, actualOperation.GateTerms, $"{label} gate terms");
+            Assert.True(Js.ObjectIs(expectedOperation.GateBias, actualOperation.GateBias), $"{label}: gate bias {actualOperation.GateBias:R}, expected {expectedOperation.GateBias:R}");
+            Assert.True(expectedOperation.Depth == actualOperation.Depth, $"{label}: depth {actualOperation.Depth}, expected {expectedOperation.Depth}");
+            Assert.True(expectedOperation.PreserveRounding == actualOperation.PreserveRounding, $"{label}: preserveRounding differs");
+            Assert.True(Equals(expectedOperation.Macro, actualOperation.Macro), $"{label}: macro {actualOperation.Macro}, expected {expectedOperation.Macro}");
+            Assert.True(expectedOperation.RoundingPoint == actualOperation.RoundingPoint, $"{label}: rounding point {actualOperation.RoundingPoint}, expected {expectedOperation.RoundingPoint}");
+            Assert.True(expectedOperation.ComparisonBit == actualOperation.ComparisonBit, $"{label}: comparison bit differs");
+            var expectedRead = expectedOperation.IndexRead;
+            var actualRead = actualOperation.IndexRead;
+            Assert.True((expectedRead is null) == (actualRead is null), $"{label}: index read differs");
+            if (expectedRead is null || actualRead is null) continue;
+            Assert.Equal(expectedRead.Table.Id, actualRead.Table.Id);
+            Assert.Equal<Wire>(expectedRead.Table.Candidates, actualRead.Table.Candidates);
+            Assert.Equal(expectedRead.Table.MaximumDepth, actualRead.Table.MaximumDepth);
+            Assert.Equal((expectedRead.Below, expectedRead.Above), (actualRead.Below, actualRead.Above));
+            Js.Is(expectedRead.IndexRange.Minimum, actualRead.IndexRange.Minimum);
+            Js.Is(expectedRead.IndexRange.Maximum, actualRead.IndexRange.Maximum);
+        }
+    }
+
+    private static void AssertSameTerms(IReadOnlyList<Term> expected, IReadOnlyList<Term> actual, string label)
+    {
+        Assert.True(expected.Count == actual.Count, $"{label}: {actual.Count} terms, expected {expected.Count}");
+        for (var index = 0; index < expected.Count; index++)
+        {
+            Assert.True(
+                expected[index].Wire == actual[index].Wire && Js.ObjectIs(expected[index].Coefficient, actual[index].Coefficient),
+                $"{label} {index}: {actual[index]}, expected {expected[index]}");
+        }
+    }
+
     // toEqual on two typed arrays: the same typed array type and the same values.
     public static void AssertSameIndices(UnsignedIndices expected, UnsignedIndices actual)
     {

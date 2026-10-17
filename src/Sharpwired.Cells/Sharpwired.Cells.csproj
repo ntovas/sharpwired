@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sharpwired.Core\Sharpwired.Core.csproj" />
+  </ItemGroup>
+
+</Project>
