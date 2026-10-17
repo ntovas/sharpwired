@@ -526,10 +526,12 @@ internal sealed class SsaBuilder
         SsaVariableKind.Argument => new SsaValue(nextId++, SsaValueKind.Argument, SsaTypes.FromClr(method, ArgumentType(variable.Index), currentOffset))
         {
             Index = variable.Index,
+            IlOffset = currentOffset,
         },
         SsaVariableKind.Local => new SsaValue(nextId++, SsaValueKind.InitialLocal, SsaTypes.FromClr(method, method.LocalTypes[variable.Index], currentOffset))
         {
             Index = variable.Index,
+            IlOffset = currentOffset,
         },
         _ => throw new InvalidOperationException($"the entry block reads the stack slot {variable.Index}"),
     };
@@ -552,7 +554,14 @@ internal sealed class SsaBuilder
         return phi;
     }
 
-    private SsaValue NewConstant(object constant, SsaType type) => new(nextId++, SsaValueKind.Constant, type) { Constant = constant };
+    // A constant has the block and the IL offset of the instruction that loads it, so that a refusal
+    // that names the constant gives its line.
+    private SsaValue NewConstant(object constant, SsaType type) => new(nextId++, SsaValueKind.Constant, type)
+    {
+        Constant = constant,
+        Block = currentBlock,
+        IlOffset = currentOffset,
+    };
 
     private SsaValue NewOperation(ILOpCode op, object? member, ImmutableArray<SsaValue> operands)
     {

@@ -100,13 +100,16 @@ internal sealed class SsaValue
 
     public object? Member { get; init; }
 
-    /// <summary>The block of an operation or a phi, otherwise -1.</summary>
+    /// <summary>The block of an operation, a phi or a constant, otherwise -1.</summary>
     public int Block { get; init; } = -1;
 
     /// <summary>The variable of a phi.</summary>
     public SsaVariable Variable { get; init; }
 
-    /// <summary>The IL offset of an operation, or the start offset of the block of a phi.</summary>
+    /// <summary>
+    /// The IL offset of an operation or of the instruction that loads a constant, the start offset of
+    /// the block of a phi, or the offset of the first read of an entry value.
+    /// </summary>
     public int IlOffset { get; init; }
 
     public ImmutableArray<SsaValue> Operands { get; private set; } = [];
