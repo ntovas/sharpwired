@@ -2,4 +2,8 @@
 
   <!-- Host timing is float64 code that builds no operations, so this project references no project. -->
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharpwired.Timing.Tests" />
+  </ItemGroup>
+
 </Project>

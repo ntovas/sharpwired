@@ -114,9 +114,9 @@ public static partial class HostTiming
     /// <summary>
     /// Handwired advanceFrame: plans and runs the evaluations of one frame. evaluate writes the
     /// matrices, the settle check bit, the snap bit and the events of the evaluation into the
-    /// table, runs the program, writes the next state back when WritesBack is true, and returns
-    /// true while something animates. The return value is the clock after the frame. A null
-    /// configuration is SpringClockConfig.Default.
+    /// table, and runs the program. When WritesBack is true, evaluate writes the next state back.
+    /// evaluate returns true while something animates. The return value is the clock after the
+    /// frame. A null configuration is SpringClockConfig.Default.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -135,9 +135,10 @@ public static partial class HostTiming
     /// The evaluations of one frame run at most MaxStepsPerFrame steps together. Before each events
     /// or frame evaluation, when the steps up to its time pass what is left of that budget, a snap
     /// evaluation puts each animated object on its destination and stops the clock. This drops
-    /// the backlog. The steps count from AnimatedUntilMs, where the springs last stepped in state
-    /// that was written back. An event before the last evaluation that wrote state back applies at
-    /// the time of that evaluation, and an event after the frame applies at the time of the frame.
+    /// the pending steps. The steps count from AnimatedUntilMs, where the springs last stepped in
+    /// state that was written back. An event before the last evaluation that wrote state back
+    /// applies at the time of that evaluation. An event after the frame applies at the time of the
+    /// frame.
     /// </para>
     /// </remarks>
     public static SpringClock AdvanceFrame<TEvent>(
@@ -186,8 +187,8 @@ public static partial class HostTiming
             // budget nor the clock.
             if (!writesBack) return;
             stepBudget -= steps;
-            // A stopped clock counts no time. An evaluation that finds something animating starts
-            // the clock at its own time.
+            // A stopped clock counts no time. An evaluation that reports an animation starts the
+            // clock at its own time.
             if (animatedUntilMs is null && animating) checkOriginMs = timeMs;
             animatedUntilMs = animating ? simulatedTimeMs : null;
             // Idle starts as soon as an evaluation reports that nothing animates, for example at a
@@ -196,17 +197,17 @@ public static partial class HostTiming
             lastEvaluationMs = animating ? timeMs : null;
         }
 
-        // Handwired reads the clock through a function, because Run can stop the clock in a loop
-        // that started with the clock running.
+        // Handwired reads the clock through a function, because Run can stop the clock inside the
+        // loop. The clock runs when the loop starts.
         double? ReadAnimatedUntilMs() => animatedUntilMs;
 
         void StepTo(double targetMs, EvaluationKind kind, IReadOnlyList<TEvent> eventsHere)
         {
             if (animatedUntilMs is { } from && CountSpringSteps(targetMs - from, stepBudget, config).Snap)
             {
-                // Past the budget: stop the clock, which drops the backlog, and snap. As each
-                // evaluation while the clock is stopped, the snap checks the settle state, and
-                // starts the clock at its own time if something still animates.
+                // Past the budget: stop the clock, which drops the pending steps, and snap. As each
+                // evaluation while the clock is stopped, the snap checks the settle state. If
+                // something still animates, the snap starts the clock at its own time.
                 animatedUntilMs = null;
                 Run(EvaluationKind.Snap, targetMs, 0, true, []);
             }
@@ -232,12 +233,15 @@ public static partial class HostTiming
             Run(kind, targetMs, CountSpringSteps(targetMs - animated, stepBudget, config).Steps, false, eventsHere);
         }
 
-        // A stable sort by time, then by arrival index, as the Handwired comparator.
-        var timedEvents = events
-            .Select((item, index) => (Event: item, Index: index, TimeMs: Math.Min(frameTimeMs, Math.Max(earliestMs, QuantizeTimeMs(item.TimeStamp, config)))))
-            .OrderBy(item => item.TimeMs)
-            .ThenBy(item => item.Index)
-            .ToArray();
+        // A stable sort by time, then by arrival index, as the Handwired comparator. A frame with
+        // no events skips the sort.
+        (TEvent Event, int Index, double TimeMs)[] timedEvents = events.Count == 0
+            ? []
+            : events
+                .Select((item, index) => (Event: item, Index: index, TimeMs: Math.Min(frameTimeMs, Math.Max(earliestMs, QuantizeTimeMs(item.TimeStamp, config)))))
+                .OrderBy(static item => item.TimeMs)
+                .ThenBy(static item => item.Index)
+                .ToArray();
         for (var start = 0; start < timedEvents.Length;)
         {
             var timeMs = timedEvents[start].TimeMs;

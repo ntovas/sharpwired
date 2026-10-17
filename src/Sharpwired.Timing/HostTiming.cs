@@ -128,17 +128,24 @@ public static partial class HostTiming
         }
         if (!(stepBudget >= 0)) throw new ArgumentException("the step budget must be a nonnegative integer");
         var steps = Math.Floor(pendingMs / config.StepMs);
+        // An unvalidated configuration with StepMs 0 and no pending time gives 0 / 0, which is NaN.
+        // Handwired returns NaN steps. An int cannot hold NaN, so this port refuses the case.
+        if (double.IsNaN(steps))
+        {
+            throw new ArgumentException("the step count is NaN, because stepMs is 0; validate the configuration with ValidateSpringClockConfig");
+        }
         if (steps > stepBudget) return new StepCount(0, 0, true);
-        // steps <= stepBudget here, so the conversion to int is exact.
+        // Here steps is a whole number and steps <= stepBudget <= int.MaxValue. A validated
+        // configuration has StepMs > 0, so steps >= 0 and the conversion to int keeps the value.
+        // A steps value of -0 converts to 0.
         return new StepCount((int)steps, pendingMs - steps * config.StepMs, false);
     }
 
     // JavaScript `x + 0`: -0 gives +0, and each other value stays the same.
     private static double PositiveZero(double value) => value == 0 ? 0.0 : value;
 
-    // A number in a message. Sharpwired.Timing has no reference to Fp32.Format, so it writes the
-    // shortest round-trip digits.
-    private static string Format(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    // A number in a message, as JavaScript String(number) writes it.
+    private static string Format(double value) => JsNumberText.Format(value);
 
     // JavaScript Number.isInteger: false for NaN and for the infinities.
     private static bool IsInteger(double value) => double.IsFinite(value) && Math.Floor(value) == value;

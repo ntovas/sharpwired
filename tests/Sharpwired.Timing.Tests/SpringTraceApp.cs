@@ -332,8 +332,8 @@ internal static class SpringTraceApp
     }
 
     // Handwired runUiMdOrder. The order of chenguini ui.md in float64: handle inputs, make the new
-    // layout, then an animation tick that catches up toward the new destinations, with one settle
-    // check in each frame.
+    // layout, then run an animation tick that moves the springs toward the new destinations. Each
+    // frame has one settle check.
     public static Dictionary<double, double[]> RunUiMdOrder(IReadOnlyList<Press> presses, IReadOnlyList<double> frameTimes)
     {
         var springs = InitialPositions.Select(position => new Float64Spring(position, 0, position)).ToArray();

@@ -133,9 +133,9 @@ public class AdvanceFrameTests
             events.Add(new TestEvent(time, id));
         }
         var durationMs = time + 1000;
-        // A stand-in for a program: an event starts an animation that settles at the first settle
-        // check 300 ms or more after the latest event, and an evaluation while the clock is stopped
-        // (settleCheck with no steps behind it) finds nothing animating unless it applies events.
+        // A stand-in for a program. An event starts an animation that settles at the first settle
+        // check 300 ms or more after the latest event. An evaluation while the clock is stopped
+        // (settleCheck with no steps behind it) reports no animation, unless it applies events.
         // Gaps above 364 ms stop the clock.
         bool StopsAfterEvents(PlannedEvaluation<TestEvent> evaluation)
         {
@@ -322,8 +322,9 @@ public class AdvanceFrameTests
         // A frame at 64 ms runs the settle check at 64 ms, which writes back.
         Assert.False(SnapsAfterGap(64, 1203, WriteBack.EventsAndSettleChecks));
         Assert.True(SnapsAfterGap(64, 1204, WriteBack.EventsAndSettleChecks));
-        // The last evaluation that wrote back is less than 64 ms before the previous frame, so the
-        // smallest gap that snaps is just above 1,140 ms, e.g. after a frame at 63.984375 ms.
+        // The last evaluation that wrote back is less than 64 ms before the previous frame. So the
+        // smallest gap that snaps is a little more than 1,140 ms. For example, after a frame at
+        // 63.984375 ms, a gap of 1,140.015625 ms snaps.
         Assert.False(SnapsAfterGap(63.984375, 1140, WriteBack.EventsAndSettleChecks));
         Assert.True(SnapsAfterGap(63.984375, 1140.015625, WriteBack.EventsAndSettleChecks));
     }
@@ -407,5 +408,41 @@ public class AdvanceFrameTests
         ];
         Assert.Equal(expected, log);
         Assert.Equal(new SpringClock(48, 48, 48), clock);
+    }
+    // No Handwired twin. Handwired advanceFrame clamps the frame time to the last evaluation that
+    // wrote state back (host-timing.ts:328). A frame timestamp before that evaluation, and an event
+    // before it, run at the time of that evaluation with no steps.
+    [Fact]
+    public void A_frame_timestamp_before_the_last_evaluation_runs_at_the_time_of_that_evaluation()
+    {
+        var clock = Advance(SpringClock.Stopped, 100, [new TestEvent(100, 0)], _ => true);
+        Assert.Equal(new SpringClock(100, 100, 100), clock);
+        var log = new List<LoggedEvaluation>();
+        clock = Advance(clock, 90, [new TestEvent(80, 1)], evaluation =>
+        {
+            log.Add(Logged(evaluation));
+            return true;
+        });
+        LoggedEvaluation[] expected =
+        [
+            new(Events, 100, 100, 0, 0, false, false, true, "1"),
+            new(Frame, 100, 100, 0, 0, false, false, true, ""),
+        ];
+        Assert.Equal(expected, log);
+        Assert.Equal(new SpringClock(100, 100, 100), clock);
+    }
+
+    // No Handwired twin. The settle checks of a clock that AdvanceFrame made lie a whole number of
+    // steps after AnimatedUntilMs. A caller can build a clock that breaks this fact. Here the first
+    // settle check at 64 ms is 15.5 steps after 2 ms, so AdvanceFrame refuses the clock.
+    [Fact]
+    public void AdvanceFrame_refuses_a_clock_whose_settle_check_is_not_a_whole_number_of_steps_away()
+    {
+        var calls = 0;
+        var exception = Js.Throws(
+            () => Advance(new SpringClock(2, 0, 2), 100, [], _ => { calls++; return true; }),
+            "a settle check must be a whole number of steps");
+        Assert.IsType<InvalidOperationException>(exception);
+        Assert.Equal(0, calls);
     }
 }

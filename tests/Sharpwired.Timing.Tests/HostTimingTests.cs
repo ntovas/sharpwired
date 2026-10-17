@@ -47,6 +47,11 @@ public class HostTimingTests
     {
         Js.Is(16.671875, HostTiming.QuantizeTimeMs(16.6667));
         Assert.True(Js.ObjectIs(HostTiming.QuantizeTimeMs(-0.001), 0));
+        // Half-grid timestamps round up, as JavaScript Math.round does. The .NET Math.Round
+        // rounds 0.5 and 2.5 grid steps down to the even neighbor.
+        Js.Is(1.0 / 64, HostTiming.QuantizeTimeMs(1.0 / 128));
+        Js.Is(2.0 / 64, HostTiming.QuantizeTimeMs(3.0 / 128));
+        Js.Is(3.0 / 64, HostTiming.QuantizeTimeMs(5.0 / 128));
         var random = Js.CreateRandom(41);
         for (var trace = 0; trace < 50; trace++)
         {
@@ -185,6 +190,24 @@ public class HostTimingTests
         var config = SpringClockConfig.Default with { TimeGrid = 128, StepMs = 2 };
         StepCountIs(3, 1.0 / 128, false, HostTiming.CountSpringSteps(6 + 1.0 / 128, 300, config));
         StepCountIs(0, 0, true, HostTiming.CountSpringSteps(6, 2, config));
+        // Handwired writes the number with JavaScript String(number).
+        Js.Throws(() => HostTiming.CountSpringSteps(1e-7, 300), "pending time must lie on the time grid and be nonnegative, got 1e-7");
+        Js.Throws(() => HostTiming.CountSpringSteps(-1.5e20, 300), "got -150000000000000000000");
+        Js.Throws(() => HostTiming.QuantizeTimeMs(double.NegativeInfinity), "a timestamp must be finite, got -Infinity");
+    }
+
+    // No Handwired twin. An unvalidated configuration with a step of 0 ms makes 0 / 0 steps for no
+    // pending time. Handwired returns NaN steps. The C# step count is an int, so CountSpringSteps
+    // refuses this case.
+    [Fact]
+    public void CountSpringSteps_refuses_a_step_count_that_is_NaN()
+    {
+        var exception = Js.Throws(
+            () => HostTiming.CountSpringSteps(0, 300, SpringClockConfig.Default with { StepMs = 0 }),
+            "the step count is NaN");
+        Assert.IsType<ArgumentException>(exception);
+        // A step of 0 ms with pending time gives infinite steps, which snap.
+        StepCountIs(0, 0, true, HostTiming.CountSpringSteps(4, 300, SpringClockConfig.Default with { StepMs = 0 }));
     }
 
     // 'host timing' / 'spring matrices: powers by squaring equal repeated Euler steps, and the

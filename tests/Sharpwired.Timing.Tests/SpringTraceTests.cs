@@ -54,8 +54,10 @@ public class SpringTraceTests
             if (jumpChance == 0) Assert.Equal(0, baselineRun.StopsWithoutSettleCheck);
             else stopsAtJumps += baselineRun.StopsWithoutSettleCheck;
         }
-        // Handwired measured 5 stops over the 4 traces with jumps.
+        // Handwired measured 5 stops over the 4 traces with jumps (spring-matrix.test.ts:1259).
+        // The exact count also fixes the press draws of AppPresses.
         Assert.True(stopsAtJumps > 0);
+        Assert.Equal(5, stopsAtJumps);
     }
 
     [Fact]
@@ -182,9 +184,14 @@ public class SpringTraceTests
             worst30 = Math.Max(worst30, MaxFrameDifference(RunUiMdOrder(presses, AdvanceFrameTests.FrameTimesAt(30, durationMs)), baseline));
             worst60 = Math.Max(worst60, MaxFrameDifference(RunUiMdOrder(presses, AdvanceFrameTests.FrameTimesAt(60, durationMs)), baseline));
         }
-        // Handwired measured 359, 124 and 53 px.
+        // Handwired measured 359, 124 and 53 px (spring-matrix.test.ts:1360).
         Assert.True(worst10 > 100, $"worst at 10 fps {worst10:R}");
         Assert.True(worst30 > 50, $"worst at 30 fps {worst30:R}");
         Assert.True(worst60 > 10, $"worst at 60 fps {worst60:R}");
+        // The Handwired comment gives whole pixels, so each value must round to it. The port
+        // measured 359.04, 123.84 and 53.42 px. These checks also fix the press draws.
+        Assert.True(Math.Abs(worst10 - 359) < 0.5, $"worst at 10 fps {worst10:R}");
+        Assert.True(Math.Abs(worst30 - 124) < 0.5, $"worst at 30 fps {worst30:R}");
+        Assert.True(Math.Abs(worst60 - 53) < 0.5, $"worst at 60 fps {worst60:R}");
     }
 }
