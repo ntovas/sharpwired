@@ -738,3 +738,17 @@ The controller decided these open questions on 2026-10-17. Question 2 waits for 
 5. Accepted: `[Initial]` and `[FixedLength]`. The translator needs an initial state value and a fixed array length.
 6. Accepted: the form 3 limits. One loop with no maximum per method, at the top level. The state range comes from a fixed point of 8 rounds, with a wide fallback range.
 7. Accepted: the per-construct value tests compare with `==` where Handwired allows a different sign of zero (`Select`, `MinimumExact`, `MaximumExact`, execution-model.md "up to the sign of zero"). The toggle trace compares with `Js.Is`.
+
+The user decided question 2 on 2026-10-17: add the pattern recognition to phase 4. Task 6b holds it and runs after Task 6 and before Task 7.
+
+### Task 6b: pattern recognition (running totals and threshold counts)
+
+- Source: docs/design.md, Layer 2, step 4 ("The translator also recognizes the handwired patterns where they cost less than an unrolled loop, for example a prefix network for running totals and a threshold count for `floor(x / step)`"). Handwired: `$REF/docs/expressions.md` rows 13 to 15 and line 48, `$REF/lab/ui-exploration/guide/patterns/threshold-counts.md`, `$REF/lab/ui-exploration/guide/sections/loops.md`, and `src/runtime/prefix-networks.ts`.
+- Running totals. A loop of form 1 or 2 whose body is `acc[i] = combine(acc[i-1], x[i])` (or a scalar accumulator whose value at each step is stored to an array element) with an associative combine (`+`, `Math.Min`, `Math.Max`, `&&`, `||`, or a `[Handwired]` combine method marked associative with a new `[Associative]` attribute) lowers to `PrefixNetworks.Sklansky` (depth first). Add `[Associative]` to `Sharpwired.Annotations`. The translator must prove the shape from the IL; it must not guess. A loop that does not match keeps its normal form.
+- Threshold counts. `(int)MathF.Floor(x / step)` and `x / step` integer division, and `i % count`, where `x` has a declared grid and a finite range that gives K possible results with K at most a limit (for example 64), lower to a threshold count: `1 + [x >= t1] + ...` with `Compare` bits, as threshold-counts.md describes. A value that depends only on the count is one sum over the count's one-hot. Larger K with an integer `x` lowers to an index read over a table of results (expressions.md row 15). Other cases keep the plain lowering or are refused, as the lowering table says.
+- Tests:
+  - For each pattern: the translated values equal the plain method over seeded inputs (`Js.Is`, or `==` where Handwired allows the sign of zero).
+  - The operation count and the layer count of the recognized form are below those of the normal form (compile both: once with recognition, once with a translator option that turns it off).
+  - The expected counts follow Handwired: K − 1 comparisons for K results in O(1) layers (expressions.md row 14); the prefix network counts follow `PrefixNetworkTests`.
+  - A loop that looks like a running total but has a non-associative combine (for example `-`) keeps its normal form.
+- Closes: the design.md step 4 sentence on patterns.
