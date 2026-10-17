@@ -1,12 +1,30 @@
 // Handwired source: src/runtime/cells.ts (createEvaluator, withFirstNaN, collectLeaves, mapLeaves).
 // Handwired returns the outputs in the shape of the output object (mapLeaves). C# has no mapped
 // types, so ProgramEvaluation holds the outputs in OutputPaths order, and Read gives the value of one
-// output wire.
+// output wire. ISourceTableEvaluator and ISourceTableEvaluation have no Handwired source. A host
+// reads a program evaluator and a plain method runner of phase 4 through them.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
 
 namespace Sharpwired.Cells;
+
+/// <summary>An evaluator of a source table: a program evaluator, or a runner of a plain method.</summary>
+public interface ISourceTableEvaluator
+{
+    /// <summary>Evaluate one source table, and return its next values and its outputs.</summary>
+    ISourceTableEvaluation Evaluate(ReadOnlySpan<float> source);
+}
+
+/// <summary>The result of one call of <see cref="ISourceTableEvaluator.Evaluate"/>.</summary>
+public interface ISourceTableEvaluation
+{
+    /// <summary>One value for each cell, in cell order.</summary>
+    float[] NextValues { get; }
+
+    /// <summary>The value of an output wire.</summary>
+    float Read(Wire output);
+}
 
 /// <summary>Handwired createEvaluator.</summary>
 public static class ProgramEvaluator
@@ -36,7 +54,7 @@ public static class ProgramEvaluator
 /// wires that the value reads. A check that fails on another value, for example a next value past its
 /// range next to a NaN output, gives its own message only.
 /// </summary>
-public sealed class ProgramEvaluator<TOutput>
+public sealed class ProgramEvaluator<TOutput> : ISourceTableEvaluator
     where TOutput : notnull
 {
     private readonly Circuit circuit;
@@ -106,6 +124,8 @@ public sealed class ProgramEvaluator<TOutput>
         return result;
     }
 
+    ISourceTableEvaluation ISourceTableEvaluator.Evaluate(ReadOnlySpan<float> source) => Evaluate(source);
+
     // Handwired withFirstNaN: add the operation that produced the first NaN to an error about
     // roots[index], when the value of that root is NaN.
     private InvalidOperationException WithFirstNaN(string message, Exception? inner, int index, ReadOnlySpan<float> source, float[] values)
@@ -122,7 +142,7 @@ public sealed class ProgramEvaluator<TOutput>
 /// The result of one call of <see cref="ProgramEvaluator{TOutput}.Evaluate"/>. The next call of the same
 /// evaluator overwrites both arrays, as in Handwired.
 /// </summary>
-public sealed class ProgramEvaluation
+public sealed class ProgramEvaluation : ISourceTableEvaluation
 {
     private readonly Dictionary<Wire, int> firstLeaf;
 

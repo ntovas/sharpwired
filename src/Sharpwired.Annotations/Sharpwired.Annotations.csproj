@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- No project reference and no package reference. A plain method that references only this
+       assembly runs without the translator. -->
+
+</Project>

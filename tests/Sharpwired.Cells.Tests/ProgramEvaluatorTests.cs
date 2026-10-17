@@ -163,6 +163,33 @@ public class ProgramEvaluatorTests
         Js.AllIs([0], result.Outputs.Select(value => (double)value));
     }
 
+    // Sharpwired case with no Handwired test: the phase 4 interfaces. A host that holds an
+    // ISourceTableEvaluator gets the same values and the same result object as the concrete evaluator.
+    [Fact]
+    public void ProgramEvaluator_works_through_ISourceTableEvaluator()
+    {
+        var table = new SourceTable();
+        var press = table.Declare("press", Cell.Event());
+        var countCell = table.Declare("count", Cell.State(new NumericRange(0, 8)));
+        var circuit = table.CreateCircuit();
+        // C#: count += press ? 1 : 0; doubled = count * 2
+        var count = circuit.Affine([(countCell, 1), (press, 1)]);
+        var doubled = circuit.Affine([(count, 2)]);
+        table.Next(countCell, count);
+        var concrete = ProgramEvaluator.Create(table.Finish(), new { count, doubled });
+        ISourceTableEvaluator evaluator = concrete;
+        var evaluation = evaluator.Evaluate([1, 3]);
+        // Read the values before the next call, because the next call overwrites the arrays.
+        Js.AllIs([0, 4], evaluation.NextValues.Select(value => (double)value));
+        Js.Is(4, evaluation.Read(count));
+        Js.Is(8, evaluation.Read(doubled));
+        Assert.IsType<ArgumentException>(Js.Throws(() => evaluation.Read(press), $"wire {press} is not an output"));
+        Assert.Same(concrete.Evaluate([0, 5]), evaluation);
+        Js.AllIs([0, 5], evaluation.NextValues.Select(value => (double)value));
+        Js.Is(10, evaluation.Read(doubled));
+        Assert.IsType<CellValueException>(Js.Throws(() => evaluator.Evaluate([0.5f, 3]), "press must be exactly 0 or 1, got 0.5"));
+    }
+
     private sealed record NumberOutput(float Speed);
 
     // Sharpwired case with no Handwired test: an output leaf that is not a wire, and the paths of nested
