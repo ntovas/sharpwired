@@ -302,6 +302,15 @@ internal sealed partial class OperationLowering
     // is a constant.
     private ScalarValue ThresholdCount(WireValue input, double first, List<(double Point, double Step)> changes, ScalarKind kind, int offset)
     {
+        // Emission rule 5: each step and each result must be an exact integer form within 2^24.
+        const double exactLimit = 16_777_216;
+        var results = changes.Select(change => change.Step).Aggregate(new List<double> { first }, (list, step) => { list.Add(list[^1] + step); return list; });
+        if (changes.Any(change => Math.Abs(change.Step) > exactLimit) || results.Any(result => Math.Abs(result) > exactLimit))
+        {
+            throw Refuse(offset, "a threshold count with a value past 2^24",
+                "each step and each result of a threshold count must lie within -2^24..2^24; declare a smaller range");
+        }
+
         var terms = new List<Term>();
         var bias = first;
         foreach (var (point, step) in changes)

@@ -79,6 +79,7 @@ public class ThresholdCountTests
 
     [Theory]
     [InlineData(nameof(PatternInputs.NegativeRow))]
+    [InlineData(nameof(PatternInputs.NegativeColumn))]
     [InlineData(nameof(PatternInputs.RowOfItem))]
     [InlineData(nameof(PatternInputs.HalvesInLoop))]
     public void Int_divisions_and_remainders_give_the_plain_values(string name) =>
@@ -134,6 +135,33 @@ public class ThresholdCountTests
         AssertRefused(() => PatternSupport.Translate(nameof(PatternInputs.DivideByCount)), PatternFile, "divide-by-count",
             "an int division by a value that can be 0", "C# throws for a division by 0; declare a range of the divisor that does not hold 0");
     }
+
+    // 600001 grid points are more than a scan reads, so the translator finds the change points by
+    // bisection. floor(width / 3000) has 51 results: 50 comparisons and one sum.
+    [Fact]
+    public void A_range_with_more_grid_points_than_a_scan_reads_gives_the_change_points_by_bisection()
+    {
+        var translated = PatternSupport.Translate(nameof(PatternInputs.WideColumnCount));
+        Assert.Equal((2 * 50 + 1, 3), PatternSupport.Size(translated));
+        foreach (var source in SeededSources.Create(translated.Table, 2000, 6301))
+        {
+            AssertMatchesPlainAt(translated, source, ZeroSign.Exact);
+        }
+
+        for (var count = 1; count <= 50; count++)
+        {
+            // The first grid point at or above count × 3000 where C# gives count, and the point before it.
+            var point = 3000f * count;
+            while (MathF.Floor(point / 3000f) >= count) point -= 0.25f;
+            AssertMatchesPlainAt(translated, [point], ZeroSign.Exact);
+            AssertMatchesPlainAt(translated, [point + 0.25f], ZeroSign.Exact);
+        }
+    }
+
+    [Fact]
+    public void A_threshold_count_with_a_result_past_2_to_the_24_is_refused() =>
+        AssertRefused(() => PatternSupport.Translate(nameof(PatternInputs.FloorPastExact)), PatternFile, "floor-past-exact",
+            "a threshold count with a value past 2^24", "each step and each result of a threshold count must lie within -2^24..2^24; declare a smaller range");
 
     // Each grid point of the one input cell, compared with the plain method.
     private static void AssertEachGridPoint(TranslatedFunction translated, ZeroSign zeroSign)

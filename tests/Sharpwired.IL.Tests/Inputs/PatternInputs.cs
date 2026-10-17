@@ -118,6 +118,40 @@ public static class PatternInputs
         return smallest;
     }
 
+    // An associative combine that is not commutative: the first value that is not 0.
+    [Handwired, Associative]
+    public static float FirstNonZero(float earlier, float later) => earlier != 0f ? earlier : later;
+
+    // The accumulator is the first operand: the first value that is not 0 up to each step.
+    [Handwired]
+    public static float[] RunningFirstNonZero([FixedLength(16), Range(-3, 3), Grid(1)] float[] x)
+    {
+        var firsts = new float[16];
+        float m = 0f;
+        for (int i = 0; i < 16; i++)
+        {
+            m = FirstNonZero(m, x[i]);
+            firsts[i] = m;
+        }
+
+        return firsts;
+    }
+
+    // The accumulator is the second operand: the last value that is not 0 up to each step.
+    [Handwired]
+    public static float[] RunningLastNonZero([FixedLength(16), Range(-3, 3), Grid(1)] float[] x)
+    {
+        var lasts = new float[16];
+        float m = 0f;
+        for (int i = 0; i < 16; i++)
+        {
+            m = FirstNonZero(x[i], m);
+            lasts[i] = m;
+        }
+
+        return lasts;
+    }
+
     // Loops that look like running totals and keep their normal form.
 
     // s - x[i] is not associative.
@@ -142,6 +176,21 @@ public static class PatternInputs
         var totals = new float[8];
         float s = 0f;
         for (int i = 0; i < 8; i++)
+        {
+            s += x[i];
+            totals[i] = s;
+        }
+
+        return totals;
+    }
+
+    // 64 values up to 10^6 on the grid 1: the total can pass 2^24, so FP32 rounds some partial sums.
+    [Handwired]
+    public static float[] RunningSumPastExact([FixedLength(64), Range(-1000000, 1000000), Grid(1)] float[] x)
+    {
+        var totals = new float[64];
+        float s = 0f;
+        for (int i = 0; i < 64; i++)
         {
             s += x[i];
             totals[i] = s;
@@ -221,6 +270,32 @@ public static class PatternInputs
         return s;
     }
 
+    // A value before the loop that is not 0: an inactive copy must add 0, not this value (review of
+    // task 6b, round 1).
+    [Handwired]
+    public static float CountedTotalFromFive([Range(0, 8)] int n, [FixedLength(8), Range(-10, 10), Grid(1)] float[] x)
+    {
+        float s = 5f;
+        for (int i = 0; i < n; i++) s += x[i];
+        return s;
+    }
+
+    [Handwired]
+    public static int CountedIntTotalFromThree([Range(0, 8)] int n, [FixedLength(8), Range(-10, 10)] int[] x)
+    {
+        int s = 3;
+        for (int i = 0; i < n; i++) s += x[i];
+        return s;
+    }
+
+    [Handwired]
+    public static float CountedTotalFromValue([Range(0, 8)] int n, [Range(-10, 10), Grid(1)] float y, [FixedLength(8), Range(-10, 10), Grid(1)] float[] x)
+    {
+        float s = y;
+        for (int i = 0; i < n; i++) s += x[i];
+        return s;
+    }
+
     // 200 copies. The normal form keeps the state with a Select in each copy, and the store under the
     // active bit is refused.
     [Handwired]
@@ -296,6 +371,17 @@ public static class PatternInputs
 
     [Handwired]
     public static int Column([Range(0, 63)] int item) => item % 8; // marker: column
+
+    [Handwired]
+    public static int NegativeColumn([Range(-50, 50)] int item) => item % -7;
+
+    // 600001 grid points: the translator finds the 50 change points by bisection.
+    [Handwired]
+    public static int WideColumnCount([Range(0, 150000), Grid(0.25)] float width) => (int)MathF.Floor(width / 3000f);
+
+    // Results up to 2^27: refused, as an int form past 2^24 is refused.
+    [Handwired]
+    public static float FloorPastExact([Range(0, 134217728), Grid(4194304)] float x) => MathF.Floor(x); // marker: floor-past-exact
 
     [Handwired]
     public static int NegativeRow([Range(-50, 50)] int item) => item / -7 + item % 7;

@@ -26,8 +26,10 @@
 // store's active condition, with the old element. After the unroll the translator checks that the
 // input of copy k is P_(k-1) (for the array form: the element that copy k - 1 stored), and lowers the
 // items with PrefixNetworks.Sklansky (depth first). The items are the value before the loop (when it is
-// not the identity of the combine) and the elements. In a copy with a runtime gate, the element is
-// gated: ITE(g_k, t_k, identity), so an inactive copy adds nothing. Each prefix replaces its
+// not the identity of the combine) and the elements. The value before the loop has no gate. In a copy
+// with a runtime gate, the element is gated: ITE(g_k, t_k, identity), so an inactive copy adds
+// nothing. The identity is 0 for +, 1 for AND, 0 for OR, and a bound of the element ranges for Min and
+// Max. Each prefix replaces its
 // placeholder, and each pending store gets its prefix.
 //
 // Exactness (plan, decision 8): a prefix network groups the combines in another order. Min, Max, AND
@@ -447,10 +449,38 @@ internal sealed partial class OperationLowering
             return null;
         }
 
-        var off = identity ?? first;
+        // The value before the loop is an item with no gate. A gated element gives the identity of the
+        // combine when its copy is inactive, so the copy adds nothing (review of task 6b, round 1).
+        if (!gated)
+        {
+            items.AddRange(steps.Select(step => step.Element));
+            return items;
+        }
+
+        if (GateIdentity(total, [.. steps.Select(step => step.Element)]) is not { } off)
+        {
+            return null;
+        }
+
         var type = Gates.TypeOf(total.Combine.Type);
         items.AddRange(steps.Select(step => (ScalarValue)gates.Make(step.Gate, step.Element, off, type, total.Combine.IlOffset)!));
         return items;
+    }
+
+    // The identity of the combine for the elements: 0 for +, 1 for AND, 0 for OR, the largest maximum
+    // of the element ranges for Min and the smallest minimum for Max. Null when a range is not finite.
+    private ConstantValue? GateIdentity(RunningTotal total, ScalarValue[] elements)
+    {
+        if (total.Kind is CombineKind.Add or CombineKind.And or CombineKind.Or)
+        {
+            return new ConstantValue(total.Kind == CombineKind.And ? 1 : 0, total.ValueKind);
+        }
+
+        var ranges = elements.Select(element => element is ConstantValue number
+            ? new NumericRange(number.Number, number.Number)
+            : Circuit.Ranges[Emitter.Emit(element).Position]).ToArray();
+        var bound = total.Kind == CombineKind.Minimum ? ranges.Max(range => range.Maximum) : ranges.Min(range => range.Minimum);
+        return double.IsFinite(bound) && (double)(float)bound == bound ? new ConstantValue(bound, total.ValueKind) : null;
     }
 
     // The identity value of the combine when the value before the loop is one, otherwise null: 0 for

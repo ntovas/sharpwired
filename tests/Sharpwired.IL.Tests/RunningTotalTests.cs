@@ -68,6 +68,8 @@ public class RunningTotalTests
     [InlineData(nameof(PatternInputs.RunningMinimum), false)]
     [InlineData(nameof(PatternInputs.RunningMaximumFirst), false)]
     [InlineData(nameof(PatternInputs.RunningLarger), false)]
+    [InlineData(nameof(PatternInputs.RunningFirstNonZero), false)]
+    [InlineData(nameof(PatternInputs.RunningLastNonZero), false)]
     public void Each_associative_combine_gives_fewer_layers_than_its_normal_form_and_the_plain_values(string name, bool exactZero)
     {
         var zeroSign = exactZero ? ZeroSign.Exact : ZeroSign.MayDiffer;
@@ -94,6 +96,7 @@ public class RunningTotalTests
     [Theory]
     [InlineData(nameof(PatternInputs.RunningDifference), false)]
     [InlineData(nameof(PatternInputs.RunningSumInexact), false)]
+    [InlineData(nameof(PatternInputs.RunningSumPastExact), false)]
     [InlineData(nameof(PatternInputs.RunningDouble), false)]
     [InlineData(nameof(PatternInputs.RunningSumInArray), false)]
     [InlineData(nameof(PatternInputs.RunningSumSkip), false)]
@@ -118,6 +121,9 @@ public class RunningTotalTests
     [InlineData(nameof(PatternInputs.CountedMaximum), false)]
     [InlineData(nameof(PatternInputs.CountedAny), true)]
     [InlineData(nameof(PatternInputs.CountedAll), true)]
+    [InlineData(nameof(PatternInputs.CountedTotalFromFive), false)]
+    [InlineData(nameof(PatternInputs.CountedIntTotalFromThree), true)]
+    [InlineData(nameof(PatternInputs.CountedTotalFromValue), false)]
     public void A_running_total_in_form_2_gives_the_plain_values(string name, bool exactZero)
     {
         var zeroSign = exactZero ? ZeroSign.Exact : ZeroSign.MayDiffer;
@@ -131,6 +137,17 @@ public class RunningTotalTests
             source[0] = count;
             AssertMatchesPlainAt(recognized, source, zeroSign);
         }
+    }
+
+    // The review counterexamples: s = 5, n = 2, x = [5, 4, ...] gives 14 in C#. A gated element with
+    // the value before the loop as its off value gave 44.
+    [Fact]
+    public void An_inactive_copy_adds_the_identity_and_not_the_value_before_the_loop()
+    {
+        var translated = PatternSupport.Translate(nameof(PatternInputs.CountedTotalFromFive));
+        float[] source = [2, 5, 4, 0, 0, 0, 0, 0, 0];
+        Assert.Equal(14f, translated.EvaluatePlain(source)[0]);
+        Assert.Equal(14f, translated.CreateEvaluator().Evaluate(source).Outputs[0]);
     }
 
     [Fact]
