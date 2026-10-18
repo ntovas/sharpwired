@@ -68,9 +68,9 @@ public sealed class GpuDifferentialTests(GpuFixture fixture, ITestOutputHelper o
 
             // The floors are half of the counts of the first run on the Apple M5 Pro (Metal), which
             // flushes subnormal values. Each writer gave comparedEvaluations 55,830, comparedValues
-            // 4,950,124, gatherReads 896 and indexReads 1,244. After fix round 2 of the review of task 3,
-            // the integer writer wrote 22,578 i32 rows and 35,400 u32 rows. Before the fix, the counts
-            // were 22,580 and 35,406. Each writer excluded 20,970 evaluations by the subnormal rule,
+            // 4,950,124, gatherReads 896 and indexReads 1,244. After the phase 5 fix wave (proven bits for a masked integer gather),
+            // the integer writer wrote 22,513 i32 rows and 35,390 u32 rows. Before the fix, the counts
+            // were 22,578 and 35,400. Each writer excluded 20,970 evaluations by the subnormal rule,
             // because this test keeps the subnormal source values of RandomPrograms. Each mode must
             // compare at least a quarter of its tables, so that the subnormal rule cannot exclude a full
             // mode. One writer took 4.6 s to 54 s; the cause of the slow runs is unknown. Each run is

@@ -161,7 +161,7 @@ Limit: WGSL §15.7.5 blocks the reorder and the fusion of operations across `k`,
 
 ### The two writers
 
-`WgslFloatWriter` writes each operation as one `f32` statement with keep. With it, `GpuEvaluator` gives the reference bits (`Object.is`), apart from the subnormal limit. A program with gather lowering can give the other sign of an exact zero.
+`WgslFloatWriter` writes each operation as one `f32` statement with keep. With it, `GpuEvaluator` gives the reference bits (`Object.is`), apart from the subnormal limit. A program with gather lowering can give the other sign of an exact zero. A source table that breaks a one-hot declaration is outside the contract: a gather then reads one candidate, as `TensorEvaluator` does, and the value can differ from the reference evaluator.
 
 `WgslIntegerWriter`, the default, holds a proven bit as a `u32` that is 0 or 1, and a proven whole number as an `i32`. It writes each other operation as the f32 writer does, and a whole value that an f32 row reads is `k(f32(w))`. `IntegerProof.Prove` gives one proof for each packed position:
 
@@ -179,7 +179,7 @@ One invocation evaluates one source table. Workgroup size 64. A batch splits int
 
 ### The recurrent step on the GPU
 
-`GpuRecurrentRunner` runs a `RecurrentFunction` of `TranslateRecurrent`. The prefix, the step kernel and the suffix run in one command buffer. The step kernel holds each state cell in a `var` and loops over the step program for each lane. It runs at most `StepsPerDispatch` (1,024) evaluations of each lane in one dispatch, because macOS stops a GPU command that runs too long. The host submits more dispatches while a lane runs.
+`GpuRecurrentRunner` runs a `RecurrentFunction` of `TranslateRecurrent`. The prefix, the step kernel and the suffix run in one command buffer. The step kernel holds each state cell in a `var` and loops over the step program for each lane. It runs at most `StepsPerDispatch` (1,024) evaluations of each lane in one dispatch, because some systems stop a GPU command that runs too long. No test on this machine showed such a stop. The host submits more dispatches while a lane runs.
 
 The step kernel checks each cell in the kernel with the declarations of the step table: finite, within the range, an exact bit, a multiple of the grid, and the one-hot rules. It checks the cells of the first source table, and each next value before the done test. So a value past a cell range, also the range ±2^23 of a wide `int` cell, stops the lane. It is never a silent wrong value. For a lane that fails, the host replays the lane on the CPU with `RecurrentRunner` and throws its message with the lane number. Each lane equals `RecurrentRunner.Run`: the same steps, the same `Completed`, and the same outputs, with the writer limits above.
 
