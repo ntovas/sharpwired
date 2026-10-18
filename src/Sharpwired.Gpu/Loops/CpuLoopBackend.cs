@@ -198,6 +198,9 @@ internal sealed class CpuLoopRunner : ILoopRunner
     private readonly CpuLoopBackend backend;
     private readonly CpuLoopOptions options;
     private readonly StageCells[] checks;
+    // For each stage, the cells that are not shared cells: the runner writes only these before each step. A
+    // stage of the search at 32 states has 17,494 cells, and 66 of them are not shared cells.
+    private readonly int[][] boundCells;
     private readonly CompiledStage?[] compiled;
     private readonly int positionGroupCount;
     private float[]? shared;
@@ -209,6 +212,7 @@ internal sealed class CpuLoopRunner : ILoopRunner
         options = backend.Options;
         Program = program;
         checks = [.. program.Plans.Select(plan => new StageCells(plan))];
+        boundCells = [.. program.Plans.Select(plan => Enumerable.Range(0, plan.Sources.Length).Where(cell => plan.Sources[cell] is not CellSource.Shared).ToArray())];
         compiled = [.. program.Plans.Select(plan => options.Stages == CpuStageBackend.Compiled
             ? CompiledStage.Compile(plan.Stage.Function.Table.Circuit, plan.Program)
             : null)];
@@ -507,7 +511,7 @@ internal sealed class CpuLoopRunner : ILoopRunner
                 for (var step = 0; step < count; step++)
                 {
                     var position = plan.Stage.Repeat == StageRepeat.Backward ? limit - 1 - step : step;
-                    for (var cell = 0; cell < plan.Sources.Length; cell++)
+                    foreach (var cell in runner.boundCells[stage])
                     {
                         switch (plan.Sources[cell])
                         {
