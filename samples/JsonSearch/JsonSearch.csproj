@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- No Handwired source. The JSON search sample library: the document generator, the document cells,
+       the highlighter step methods and the loop programs of phase 6. -->
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="JsonSearch.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.IL\Sharpwired.IL.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Raylib\Sharpwired.Raylib.csproj" />
+  </ItemGroup>
+
+</Project>

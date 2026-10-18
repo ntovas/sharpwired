@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/samples/">
+    <Project Path="samples/JsonSearch/JsonSearch.csproj" />
     <Project Path="samples/Toggle.Builder/Toggle.Builder.csproj" />
     <Project Path="samples/Toggle.CSharp/Toggle.CSharp.csproj" />
     <Project Path="samples/Toggle.FSharp/Toggle.FSharp.fsproj" />
@@ -14,6 +15,7 @@
     <Project Path="src/Sharpwired.Timing/Sharpwired.Timing.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/JsonSearch.Tests/JsonSearch.Tests.csproj" />
     <Project Path="tests/Sharpwired.Annotations.Tests/Sharpwired.Annotations.Tests.csproj" />
     <Project Path="tests/Sharpwired.Cells.Tests/Sharpwired.Cells.Tests.csproj" />
     <Project Path="tests/Sharpwired.Core.Tests/Sharpwired.Core.Tests.csproj" />

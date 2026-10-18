@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Sharpwired.Gpu.Tests" />
+    <!-- JsonSearch.Tests links GpuFixture.cs, which reads GpuDevice.LiveObjects. -->
+    <InternalsVisibleTo Include="JsonSearch.Tests" />
   </ItemGroup>
 
   <ItemGroup>
