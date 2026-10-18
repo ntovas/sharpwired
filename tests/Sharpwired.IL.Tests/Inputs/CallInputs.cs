@@ -67,6 +67,13 @@ public static class CallInputs
     public static float Plain(float x) => x * 2f;
 
     [Handwired]
+    public static T Same<T>(T x) => x;
+
+    // A call to a generic [Handwired] method (final fix wave, item I).
+    [Handwired]
+    public static float CallsGeneric(float x) => Same(x) + 1f; // marker: generic-call
+
+    [Handwired]
     public static float CallsPlain(float x) => Plain(x) + 1f; // marker: plain-call
 
     [Handwired]

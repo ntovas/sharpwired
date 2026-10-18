@@ -240,8 +240,9 @@ internal sealed class RecurrentTranslator
             statePlans = [.. statePlans.Select((plan, index) => grown[index] ? Widen(plan) : plan)];
         }
 
-        throw new TranslationException(Location, shape.TestOffset, "a loop state with no fixed range",
-            "the ranges of the loop state do not reach a fixed point; declare smaller ranges");
+        // Each round before this point widened at least one cell, and the last round found no cell to
+        // widen, so this point cannot run (final fix wave, item K).
+        throw new InvalidOperationException("the state ranges of the step program do not reach a fixed point after each cell is wide");
     }
 
     private static CellPlan Widen(CellPlan plan) => plan with
@@ -362,7 +363,9 @@ internal sealed class RecurrentTranslator
     {
         if (emitter.CheckRanges() is { } fault)
         {
-            throw new TranslationException(Location, shape.TestOffset, fault.Construct, fault.Reason);
+            throw fault is { Owner: { } owner, IlOffset: >= 0 }
+                ? owner.Refuse(fault.IlOffset, fault.Construct, fault.Reason)
+                : new TranslationException(Location, shape.TestOffset, fault.Construct, fault.Reason);
         }
     }
 

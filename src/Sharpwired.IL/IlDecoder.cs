@@ -137,12 +137,24 @@ internal static class IlDecoder
         var partial = new DecodedMethod(method, [], localTypes, locations);
         if (body.ExceptionHandlingClauses.Count > 0)
         {
-            throw partial.Refuse(body.ExceptionHandlingClauses.Min(c => c.TryOffset), "an exception clause",
+            var clause = body.ExceptionHandlingClauses.MinBy(c => c.TryOffset)!;
+            throw partial.Refuse(FirstStatement(locations, bytes, clause.TryOffset, clause.TryLength), "an exception clause",
                 "the program has no exceptions; remove the try statement");
         }
 
         return new DecodedMethod(method, DecodeInstructions(method, bytes, partial), localTypes, locations);
     }
+
+    // The IL offset of the first statement in a try block: the first visible sequence point in the
+    // block that is not at a nop. The try keyword has no sequence point. The Debug IL has a point at
+    // the brace (a nop), and the Release IL has none there. So this offset gives the same line in both
+    // configurations. With no such point, the offset of the block.
+    private static int FirstStatement(SourceLocations locations, byte[] bytes, int tryOffset, int tryLength) =>
+        locations.Points.Where(point => !point.IsHidden && point.Offset >= tryOffset && point.Offset < tryOffset + tryLength
+            && point.Offset < bytes.Length && bytes[point.Offset] != (byte)ILOpCode.Nop)
+            .Select(point => point.Offset)
+            .DefaultIfEmpty(tryOffset)
+            .First();
 
     private static unsafe ImmutableArray<IlInstruction> DecodeInstructions(MethodBase method, byte[] bytes, DecodedMethod partial)
     {
@@ -259,13 +271,16 @@ internal static class IlDecoder
         }
     }
 
-    private static object Resolve(DecodedMethod partial, int offset, Func<object?> resolve)
+    // Resolves a token. A token that the module cannot resolve is a refusal with the file and the
+    // line: a bad token, a missing type or member, or a missing assembly (final fix wave, item G).
+    internal static object Resolve(DecodedMethod partial, int offset, Func<object?> resolve)
     {
         try
         {
             return resolve() ?? throw partial.Refuse(offset, "a token", "the module does not resolve the token");
         }
-        catch (Exception error) when (error is ArgumentException or BadImageFormatException && error is not TranslationException)
+        catch (Exception error) when (error is ArgumentException or BadImageFormatException or TypeLoadException or MissingMemberException or FileNotFoundException
+            && error is not TranslationException)
         {
             throw partial.Refuse(offset, "a token", $"the module does not resolve the token: {error.Message}");
         }

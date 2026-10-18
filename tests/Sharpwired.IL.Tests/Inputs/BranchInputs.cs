@@ -153,6 +153,33 @@ public static class BranchInputs
         return b;
     }
 
+    // A choice with a side whose range is not finite (the product of two open cells). The refusal
+    // names the line of the branch (final fix wave, item E).
+    [Handwired]
+    public static float OpenSideChoice(bool c, float x, float y)
+    {
+        float r = y;
+        if (c) // marker: open-side
+        {
+            r = x * y;
+        }
+
+        return r + 1f;
+    }
+
+    // An array store that runs only when c is true (final fix wave, item I).
+    [Handwired]
+    public static float StoreUnderBranch(bool c, [Range(-100, 100)] float x)
+    {
+        var a = new float[1];
+        if (c)
+        {
+            a[0] = x; // marker: store-under-branch
+        }
+
+        return a[0];
+    }
+
     // A choice between two local arrays, and a store through the chosen array (review of task 4,
     // finding 2).
     [Handwired]

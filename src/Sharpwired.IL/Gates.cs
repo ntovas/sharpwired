@@ -208,7 +208,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         switch (on, off)
         {
             case (ScalarValue x, ScalarValue y):
-                return MakeScalar(condition, x, y, KindOf(type, x, y));
+                return MakeScalar(condition, x, y, KindOf(type, x, y), ilOffset);
             case (AggregateValue x, AggregateValue y) when x.Type == y.Type:
                 {
                     var fields = ImmutableDictionary.CreateBuilder<string, Value>(StringComparer.Ordinal);
@@ -305,7 +305,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
                     {
                         if (cases[k] is not ConstantValue)
                         {
-                            value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type, ilOffset);
+                            value = Make(cases[k], Edge(index, block.SwitchTargets[k]), value, type, BranchOffset(index, ilOffset));
                         }
                     }
                 }
@@ -315,7 +315,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
                 var literal = jumpLiterals[index];
                 value = literal is ConstantValue { Number: var bit }
                     ? Edge(index, bit != 0 ? jump : next)
-                    : Make(literal, Edge(index, jump), Edge(index, next), type, ilOffset);
+                    : Make(literal, Edge(index, jump), Edge(index, next), type, BranchOffset(index, ilOffset));
             }
             else
             {
@@ -329,7 +329,11 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         return ValueAt(dominator);
     }
 
-    private ScalarValue MakeScalar(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind)
+    // The IL offset of the branch at the end of a block. A gate of this branch has this offset, so a
+    // refusal of the gate names the line of the branch (final fix wave, item E).
+    private int BranchOffset(int block, int fallback) => ssa.Blocks[block].Terminator.Instruction?.Offset ?? fallback;
+
+    private ScalarValue MakeScalar(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind, int ilOffset)
     {
         // Rule 1: ITE(c, x, x) = x.
         if (Same(on, off))
@@ -353,15 +357,15 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         // Rule 3: ITE(c1, ITE(c2, x, y), y) = ITE(AND(c1, c2), x, y); ITE(c1, x, ITE(c2, x, y)) = ITE(OR(c1, c2), x, y).
         if (on is GateValue { Wire: null } inner && Same(inner.Off, off))
         {
-            return MakeScalar(And(condition, inner.Condition), inner.On, off, kind);
+            return MakeScalar(And(condition, inner.Condition), inner.On, off, kind, ilOffset);
         }
 
         if (off is GateValue { Wire: null } other && Same(other.On, on))
         {
-            return MakeScalar(Or(condition, other.Condition), on, other.Off, kind);
+            return MakeScalar(Or(condition, other.Condition), on, other.Off, kind, ilOffset);
         }
 
-        return Record(new GateValue(condition, on, off, kind));
+        return Record(new GateValue(condition, on, off, kind, ilOffset, lowering));
     }
 
     private AndValue And(ScalarValue left, ScalarValue right) =>

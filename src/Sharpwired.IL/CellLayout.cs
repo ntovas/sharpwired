@@ -25,8 +25,8 @@ internal sealed record LeafNode(string Path, ScalarKind Kind, CellSpec Spec, int
 /// <summary>A struct or a record: one child for each property, with the backing field of the property.</summary>
 internal sealed record AggregateNode(Type Type, ImmutableArray<(FieldInfo Field, LayoutNode Child)> Members) : LayoutNode;
 
-/// <summary>A fixed-length array. OneHot is the one-hot declaration of a bool array, or null.</summary>
-internal sealed record ArrayNode(string Path, Type ElementType, ImmutableArray<LayoutNode> Elements, OneHotAttribute? OneHot) : LayoutNode;
+/// <summary>A fixed-length array: the element type and one node for each element.</summary>
+internal sealed record ArrayNode(Type ElementType, ImmutableArray<LayoutNode> Elements) : LayoutNode;
 
 /// <summary>The role of a parameter in the walk.</summary>
 internal enum ParameterRole
@@ -279,7 +279,7 @@ internal sealed class CellLayout
             groups[start] = (path, Cell.OneHot([.. leaves.Skip(start).Select(leaf => leaf.Spec)], oneHot.AllowAllZero));
         }
 
-        return new ArrayNode(path, element, elements, oneHot);
+        return new ArrayNode(element, elements);
     }
 
     private LeafNode Leaf(string path, ScalarKind kind, ICustomAttributeProvider[] sources, bool state, SourceLocation location)

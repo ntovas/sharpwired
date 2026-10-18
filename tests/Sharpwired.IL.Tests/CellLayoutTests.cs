@@ -176,4 +176,25 @@ public class CellLayoutTests
         "the initial value must lie in the range 0..1")]
     public void The_walk_refuses_a_bad_attribute_on_a_property_with_the_file_and_line(string method, string marker, string construct, string reason) =>
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(RefusedInputs), method)), Refused, marker, construct, reason);
+
+    // Plan decision 9: a cell with no [Initial] starts at the value of its range and grid nearest to
+    // 0. With no grid, the value is the FP32 value inside the range nearest to 0 (final fix wave,
+    // item H). (float)0.7 is below 0.7, and (float)-0.7 is above -0.7.
+    [Theory]
+    [InlineData(2.5, 10, 1.0, 3)]
+    [InlineData(-10, -2.5, 1.0, -3)]
+    [InlineData(0.75, 10, 0.5, 1)]
+    [InlineData(-10, -0.75, 0.5, -1)]
+    [InlineData(0.1, 1, null, (double)(float)0.1)]
+    [InlineData(-1, -0.1, null, (double)(float)-0.1)]
+    [InlineData(-5, 5, 1.0, 0)]
+    public void The_initial_value_is_the_value_nearest_to_zero(double minimum, double maximum, double? grid, double expected) =>
+        Assert.Equal(expected, CellLayout.NearestToZero(new NumericRange(minimum, maximum), grid));
+
+    [Fact]
+    public void The_initial_value_with_no_grid_is_an_FP32_value_inside_the_range()
+    {
+        Assert.Equal((double)MathF.BitIncrement((float)0.7), CellLayout.NearestToZero(new NumericRange(0.7, 1), null));
+        Assert.Equal((double)MathF.BitDecrement((float)-0.7), CellLayout.NearestToZero(new NumericRange(-1, -0.7), null));
+    }
 }

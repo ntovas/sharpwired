@@ -134,7 +134,9 @@ public static class HandwiredTranslator
     {
         if (emitter.CheckRanges() is { } fault)
         {
-            throw new TranslationException(location, 0, fault.Construct, fault.Reason);
+            throw fault is { Owner: { } owner, IlOffset: >= 0 }
+                ? owner.Refuse(fault.IlOffset, fault.Construct, fault.Reason)
+                : new TranslationException(location, 0, fault.Construct, fault.Reason);
         }
     }
 

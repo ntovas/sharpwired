@@ -243,9 +243,27 @@ public class RecurrentTests
         AssertRefused(() => Translate(nameof(RecurrentInputs.LoopInLoop)), RecurrentFile, "loop-in-loop", "a loop with no maximum inside a loop",
             "the loop of a step program must be at the top level of the method; declare a maximum for the inner loop");
 
+    // A widened float cell translates when the step values stay finite on the wide range: Fall widens
+    // x, and x - 3 stays finite (final fix wave, item K). A gate of the step declares the union of its
+    // side ranges, so Select(c, state, back) is finite when back is finite.
+    [Fact]
+    public void A_widened_float_state_with_finite_step_values_gives_the_plain_values()
+    {
+        var function = Translate(nameof(RecurrentInputs.Fall));
+        var circuit = function.Step.Table.Circuit;
+        Assert.Equal(new NumericRange(-float.MaxValue, float.MaxValue), circuit.Ranges[function.Step.State.Single().Wire.Position]);
+        AssertRunnerMatchesPlain(function, Arguments(function, 1206, [100f], [0f], [3f]), ZeroSign.MayDiffer);
+    }
+
+    // A float state set under a gate from the count (the probe of the phase 4 review, item K).
+    [Fact]
+    public void A_float_state_that_a_gate_sets_from_the_count_gives_the_plain_values() =>
+        AssertRunnerMatchesPlain(Translate(nameof(RecurrentInputs.LaterHalf)), Arguments(Translate(nameof(RecurrentInputs.LaterHalf)), 1207, [1000000f], [0f], [17f]),
+            ZeroSign.MayDiffer);
+
     // x *= 2 has no fixed point in 8 rounds, because the float state has no refinement by the continue
-    // bit. No widened float cell can translate: over -float.MaxValue..float.MaxValue the range of the
-    // values of the step, for example Select(c, state, back), is not finite, and decision 11 refuses it.
+    // bit. On the wide range -float.MaxValue..float.MaxValue the product x * 2 has a range that is not
+    // finite, and decision 11 refuses it.
     [Fact]
     public void A_state_with_no_fixed_point_whose_body_passes_the_fp32_range_is_refused() =>
         AssertRefused(() => Translate(nameof(RecurrentInputs.Grow)), RecurrentFile, "grow", "a value past the FP32 range",

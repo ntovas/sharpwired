@@ -47,6 +47,18 @@ public class InlineTests
         AssertMatchesPlain(translated, 802, ZeroSign.MayDiffer);
     }
 
+    // In an instance method of a struct, ldarg.0 loads the address of this, and each getter call
+    // reads a field through it (final fix wave, item I).
+    [Fact]
+    public void In_an_instance_method_of_a_struct_the_first_argument_is_the_address_of_this()
+    {
+        var width = typeof(Span).GetMethod(nameof(Span.Width))!;
+        var ssa = SsaBuilder.Build(ControlFlowGraph.Build(IlDecoder.Decode(width)));
+        var addresses = ssa.Blocks.SelectMany(block => block.Operations).Where(operation => operation.Address is { Root: { Kind: SsaVariableKind.Argument, Index: 0 } }).ToArray();
+        Assert.Equal(2, addresses.Length);
+        Assert.All(addresses, address => Assert.Equal(SsaTypeKind.Address, address.Type.Kind));
+    }
+
     // A call on the address of a struct argument passes the struct value as this.
     [Fact]
     public void An_instance_method_of_a_struct_that_reads_this_is_inlined()

@@ -596,7 +596,7 @@ The macros that need a unit wire (`Spring`, `Argmax`, `ClampZeroOne`) have no `H
 | an attribute argument that is not a constant | Not possible in C# or F#. The toggle writes `MatrixBound` as a literal, and a test checks it. |
 | `ValueTuple` as a cell type | Refused, as the Cells walker refuses public fields. It is accepted as the top return type and as an intermediate value. |
 | the F# optimizer in Release | It can inline a small F# function and remove a closure. `[<MethodImpl(MethodImplOptions.NoInlining)>]` keeps a `[<Handwired>]` helper as a call. |
-| `Hw.AnimatedObject` with `destinationDuringSteps` equal to `destination` as the same value | The macro skips the rebase when the two arguments are the same wire. The plain body always rebases, which can change -0 to +0. The toggle passes two different cells. |
+| `Hw.AnimatedObject` with `destinationDuringSteps` equal to `destination` as the same value | The macro skips the rebase when the two arguments are the same wire. The plain body always rebases. For a finite destination the values are equal bit for bit, because the rebase adds +0 to a displacement that is never -0. Only a destination of ±Infinity gives a difference (NaN in the body). A test passes one wire as both arguments. |
 
 ## Tasks
 

@@ -158,6 +158,24 @@ public static class FrontEndInputs
         float r; try { r = x * 2f; } catch (ArithmeticException) { r = 0f; } return r; // marker: exception-clause
     }
 
+    // An exception clause on more than one line. The refusal names the line of the first statement
+    // in the try block, in Debug and in Release.
+    [Handwired]
+    public static float WithExceptionClauseOnLines(float x)
+    {
+        float r;
+        try
+        {
+            r = x * 2f; // marker: exception-clause-lines
+        }
+        catch (ArithmeticException)
+        {
+            r = 0f;
+        }
+
+        return r;
+    }
+
     [Handwired]
     public static float Boxed(float x) => (float)(object)x; // marker: box
 

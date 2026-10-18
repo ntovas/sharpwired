@@ -59,6 +59,20 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
         return new ToggleCells(viewportWidth, viewportHeight, down, up, cancel, on, armed, springMatrix, settleCheck, snap, thumb);
     }
 
+    // StateFirst declares the cells of ToggleProgram.Declare in another order (final fix wave, item L).
+    // The two declarations give the same names with the same specs, and only the order differs. So
+    // an error in StateFirst and in the plain types at the same time does not hide: Declare is the
+    // phase 3 source of the cells.
+    [Fact]
+    public void StateFirst_declares_the_cells_of_the_builder_toggle_in_the_walk_order()
+    {
+        var builderCells = CellRecorder.Record(ToggleProgram.Declare);
+        var stateFirstCells = CellRecorder.Record(StateFirst);
+        Assert.Equal(CellNames, stateFirstCells.Select(cell => cell.Name));
+        Assert.NotEqual(CellNames, builderCells.Select(cell => cell.Name));
+        Assert.Equal(builderCells.OrderBy(cell => cell.Name, StringComparer.Ordinal), stateFirstCells.OrderBy(cell => cell.Name, StringComparer.Ordinal));
+    }
+
     private static Wire[] CellWires(ToggleCells cells) =>
     [
         cells.On, cells.Armed, cells.Thumb.Displacement, cells.Thumb.Velocity, cells.Thumb.Destination, cells.ViewportWidth,
@@ -93,7 +107,12 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
     {
         var step = Translate();
         var translated = CSharpToggle.Build(step);
-        var builder = ToggleProgram.Build(StateFirst);
+        SourceTable? builderTable = null;
+        var builder = ToggleProgram.Build(scope =>
+        {
+            builderTable = Assert.IsType<SourceTable>(scope);
+            return StateFirst(scope);
+        });
 
         // Item 1.
         TensorChecks.AssertSameOperations(builder.Table.Circuit.Operations, translated.Table.Circuit.Operations);
@@ -106,10 +125,8 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
         TensorChecks.AssertSameProgram(builderProgram, step.CreateEvaluator().Program);
         Assert.Equal(21, translatedProgram.Layers.Length);
 
-        // Item 3.
-        var names = new SourceTable();
-        StateFirst(names);
-        Assert.Equal(Enumerable.Range(0, 20).Select(position => names.NameOf(Wire.FromPosition(position))), step.Cells.Select(cell => cell.Path));
+        // Item 3. The expected names come from the table of the builder toggle.
+        Assert.Equal(Enumerable.Range(0, 20).Select(position => builderTable!.NameOf(Wire.FromPosition(position))), step.Cells.Select(cell => cell.Path));
         Assert.Equal(CellWires(builder.Cells), CellWires(translated.Cells));
         Assert.Equal(OutputWires(builder.Output), OutputWires(translated.Output));
         for (var cell = 0; cell < 20; cell++)
@@ -243,4 +260,37 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
             Js.AllIs([on, armed], decisions);
         }
     }
+}
+
+/// <summary>A cell scope that records the name and the spec of each cell in declaration order, and declares nothing.</summary>
+internal sealed class CellRecorder(string prefix, List<(string Name, CellSpec Spec)> cells) : ICellScope
+{
+    private int count;
+
+    /// <summary>The cells of a declaration, in declaration order.</summary>
+    public static List<(string Name, CellSpec Spec)> Record(Func<ICellScope, ToggleCells> declare)
+    {
+        var cells = new List<(string Name, CellSpec Spec)>();
+        declare(new CellRecorder("", cells));
+        return cells;
+    }
+
+    public Wire Declare(string name, CellSpec cell)
+    {
+        cells.Add((Path(name), cell));
+        return Wire.FromPosition(count++);
+    }
+
+    public Wire[] Declare(string name, IReadOnlyList<CellSpec> list) =>
+        [.. list.Select((cell, index) => Declare($"{name}[{index}]", cell))];
+
+    public Wire[] Declare(string name, OneHotSpec group) => throw new NotSupportedException("the toggle has no one-hot group");
+
+    public Wire[][] Declare(string name, PermutationSpec permutation) => throw new NotSupportedException("the toggle has no permutation");
+
+    public T Declare<T>(string name, Func<ICellScope, T> declare) => declare(new CellRecorder(Path(name), cells));
+
+    public T[] DeclareList<T>(string name, int count, Func<ICellScope, int, T> declare) => throw new NotSupportedException("the toggle has no list");
+
+    private string Path(string name) => prefix.Length == 0 ? name : $"{prefix}.{name}";
 }

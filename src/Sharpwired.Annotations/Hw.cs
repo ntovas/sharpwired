@@ -39,8 +39,10 @@ public static class Hw
     /// </summary>
     /// <remarks>
     /// The body always rebases the displacement from destinationDuringSteps to destination. The macro
-    /// skips the rebase when the two arguments are the same wire. Then the sign of a zero
-    /// displacement can differ.
+    /// skips the rebase when the two arguments are the same wire. For a finite destination the two
+    /// forms give the same value bit for bit: destination - destination is +0, and the displacement
+    /// after the spring step is never -0, because its sum starts at +0. Only a destination of
+    /// ±Infinity gives a difference: the body computes Infinity - Infinity, which is NaN.
     /// </remarks>
     public static AnimatedValue AnimatedObject(
         float[] matrix,

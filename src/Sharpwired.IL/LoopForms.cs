@@ -206,6 +206,7 @@ internal sealed partial class OperationLowering
             ? And(And(outer.Entry, outer.Active), gates.Reach(outer.Loop.Header, loop.Header, testOffset))
             : And(entryCondition?.Invoke() ?? One, gates.Reach(TopStart, loop.Header, testOffset));
         var facts = copy?.Facts.Clone() ?? new Intervals(this);
+        EmitInvariantGates(loop, testBlocks);
 
         // A fact on a wire of this loop does not count as progress: the next copy reads a new wire.
         facts.Before = Circuit.Width;
@@ -338,6 +339,23 @@ internal sealed partial class OperationLowering
         FinishRunningTotals(totals, initial, headerPhis);
     }
 
+    // Emits the int gates that the loop test reads from outside the loop, before the first copy. A
+    // gate with one reader emits at that reader, and here the reader is in a copy. A fact on a wire
+    // of a copy does not count as progress of the range refinement. So the count of a loop such as
+    // "if (c) n = n + 1; for (i < n)" had no maximum in Release (final fix wave, item J).
+    private void EmitInvariantGates(NaturalLoop loop, HashSet<int> testBlocks)
+    {
+        var operands = testBlocks.Select(index => ssa.Blocks[index])
+            .SelectMany(block => block.Operations.SelectMany(operation => operation.Operands).Concat(block.Terminator.Operands));
+        foreach (var operand in operands.Where(operand => operand.Kind == SsaValueKind.Phi && !loop.Body.Contains(operand.Block)))
+        {
+            if (Get(operand) is GateValue { Wire: null, Kind: ScalarKind.Int } gate)
+            {
+                Emit(gate, operand.IlOffset);
+            }
+        }
+    }
+
     // A loop must have one exit (plan, question 5). Two or more exit edges are one exit when they go
     // to one block, and each phi of that block reads one value on each of them. This holds for a loop
     // test that spans two or more blocks, for example "i < n && x > 1f" in Release, and for a break
@@ -364,12 +382,18 @@ internal sealed partial class OperationLowering
         }
 
         var predecessors = graph.Blocks[target].Predecessors;
-        var oneExit = loop.ExitEdges.All(edge => graph.Forward(edge.To) == target)
-            && ssa.Blocks[target].Phis.All(phi => predecessors.Where(sources.Contains).Select(source => phi.Operands[predecessors.IndexOf(source)]).Distinct().Count() == 1);
-        if (!oneExit)
+        var oneBlock = loop.ExitEdges.All(edge => graph.Forward(edge.To) == target);
+        var oneValue = ssa.Blocks[target].Phis.All(phi => predecessors.Where(sources.Contains).Select(source => phi.Operands[predecessors.IndexOf(source)]).Distinct().Count() == 1);
+        if (!oneBlock || !oneValue)
         {
             var second = loop.ExitEdges.Where(edge => edge.From != loop.Header).Select(edge => edge.From).DefaultIfEmpty(loop.ExitEdges[1].From).Min();
-            throw Refuse(LastOffset(second), "a loop with two exits", "a loop must have one exit block; remove the return in the loop");
+
+            // The exit edges reach one block with different values: a break after the body changed a
+            // value (final fix wave, item J). Otherwise a second exit block: a return in the loop.
+            throw oneBlock
+                ? Refuse(LastOffset(second), "a break after a change of a loop value",
+                    "a loop must have one exit with one value for each variable; put the break before the changes in the loop body")
+                : Refuse(LastOffset(second), "a loop with two exits", "a loop must have one exit block; remove the return in the loop");
         }
     }
 
@@ -437,7 +461,9 @@ internal sealed partial class OperationLowering
     {
         if (Emitter.CheckRanges() is { } fault)
         {
-            throw Refuse(offset, fault.Construct, fault.Reason);
+            throw fault is { Owner: { } owner, IlOffset: >= 0 }
+                ? owner.Refuse(fault.IlOffset, fault.Construct, fault.Reason)
+                : Refuse(offset, fault.Construct, fault.Reason);
         }
     }
 

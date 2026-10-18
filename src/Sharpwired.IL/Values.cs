@@ -122,13 +122,20 @@ internal sealed class XorValue(ScalarValue left, ScalarValue right) : ScalarValu
 /// question 4). Condition is an exact bit. Gates.cs builds a gate with the gate rules 1 to 4; the emit
 /// applies the rules 5 to 7.
 /// </summary>
-internal sealed class GateValue(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind) : ScalarValue(kind)
+internal sealed class GateValue(ScalarValue condition, ScalarValue on, ScalarValue off, ScalarKind kind, int ilOffset = -1, OperationLowering? owner = null)
+    : ScalarValue(kind)
 {
     public ScalarValue Condition { get; } = condition;
 
     public ScalarValue On { get; } = on;
 
     public ScalarValue Off { get; } = off;
+
+    /// <summary>The IL offset of the branch of the gate, or -1. A refusal of the gate names its line.</summary>
+    public int IlOffset { get; } = ilOffset;
+
+    /// <summary>The lowering of the method that holds the branch, or null.</summary>
+    public OperationLowering? Owner { get; } = owner;
 }
 
 /// <summary>A struct, a record or a tuple: one value for each instance field, by field name.</summary>

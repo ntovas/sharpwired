@@ -409,6 +409,18 @@ public class LoopTests
     public void A_loop_with_a_break_to_its_end_gives_the_plain_values() =>
         AssertMatchesPlain(Translate(nameof(LoopInputs.Break)), 1117, ZeroSign.MayDiffer);
 
+    // Final fix wave, item J: before the fix, the Release IL of both inputs was refused.
+    [Theory]
+    [InlineData(nameof(LoopInputs.GateCount))]
+    [InlineData(nameof(LoopInputs.StoreBeforeGate))]
+    public void A_loop_with_a_gate_before_it_or_in_its_body_gives_the_plain_values(string name) =>
+        AssertMatchesPlain(Translate(name), 1118, ZeroSign.MayDiffer);
+
+    [Fact]
+    public void A_loop_with_a_break_after_a_value_change_is_refused_with_a_message_about_the_break() =>
+        AssertRefused(() => Translate(nameof(LoopInputs.BreakAfterChange)), LoopFile, "break-after-change", "a break after a change of a loop value",
+            "a loop must have one exit with one value for each variable; put the break before the changes in the loop body");
+
     [Fact]
     public void A_loop_with_a_return_inside_is_refused() =>
         AssertRefused(() => Translate(nameof(LoopInputs.ReturnInside)), LoopFile, "return-inside", "a loop with two exits",

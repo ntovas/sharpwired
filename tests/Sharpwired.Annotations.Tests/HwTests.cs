@@ -144,7 +144,9 @@ public class HwTests
     private sealed record AnimatedCircuit(Circuit Circuit, AnimatedObject Animated);
 
     // The toggle call: one spring with the toggle ranges, the default thresholds, a settle check and a snap.
-    private static AnimatedCircuit BuildAnimatedObject()
+    // With sameDestination, the macro gets the destination wire also as destinationDuringSteps, and it
+    // skips the rebase.
+    private static AnimatedCircuit BuildAnimatedObject(bool sameDestination = false)
     {
         var circuit = new Circuit(10);
         for (var entry = 0; entry < 4; entry++) circuit.AssumeRange(circuit.Source(entry), -MatrixBound, MatrixBound);
@@ -155,7 +157,8 @@ public class HwTests
         circuit.AssumeRange(circuit.Source(8), 0, 1);
         circuit.AssumeRange(circuit.Source(9), 0, 1);
         var matrix = new SpringMatrixWires(circuit.Source(0), circuit.Source(1), circuit.Source(2), circuit.Source(3));
-        var spring = new AnimatedSpring(matrix, circuit.Source(4), circuit.Source(5), circuit.Source(6)) { DestinationDuringSteps = circuit.Source(7) };
+        var during = circuit.Source(sameDestination ? 6 : 7);
+        var spring = new AnimatedSpring(matrix, circuit.Source(4), circuit.Source(5), circuit.Source(6)) { DestinationDuringSteps = during };
         var animated = circuit.AnimatedObject([spring], new AnimatedObjectOptions(circuit.Source(8)) { Snap = circuit.Source(9) });
         return new AnimatedCircuit(circuit, animated);
     }
@@ -237,6 +240,27 @@ public class HwTests
             }
         }
         Assert.InRange(settledCount, 1, edges.Length * edges.Length * 16 - 1);
+    }
+
+    // The macro skips the rebase when destination and destinationDuringSteps are one wire, and the
+    // body always rebases. For finite values the outputs are still equal bit for bit (final fix wave,
+    // item F). destination - destination is +0, and the displacement after the spring step is never
+    // -0. The identity matrix and the zero displacements and velocities test the zero cases.
+    [Fact]
+    public void AnimatedObject_with_one_wire_as_both_destinations_equals_the_macro_bit_for_bit()
+    {
+        var built = BuildAnimatedObject(sameDestination: true);
+        var random = Js.CreateRandom(45);
+        int[] powers = [0, 1, 4, 300];
+        float[] displacements = [0f, -0f, float.Epsilon, -float.Epsilon, Threshold, -Threshold];
+        for (var item = 0; item < SeededCount; item++)
+        {
+            var matrix = SpringMatrix.SpringMatrixPower(ToggleStep, powers[item % powers.Length]).ToArray().Select(value => (float)value).ToArray();
+            var destination = item % 3 == 0 ? 0f : Sample(random, 0, DestinationMaximum);
+            var displacement = item % 2 == 0 ? displacements[item / 2 % displacements.Length] : Sample(random, -DisplacementBound, DisplacementBound);
+            var velocity = item % 4 == 0 ? (item % 8 == 0 ? -0f : 0f) : Sample(random, -VelocityBound, VelocityBound);
+            AssertAnimatedObject(built, matrix, displacement, velocity, destination, destination, Bit(random), random() < 0.2);
+        }
     }
 
     [Fact]

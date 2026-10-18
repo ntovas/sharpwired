@@ -135,8 +135,34 @@ public static class RecurrentInputs
         return s;
     }
 
-    // A loop with no maximum whose float state range has no fixed point in 8 rounds. The wide float
-    // range gives the step values whose range is not finite.
+    // A float state whose range has no fixed point in 8 rounds (m), and that still translates: on the
+    // wide range the step values of m stay finite (final fix wave, item K).
+    [Handwired]
+    public static float LaterHalf([Range(0, 1000000)] float v)
+    {
+        float x = v;
+        float m = 0f;
+        int c = 0;
+        while (x > 1f)
+        {
+            m = c > 3 ? x : m;
+            c++;
+            x *= 0.5f;
+        }
+
+        return m;
+    }
+
+    // A falling float state with no fixed point in 8 rounds. On the wide range x - 3 stays finite.
+    [Handwired]
+    public static float Fall([Range(0, 100)] float x)
+    {
+        while (x > -1000f) x -= 3f;
+        return x;
+    }
+
+    // A loop with no maximum whose float state range has no fixed point in 8 rounds. On the wide float
+    // range the product x * 2 has a range that is not finite.
     [Handwired]
     public static float Grow([Range(1, 2)] float x)
     {

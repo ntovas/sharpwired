@@ -107,6 +107,13 @@ public class RefusalTests
         Assert.IsAssignableFrom<ArgumentException>(error);
     }
 
+    // Final fix wave, item E: the refusal names the line of the branch, not the line of the reader.
+    [Fact]
+    public void A_choice_with_an_open_side_is_refused_at_the_line_of_its_branch() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), nameof(BranchInputs.OpenSideChoice))), "BranchInputs.cs",
+            "open-side", "a choice with a side that has no finite range",
+            "a side of this choice can overflow FP32 when C# does not compute it; declare finite ranges");
+
     // Task 4: the backward branches outside a natural loop (review of task 2), with C# goto.
     [Theory]
     [InlineData(nameof(BranchInputs.IrreducibleCycle), "irreducible")]
@@ -122,6 +129,17 @@ public class RefusalTests
     public void A_choice_between_two_local_arrays_is_refused() =>
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), nameof(BranchInputs.ChooseArray))), "BranchInputs.cs",
             "choose-array", "a choice between two arrays", "the program changes an array in place, so a branch must not choose between two arrays");
+
+    // Final fix wave, item I.
+    [Fact]
+    public void An_array_store_under_a_branch_is_refused() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), nameof(BranchInputs.StoreUnderBranch))), "BranchInputs.cs",
+            "store-under-branch", "an array store under a branch", "the program stores into an array only in code that runs on each call");
+
+    [Fact]
+    public void A_call_to_a_generic_Handwired_method_is_refused() =>
+        AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(CallInputs), nameof(CallInputs.CallsGeneric))), "CallInputs.cs", "generic-call",
+            "a call to Sharpwired.IL.Tests.Inputs.CallInputs.Same(Single)", "a [Handwired] method must not be generic");
 
     [Fact]
     public void A_call_to_a_method_without_Handwired_is_refused() =>

@@ -21,6 +21,12 @@ namespace Sharpwired.IL;
 /// <summary>The overflow bit of a loop with [MaxIterations] (plan, "Decisions", question 5, form 2).</summary>
 internal sealed record LoopOverflow(Wire Bit, SourceLocation Location, int Copies);
 
+/// <summary>
+/// A refusal of <see cref="Emitter.CheckRanges"/>: the construct, the reason, and for a gate the IL
+/// offset of its branch (-1 for none) in the lowering that holds it.
+/// </summary>
+internal sealed record RangeFault(string Construct, string Reason, int IlOffset, OperationLowering? Owner);
+
 /// <summary>Emits symbolic values into the circuit. After the emit, a value holds its wire.</summary>
 internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
 {
@@ -47,31 +53,38 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     // True when an emitted gate read a side that can be Infinity after the last CheckRanges.
     private bool openSide;
 
+    // The first gate with a side that can be Infinity after the last CheckRanges, or null.
+    private GateValue? openGate;
+
     /// <summary>
     /// Returns the construct and the reason of a refusal, or null. A value that the translator emitted
     /// after the last check can overflow FP32 when its range is not finite while each wire that it
     /// reads has a finite range, or when it is a constant that is not finite. The rule checks the value
     /// wires (an affine form, a gate, a product), and not the operations in a macro, because a macro
     /// can use a saturation with a range that is not finite. A gate is refused when a side that is not
-    /// a cell or a gate has a range that is not finite.
+    /// a cell or a gate has a range that is not finite. For such a gate the fault also gives the
+    /// IL offset of its branch and the lowering that holds it, so the refusal names the line of the
+    /// branch (final fix wave, item E).
     /// </summary>
-    public (string Construct, string Reason)? CheckRanges()
+    public RangeFault? CheckRanges()
     {
-        (string, string)? fault = pastRange ? (OperationLowering.OverflowConstruct, OperationLowering.OverflowReason)
-            : openSide ? (OperationLowering.OpenSideConstruct, OperationLowering.OpenSideReason)
+        RangeFault? fault = pastRange ? new RangeFault(OperationLowering.OverflowConstruct, OperationLowering.OverflowReason, -1, null)
+            : openSide ? new RangeFault(OperationLowering.OpenSideConstruct, OperationLowering.OpenSideReason, openGate?.IlOffset ?? -1, openGate?.Owner)
             : null;
         pastRange = false;
         openSide = false;
+        openGate = null;
         return fault;
     }
 
     // A side of a gate. A cell and a gate hold finite values; another wire with a range that is not
     // finite can hold Infinity.
-    private Wire Side(Wire side)
+    private Wire Side(Wire side, GateValue gate)
     {
         if (!IsFinite(Circuit.Ranges[side.Position]) && side.Position >= Circuit.SourceSize && !gateWires.Contains(side))
         {
             openSide = true;
+            openGate ??= gate;
         }
 
         return side;
@@ -285,23 +298,28 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
         {
             // Rule 6: ITE(c, x, 0) = Multiply(c, x), the Handwired form of "condition ? value : 0".
             var condition = Emit(gate.Condition);
-            var onWire = Side(Emit(gate.On));
+            var onWire = Side(Emit(gate.On), gate);
             var width = Circuit.Width;
             return Gate(Chosen(gate, Circuit.Multiply(condition, onWire), width, ChosenSide(null), ChosenSide(onWire)));
         }
 
         // Rule 7: Select(c, off, on).
         var gateWire = Emit(gate.Condition);
-        var offValue = Side(Emit(gate.Off));
-        var onValue = Side(Emit(gate.On));
+        var offValue = Side(Emit(gate.Off), gate);
+        var onValue = Side(Emit(gate.On), gate);
         var start = Circuit.Width;
         return Gate(Chosen(gate, Circuit.Select(gateWire, offValue, onValue), start, ChosenSide(offValue), ChosenSide(onValue)));
     }
 
     // The range and the grid of a gate side. Null is the constant 0 of rule 6: range 0..0 and no
-    // grid limit.
+    // grid limit. A constant wire has the grid of its value, and 0 has no grid limit.
     private (NumericRange Range, double Grid) ChosenSide(Wire? side) => side is { } wire
-        ? (Circuit.Ranges[wire.Position], Circuit.Grids[wire.Position] ?? double.NaN)
+        ? (Circuit.Ranges[wire.Position], Circuit.Constants[wire.Position] switch
+        {
+            0 => double.PositiveInfinity,
+            { } number when double.IsFinite(number) => Fp32.LowestPowerOfTwo(number),
+            _ => Circuit.Grids[wire.Position] ?? double.NaN,
+        })
         : (new NumericRange(0, 0), double.PositiveInfinity);
 
     // Declares the range, the grid and the bit fact of a gate result (final fix wave, items B and C).

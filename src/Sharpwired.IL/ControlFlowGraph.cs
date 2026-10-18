@@ -372,8 +372,17 @@ internal sealed class ControlFlowGraph
         var idom = Enumerable.Repeat(-1, Blocks.Length).ToArray();
         idom[0] = 0;
         var changed = true;
+
+        // In reverse postorder the rounds stop after at most (loop connectedness + 2) rounds, and the
+        // loop connectedness is less than the block count. So more rounds show a defect.
+        var rounds = 0;
         while (changed)
         {
+            if (++rounds > Blocks.Length + 2)
+            {
+                throw new InvalidOperationException($"the dominators of {IlDecoder.Describe(Method.Method)} do not settle after {Blocks.Length + 2} rounds");
+            }
+
             changed = false;
             foreach (var block in ReversePostorder.Skip(1))
             {

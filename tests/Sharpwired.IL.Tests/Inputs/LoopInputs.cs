@@ -397,6 +397,48 @@ public static class LoopInputs
         return s;
     }
 
+    // A loop count from a gate (final fix wave, item J). The gate declares the range 0..9 with the
+    // grid 1, so the range refinement finds 9 copies.
+    [Handwired]
+    public static float GateCount(bool c, [Range(0, 8)] int n, [Range(-10, 10)] float x)
+    {
+        if (c) n = n + 1;
+        float s = 0f;
+        for (int i = 0; i < n; i++) s += x;
+        return s;
+    }
+
+    // A store of an int state, then a gate of the state (final fix wave, item J). In Release the
+    // gate of copy 0 is Select(x[0] <= 0, -x[0], 0), with the constant 0 as a side.
+    [Handwired]
+    public static int[] StoreBeforeGate([FixedLength(4), Range(-10, 10)] int[] x)
+    {
+        var t = new int[4];
+        int a = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            t[i] = a;
+            if (x[i] > 0) a = a + (-x[i]);
+        }
+
+        return t;
+    }
+
+    // A break after a change of a value that the code after the loop reads: the exit edges give
+    // different values to the exit block (final fix wave, item J).
+    [Handwired]
+    public static float BreakAfterChange([Range(0, 8)] int n, [Range(-100, 100)] float x)
+    {
+        float s = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            s += x;
+            if (s > 50f) break; // marker: break-after-change
+        }
+
+        return s;
+    }
+
     [Handwired]
     public static float Break([Range(0, 8)] int n, [Range(-100, 100)] float x)
     {

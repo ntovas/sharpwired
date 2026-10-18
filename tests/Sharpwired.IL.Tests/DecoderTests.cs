@@ -79,6 +79,7 @@ public class DecoderTests
     [InlineData("UnsignedDivision", "div.un", "the IL instruction div.un")]
     [InlineData("Lambda", "ldftn", "the IL instruction ldftn")]
     [InlineData("WithExceptionClause", "exception-clause", "an exception clause")]
+    [InlineData("WithExceptionClauseOnLines", "exception-clause-lines", "an exception clause")]
     public void A_refused_construct_gives_the_source_file_and_line(string name, string marker, string construct)
     {
         var path = CSharpInputPath();
