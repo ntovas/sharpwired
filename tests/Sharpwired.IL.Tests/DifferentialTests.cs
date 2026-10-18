@@ -3,6 +3,8 @@
 // leaf over 200 seeded source tables. The methods mix the new translator forms with the forms of
 // phase 4. The test run in Debug checks the Debug IL, and the test run in Release checks the Release IL.
 // An affine or a gate output can give +0 where C# gives -0 (phase 4 plan, decision 8).
+// The script Inputs/gen_diff.py wrote the input files with the seed 20261018. To write them again, run
+// "python3 gen_diff.py <directory>" from Inputs. The output is equal to the files byte for byte.
 
 using System.Globalization;
 using System.Reflection;

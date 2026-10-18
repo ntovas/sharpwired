@@ -27,9 +27,17 @@ public sealed record TranslationOptions
     /// <summary>
     /// True (the default): the translator recognizes the Handwired patterns where they cost less than
     /// the normal form (plan, task 6b). A running total in a loop gives a prefix network. A floor, an
-    /// int division or an int remainder with few results gives a threshold count. False: each
-    /// construct gets its normal form, for example for a comparison of the operation counts.
+    /// int division or an int remainder with few results gives a threshold count. The rules 2 to 5 of
+    /// the phase 6 plan (the clamp read, the gated read, the candidate cut, the full Hw.ReadOrZero read)
+    /// are also under this option. False: each construct gets its normal form, for example for a
+    /// comparison of the operation counts.
     /// </summary>
+    /// <remarks>
+    /// Rule 1 of the phase 6 plan (a bit that the program reads as a number is the bit wire with the
+    /// grid 1, Emitter.BitAsNumber) is not under this option. In phase 4, an int form that read such a
+    /// bit was refused (phase 4 carried item a). So the option keeps rule 1, and the forms that it
+    /// changes still translate.
+    /// </remarks>
     public bool RecognizePatterns { get; init; } = true;
 }
 

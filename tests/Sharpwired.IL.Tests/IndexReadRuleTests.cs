@@ -54,6 +54,7 @@ public class IndexReadRuleTests
     [InlineData(nameof(IndexReadInputs.ClampRange), "depth")]
     [InlineData(nameof(IndexReadInputs.ClampReadInner), "i")]
     [InlineData(nameof(IndexReadInputs.ClampReadTwice), "i")]
+    [InlineData(nameof(IndexReadInputs.ClampReadLowMaximum), "i")]
     [InlineData(nameof(IndexReadInputs.ZeroRead), "i")]
     [InlineData(nameof(IndexReadInputs.ZeroReadStatic), "depth")]
     [InlineData(nameof(IndexReadInputs.ZeroReadOutside), "i")]
@@ -103,6 +104,7 @@ public class IndexReadRuleTests
     [Theory]
     [InlineData(nameof(IndexReadInputs.ClampReadInner))]
     [InlineData(nameof(IndexReadInputs.ClampReadTwice))]
+    [InlineData(nameof(IndexReadInputs.ClampReadLowMaximum))]
     public void A_clamp_to_other_bounds_or_with_a_second_reader_keeps_its_comparisons(string name)
     {
         var translated = Translate(name);
@@ -111,6 +113,23 @@ public class IndexReadRuleTests
         Assert.Contains(translated.Table.Circuit.Operations, operation => operation.ComparisonBit);
         var read = Assert.Single(translated.Table.Circuit.Operations, operation => operation.Kind == OperationKind.Index);
         Assert.DoesNotContain(read.GateTerms, term => term.Wire == CellOf(translated, "i"));
+    }
+
+    // A bit as the index (rule 1): b ? 1 : 0 is the bit wire, and the read is one index read at the bit, with the
+    // patterns on and off. The read equals the plain method for both values of the bit.
+    [Fact]
+    public void A_read_at_a_bit_as_the_index_is_one_index_read_at_the_bit()
+    {
+        foreach (var options in new[] { TranslationOptions.Default, PatternsOff })
+        {
+            foreach (var name in new[] { nameof(IndexReadInputs.BitIndexRead), nameof(IndexReadInputs.BitIndexZeroRead) })
+            {
+                var translated = Translate(name, options);
+                var read = SingleRead(translated);
+                Assert.Equal([new Term(CellOf(translated, "b"), 1)], read.GateTerms.ToArray());
+                AssertMatchesPlain(translated, 8303, ZeroSign.MayDiffer);
+            }
+        }
     }
 
     // Rule 3: one index read with the zero rule on both sides.

@@ -50,6 +50,20 @@ public class BitArithmeticTests
         Assert.Equal(new Sharpwired.Core.NumericRange(-100, 101), circuit.Ranges[translated.Outputs[0].Wire.Position]);
     }
 
+    // Rule 1 is not under TranslationOptions.RecognizePatterns: with the patterns off, a bit as an int is still the
+    // bit wire with the grid 1, and k + (b ? 1 : 0) is still one affine operation.
+    [Fact]
+    public void With_patterns_off_a_bool_used_as_an_int_is_still_the_bit_wire()
+    {
+        var options = new TranslationOptions { RecognizePatterns = false };
+        var bitAsInt = HandwiredTranslator.TranslateFunction(Input(typeof(BitArithmeticInputs), nameof(BitArithmeticInputs.BitAsInt)), options);
+        Assert.Empty(bitAsInt.Table.Circuit.Operations);
+        var sum = HandwiredTranslator.TranslateFunction(Input(typeof(BitArithmeticInputs), nameof(BitArithmeticInputs.ConstantPlusBit)), options);
+        Assert.Single(sum.Table.Circuit.Operations);
+        Assert.Equal(1d, sum.Table.Circuit.Grids[sum.Outputs[0].Wire.Position]);
+        AssertMatchesPlain(sum, 8102, ZeroSign.MayDiffer);
+    }
+
     // x = c ? 1 : 0; if (b) x = x + 1: the gate of the int x has the grid 1.
     [Fact]
     public void An_increment_of_a_bit_under_a_branch_gives_a_gate_on_the_grid_1()

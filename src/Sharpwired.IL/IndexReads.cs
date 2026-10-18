@@ -77,9 +77,10 @@ internal sealed partial class OperationLowering
                 : throw Refuse(offset, $"the array index {Fp32.Format(constant.Number)}", $"the index must lie in 0..{count - 1}");
         }
 
-        if (index.Kind != ScalarKind.Int || array.Elements.Any(element => element is not ScalarValue))
+        // A bit as the index, for example b ? 1 : 0, is the int 0 or 1 (rule 1).
+        if (index.Kind is not (ScalarKind.Int or ScalarKind.Bit) || array.Elements.Any(element => element is not ScalarValue))
         {
-            throw Refuse(offset, ComputedRead, "a computed index is an int, and the array holds float, int or bool values");
+            throw Refuse(offset, ComputedRead, "a computed index is an int or a bit, and the array holds float, int or bool values");
         }
 
         if (!Emitter.RecognizePatterns)
@@ -127,9 +128,9 @@ internal sealed partial class OperationLowering
             return constant.Number >= 0 && constant.Number < elements.Length ? elements[(int)constant.Number] : new ConstantValue(0, kind);
         }
 
-        if (index is not { Kind: ScalarKind.Int })
+        if (index is not { Kind: ScalarKind.Int or ScalarKind.Bit })
         {
-            throw Refuse(offset, construct, "the index is an int with a declared range");
+            throw Refuse(offset, construct, "the index is an int with a declared range, or a bit");
         }
 
         var form = IndexFormOf(index, offset);

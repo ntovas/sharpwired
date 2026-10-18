@@ -37,6 +37,18 @@ public static class IndexReadInputs
     [Handwired]
     public static float ClampReadInner([FixedLength(8), Range(-10, 10)] float[] t, [Range(-20, 20)] int i) => t[Math.Clamp(i, 1, 6)];
 
+    // Counterexample of rule 2: the minimum is the table bound 0, and the maximum 5 is below the last index 7.
+    [Handwired]
+    public static float ClampReadLowMaximum([FixedLength(8), Range(-10, 10)] float[] t, [Range(-20, 20)] int i) => t[Math.Clamp(i, 0, 5)];
+
+    // A bit as the index: b ? 1 : 0 is the int 0 or 1 (rule 1).
+    [Handwired]
+    public static float BitIndexRead([FixedLength(2), Range(-10, 10)] float[] t, bool b) => t[b ? 1 : 0];
+
+    // A bit as the index of Hw.ReadOrZero.
+    [Handwired]
+    public static float BitIndexZeroRead([FixedLength(2), Range(-10, 10)] float[] t, bool b) => Hw.ReadOrZero(t, b ? 1 : 0);
+
     // Counterexample of rule 2: a second reader reads the Math.Clamp result.
     [Handwired]
     public static (float Value, int Index) ClampReadTwice([FixedLength(8), Range(-10, 10)] float[] t, [Range(-20, 20)] int i)
