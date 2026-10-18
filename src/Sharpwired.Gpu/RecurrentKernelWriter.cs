@@ -86,6 +86,14 @@ internal static class RecurrentKernelWriter
             budget: u32,
         }
 
+
+        """ + CheckHelpers;
+
+    /// <summary>
+    /// The WGSL functions of the cell checks: ordered, is_bit, ones, is_nonzero and on_grid. The loop
+    /// kernels of LoopKernelWriter use them too.
+    /// </summary>
+    internal const string CheckHelpers = """
         // The order key of the bits of a value: a < b gives ordered(a) < ordered(b) for finite values,
         // and -0 is one key below +0.
         fn ordered(v: f32) -> i32 {
@@ -326,7 +334,7 @@ internal static class RecurrentKernelWriter
     // CellValidator on an f32 value: finite and within the range, then an exact bit, then the grid. The
     // range test compares order keys with the nearest FP32 bounds inside the range. A lower bound of 0
     // becomes -0, so that -0 passes, as the validator lets it pass.
-    private static string FloatCheck(string value, ValidatorCell cell, int? grid)
+    internal static string FloatCheck(string value, ValidatorCell cell, int? grid)
     {
         var parts = new List<string> { $"is_finite({value})" };
         if (cell.Minimum > double.NegativeInfinity)
@@ -351,7 +359,7 @@ internal static class RecurrentKernelWriter
     // CellValidator on an i32 or a u32 value of the integer writer. Such a value is finite. A whole value
     // within a range has the whole bounds of the range. A u32 value is 0 or 1, so it needs no bit test,
     // and no range test for a range that holds 0 and 1. A grid of the form 2^-n holds each whole value.
-    private static string IntegerCheck((WholeKind Kind, string Text) value, ValidatorCell cell, int? grid)
+    internal static string IntegerCheck((WholeKind Kind, string Text) value, ValidatorCell cell, int? grid)
     {
         var bit = value.Kind == WholeKind.Bit;
         var number = bit ? $"i32({value.Text})" : value.Text;
@@ -392,7 +400,7 @@ internal static class RecurrentKernelWriter
     // and SourceTable.CreateCircuit declares each cell grid with it. The validator divides in float64,
     // which is exact for a power of two. So value / 2^e is a whole number exactly when the lowest 1 bit
     // of the value is at 2^e or above.
-    private static int GridExponent(double grid, string name)
+    internal static int GridExponent(double grid, string name)
     {
         var exponent = Math.ILogB(grid);
         if (!(grid > 0) || exponent < -149 || exponent > 127 || Math.ScaleB(1, exponent) != grid)
