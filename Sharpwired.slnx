@@ -8,6 +8,7 @@
     <Project Path="src/Sharpwired.Annotations/Sharpwired.Annotations.csproj" />
     <Project Path="src/Sharpwired.Cells/Sharpwired.Cells.csproj" />
     <Project Path="src/Sharpwired.Core/Sharpwired.Core.csproj" />
+    <Project Path="src/Sharpwired.Gpu/Sharpwired.Gpu.csproj" />
     <Project Path="src/Sharpwired.IL/Sharpwired.IL.csproj" />
     <Project Path="src/Sharpwired.Raylib/Sharpwired.Raylib.csproj" />
     <Project Path="src/Sharpwired.Timing/Sharpwired.Timing.csproj" />
@@ -16,6 +17,7 @@
     <Project Path="tests/Sharpwired.Annotations.Tests/Sharpwired.Annotations.Tests.csproj" />
     <Project Path="tests/Sharpwired.Cells.Tests/Sharpwired.Cells.Tests.csproj" />
     <Project Path="tests/Sharpwired.Core.Tests/Sharpwired.Core.Tests.csproj" />
+    <Project Path="tests/Sharpwired.Gpu.Tests/Sharpwired.Gpu.Tests.csproj" />
     <Project Path="tests/Sharpwired.IL.FSharpInputs/Sharpwired.IL.FSharpInputs.fsproj" />
     <Project Path="tests/Sharpwired.IL.Tests/Sharpwired.IL.Tests.csproj" />
     <Project Path="tests/Sharpwired.Raylib.Tests/Sharpwired.Raylib.Tests.csproj" />

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- No Handwired source. The tests of the WebGPU backend. -->
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- The same JIT settings as Sharpwired.Core.Tests, so that the FP32 behavior of the tests is the same. -->
+    <Optimize>true</Optimize>
+    <TieredCompilation>false</TieredCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Sharpwired.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Sharpwired.Core.Tests\Js.cs" Link="Js.cs" />
+    <Compile Include="..\Sharpwired.Core.Tests\TensorChecks.cs" Link="TensorChecks.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
+  </ItemGroup>
+
+</Project>
