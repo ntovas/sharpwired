@@ -58,8 +58,13 @@ internal sealed record NumberTest(int Position) : ZeroTest;
 /// </summary>
 internal sealed record IntegerPlan(ImmutableArray<WholeProof> Proofs, ImmutableArray<IntegerForm?> Forms, ImmutableArray<bool> Needed, ImmutableArray<bool> SlotNeeded)
 {
-    public static IntegerPlan Create(ProofResult proof, ImmutableArray<ShaderRow> rows, int slotCount, int[] rootPositions)
+    /// <summary>
+    /// The forms and the needed rows. An index read of a constant table (<paramref name="tables"/>) needs no
+    /// candidate row: the writer reads the table from its storage buffer.
+    /// </summary>
+    public static IntegerPlan Create(ProofResult proof, ImmutableArray<ShaderRow> rows, int slotCount, int[] rootPositions, ConstantTables? tables = null)
     {
+        tables ??= ConstantTables.None;
         var proofs = proof.Proofs;
         var rowAt = new ShaderRow?[proofs.Length];
         foreach (var row in rows)
@@ -91,7 +96,7 @@ internal sealed record IntegerPlan(ImmutableArray<WholeProof> Proofs, ImmutableA
             }
             var position = PositionOf(row);
             if (!needed[position]) continue;
-            foreach (var read in Reads(forms[position]!)) needed[read] = true;
+            foreach (var read in Reads(forms[position]!, tables)) needed[read] = true;
             if (row is AffineRow affine)
             {
                 foreach (var gather in affine.Gathers) slotNeeded[gather.Slot] = true;
@@ -188,11 +193,12 @@ internal sealed record IntegerPlan(ImmutableArray<WholeProof> Proofs, ImmutableA
         proof.Exact[inner.Position] && inner.Terms.Length == 0 && inner.Bias == 1 && Conjunction(inner, proof, rowAt) is null;
 
     // The positions that the form reads.
-    private static IEnumerable<int> Reads(IntegerForm form)
+    private static IEnumerable<int> Reads(IntegerForm form, ConstantTables tables)
     {
         static IEnumerable<int> Positions(ImmutableArray<ShaderTerm> terms) => terms.Select(term => term.Position);
-        static IEnumerable<int> AllCandidates(ShaderCandidates candidates) => Enumerable.Range(0, candidates.Count).Select(candidates.PositionAt);
-        static IEnumerable<int> GatherCandidates(AffineRow row) => row.Gathers.SelectMany(gather => AllCandidates(gather.Candidates));
+        IEnumerable<int> AllCandidates(ShaderCandidates candidates) =>
+            tables.Contains(candidates) ? [] : Enumerable.Range(0, candidates.Count).Select(candidates.PositionAt);
+        IEnumerable<int> GatherCandidates(AffineRow row) => row.Gathers.SelectMany(gather => AllCandidates(gather.Candidates));
         static IEnumerable<int> TestReads(ZeroTest test) => test is ComparisonTest comparison ? Positions(comparison.Inner.GateTerms) : [((NumberTest)test).Position];
         return form switch
         {
@@ -205,8 +211,9 @@ internal sealed record IntegerPlan(ImmutableArray<WholeProof> Proofs, ImmutableA
             ConjunctionForm conjunction => conjunction.All.Concat(conjunction.ZeroBits).Concat(conjunction.Tests.SelectMany(TestReads)),
             GateForm gate => Positions(gate.Row.GateTerms),
             ScoreForm score => Positions(score.Row.Terms),
-            IndexForm read => Positions(read.Row.IndexTerms)
-                .Concat(Enumerable.Range(read.First, read.Final - read.First + 1).Select(read.Row.Candidates.PositionAt)),
+            IndexForm read => Positions(read.Row.IndexTerms).Concat(tables.Contains(read.Row.Candidates)
+                ? []
+                : Enumerable.Range(read.First, read.Final - read.First + 1).Select(read.Row.Candidates.PositionAt)),
             _ => throw new InvalidOperationException($"unknown form {form.GetType().Name}"),
         };
     }

@@ -35,8 +35,9 @@ public static class WgslIntegerWriter
         ShaderRows.Validate(circuit, program);
         var rows = ShaderRows.FlattenProgram(program);
         var rootPositions = ShaderRows.RootPositions(program);
-        var plan = IntegerPlan.Create(IntegerProof.Analyze(circuit, program, rows), rows, program.GatherSlotCount, rootPositions);
-        return new IntegerBody(plan, program.SourceSize).Write(rows, rootPositions);
+        var tables = ConstantTables.Find(rows, program.SourceSize);
+        var plan = IntegerPlan.Create(IntegerProof.Analyze(circuit, program, rows), rows, program.GatherSlotCount, rootPositions, tables);
+        return new IntegerBody(plan, program.SourceSize, candidateRead: FloatBody.TableRead(tables, "tables", 0)).Write(rows, rootPositions, tables.Values);
     }
 }
 
@@ -48,19 +49,22 @@ internal sealed partial class IntegerBody
     private readonly int sourceSize;
     private readonly FloatBody body;
     private readonly Func<int, string>? cellName;
+    private readonly Func<ShaderCandidates, string, string?>? candidateRead;
 
     // True for a row whose f32 value has the name v<position>: an f32 row, also one that the writer
     // then converts to an integer.
     private readonly bool[] hasFloatName;
 
     // cellName: the variable of a source cell in a step kernel (FloatBody), or null for a buffer read.
-    public IntegerBody(IntegerPlan plan, int sourceSize, Func<int, string>? cellName = null)
+    // candidateRead: the read of a constant table (FloatBody.TableRead), or null.
+    public IntegerBody(IntegerPlan plan, int sourceSize, Func<int, string>? cellName = null, Func<ShaderCandidates, string, string?>? candidateRead = null)
     {
         this.plan = plan;
         this.sourceSize = sourceSize;
         this.cellName = cellName;
+        this.candidateRead = candidateRead;
         hasFloatName = new bool[plan.Proofs.Length];
-        body = new FloatBody(sourceSize, FloatNameOf, cellName);
+        body = new FloatBody(sourceSize, FloatNameOf, cellName, candidateRead);
     }
 
     /// <summary>The f32 body that holds the statements.</summary>
@@ -68,10 +72,10 @@ internal sealed partial class IntegerBody
 
     private ImmutableArray<WholeProof> Proofs => plan.Proofs;
 
-    public WgslModule Write(ImmutableArray<ShaderRow> rows, int[] rootPositions)
+    public WgslModule Write(ImmutableArray<ShaderRow> rows, int[] rootPositions, ImmutableArray<float> constantTable)
     {
         var (floatRows, wholeRows, bitRows) = WriteRows(rows);
-        return body.Finish(rootPositions, floatRows, wholeRows, bitRows);
+        return body.Finish(rootPositions, floatRows, wholeRows, bitRows, constantTable);
     }
 
     /// <summary>
@@ -330,6 +334,7 @@ internal sealed partial class IntegerBody
     {
         if (candidates.Count == 1) return TextOf(candidates.PositionAt(0), kind);
         string Convert(string read) => kind == WholeKind.Float ? read : $"{TypeOf(kind)}({read})";
+        if (candidateRead?.Invoke(candidates, index) is { } table) return Convert(table);
         if (cellName is null && candidates.Form == CandidateForm.Strided)
         {
             return Convert($"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]");

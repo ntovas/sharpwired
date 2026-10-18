@@ -145,7 +145,7 @@ internal static class BatchPrograms
 }
 
 [Collection(GpuCollection.Name)]
-public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper output)
+public sealed partial class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper output)
 {
     public static TheoryData<GpuWriter> Writers => new() { GpuWriter.Float32, GpuWriter.Integer };
 

@@ -2,7 +2,10 @@
 // compiled program, one for each operation, in an order that gives the values of TensorExecution. emit.ts
 // refuses gathers and index reads of computed candidates. These rows hold both. They have a gather
 // compute and the gather reads of a row. They have three candidate forms: evenly spaced source cells, a
-// list of source cells, and a list of computed values.
+// list of source cells, and a list of computed values. ConstantTables finds the index reads whose
+// candidates are all constants (the probe of the phase 6 plan, question 1): a writer reads such a list from
+// a storage buffer of constant tables, and the constants get no statement. Needed gives the rows that the
+// roots need, with no row for a constant that only a constant table reads.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -213,4 +216,121 @@ internal static class ShaderRows
             ? new ShaderCandidates(CandidateForm.Strided, positions.Length, positions[0], stride, [], null)
             : new ShaderCandidates(CandidateForm.SourceList, positions.Length, 0, 0, positions, table);
     }
+
+    /// <summary>
+    /// The rows that the roots need, by packed position, and the gather slots that they need. A row reads
+    /// its terms, its gate terms, its index terms, its candidates and the bits of its gather slots. An index
+    /// read of a constant table reads no candidate: the writer reads the table from the storage buffer.
+    /// </summary>
+    public static (bool[] Rows, bool[] Slots) Needed(ImmutableArray<ShaderRow> rows, int[] rootPositions, int valueCount, int slotCount, ConstantTables tables)
+    {
+        var needed = new bool[valueCount];
+        var slots = new bool[slotCount];
+        foreach (var position in rootPositions)
+        {
+            if (position >= 0) needed[position] = true;
+        }
+        void Mark(ImmutableArray<ShaderTerm> terms)
+        {
+            foreach (var term in terms) needed[term.Position] = true;
+        }
+        void MarkCandidates(ShaderCandidates candidates)
+        {
+            if (tables.Contains(candidates)) return;
+            for (var candidate = 0; candidate < candidates.Count; candidate++) needed[candidates.PositionAt(candidate)] = true;
+        }
+        for (var index = rows.Length - 1; index >= 0; index--)
+        {
+            switch (rows[index])
+            {
+                case GatherComputeRow compute:
+                    if (!slots[compute.Slot]) continue;
+                    foreach (var bit in compute.BitPositions) needed[bit] = true;
+                    break;
+                case AffineRow affine when needed[affine.Position]:
+                    Mark(affine.Terms);
+                    foreach (var gather in affine.Gathers)
+                    {
+                        slots[gather.Slot] = true;
+                        MarkCandidates(gather.Candidates);
+                    }
+                    break;
+                case RegluRow reglu when needed[reglu.Position]:
+                    Mark(reglu.Terms);
+                    Mark(reglu.GateTerms);
+                    break;
+                case BooleanRow boolean when needed[boolean.Position]:
+                    Mark(boolean.Terms);
+                    break;
+                case IndexRow read when needed[read.Position]:
+                    Mark(read.IndexTerms);
+                    MarkCandidates(read.Candidates);
+                    break;
+            }
+        }
+        return (needed, slots);
+    }
+}
+
+/// <summary>
+/// The constant tables of a program: each list of computed candidates of an index read whose candidates
+/// are all constant rows (an affine row with no term and no gather). Two reads of the same values share
+/// one table. <see cref="Values"/> holds the tables one after the other, with the exact bits of each
+/// constant.
+/// </summary>
+internal sealed class ConstantTables
+{
+    private readonly Dictionary<ShaderCandidates, int> starts;
+
+    private ConstantTables(Dictionary<ShaderCandidates, int> starts, ImmutableArray<float> values)
+    {
+        this.starts = starts;
+        Values = values;
+    }
+
+    /// <summary>A program with no constant table.</summary>
+    public static ConstantTables None { get; } = new(new Dictionary<ShaderCandidates, int>(ReferenceEqualityComparer.Instance), []);
+
+    /// <summary>The cells of the tables, one table after the other.</summary>
+    public ImmutableArray<float> Values { get; }
+
+    /// <summary>Find the constant tables of the index reads of the rows.</summary>
+    public static ConstantTables Find(ImmutableArray<ShaderRow> rows, int sourceSize)
+    {
+        var constants = new Dictionary<int, float>();
+        foreach (var row in rows)
+        {
+            if (row is AffineRow { Terms.Length: 0, Gathers.Length: 0 } constant) constants[constant.Position] = constant.Bias;
+        }
+        var starts = new Dictionary<ShaderCandidates, int>(ReferenceEqualityComparer.Instance);
+        var byValues = new Dictionary<string, int>(StringComparer.Ordinal);
+        var values = ImmutableArray.CreateBuilder<float>();
+        foreach (var row in rows)
+        {
+            if (row is not IndexRow { Candidates: { Form: CandidateForm.Computed, Count: > 1 } candidates }) continue;
+            var table = new float[candidates.Count];
+            var allConstant = true;
+            for (var candidate = 0; candidate < table.Length && allConstant; candidate++)
+            {
+                var position = candidates.PositionAt(candidate);
+                allConstant = position >= sourceSize && constants.TryGetValue(position, out table[candidate]);
+            }
+            if (!allConstant) continue;
+            var key = string.Join(",", table.Select(value => BitConverter.SingleToUInt32Bits(value).ToString("x8", System.Globalization.CultureInfo.InvariantCulture)));
+            if (!byValues.TryGetValue(key, out var start))
+            {
+                start = values.Count;
+                byValues[key] = start;
+                values.AddRange(table);
+            }
+            starts[candidates] = start;
+        }
+        return new ConstantTables(starts, values.ToImmutable());
+    }
+
+    /// <summary>True when the candidates are a constant table.</summary>
+    public bool Contains(ShaderCandidates candidates) => starts.ContainsKey(candidates);
+
+    /// <summary>The first cell of the table of the candidates, or -1 when they are no constant table.</summary>
+    public int StartOf(ShaderCandidates candidates) => starts.TryGetValue(candidates, out var start) ? start : -1;
 }

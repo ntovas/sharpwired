@@ -3,7 +3,7 @@
 // keep function k around each literal, each product and each partial sum. emit.ts writes the rows
 // without keep, drops a bias of 0, and writes the boolean atom as a select. This writer keeps the stored
 // form of each operation, so each rounding point gives the reference bits (question 2 of the phase 5
-// plan).
+// plan). A row that only a constant table reads gets no statement (ShaderRows.Needed).
 
 using System.Collections.Immutable;
 using System.Text;
@@ -38,7 +38,14 @@ public sealed record WgslStatistics(int Statements, int FloatRows, int WholeRows
 /// One compute shader of a program. Binding 0 holds the source tables, binding 1 the outputs, and
 /// binding 2 the parameters. One invocation evaluates one source table.
 /// </summary>
-public sealed record WgslModule(string Code, int SourceSize, int RootCount, int WorkgroupSize, WgslStatistics Statistics);
+public sealed record WgslModule(string Code, int SourceSize, int RootCount, int WorkgroupSize, WgslStatistics Statistics)
+{
+    /// <summary>
+    /// The cells of the constant tables, which binding 3 holds. An index read of constant candidates reads
+    /// its table there. Empty when the shader reads no constant table.
+    /// </summary>
+    public ImmutableArray<float> ConstantTable { get; init; } = [];
+}
 
 /// <summary>
 /// The f32 writer. Each FP32 step of a row is one keep, <c>k(a + b)</c> or <c>k(a * b)</c>, and each
@@ -62,10 +69,19 @@ public static class WgslFloatWriter
         ArgumentNullException.ThrowIfNull(circuit);
         ArgumentNullException.ThrowIfNull(program);
         ShaderRows.Validate(circuit, program);
-        var body = new FloatBody(program.SourceSize);
         var rows = ShaderRows.FlattenProgram(program);
-        foreach (var row in rows) body.Write(row);
-        return body.Finish(ShaderRows.RootPositions(program), rows.Count(row => row is not GatherComputeRow));
+        var rootPositions = ShaderRows.RootPositions(program);
+        var tables = ConstantTables.Find(rows, program.SourceSize);
+        var body = new FloatBody(program.SourceSize, candidateRead: FloatBody.TableRead(tables, "tables", 0));
+        var (needed, slots) = ShaderRows.Needed(rows, rootPositions, program.ValueCount, program.GatherSlotCount, tables);
+        var written = 0;
+        foreach (var row in rows)
+        {
+            if (row is GatherComputeRow compute ? !slots[compute.Slot] : !needed[IntegerPlan.PositionOf(row)]) continue;
+            body.Write(row);
+            if (row is not GatherComputeRow) written++;
+        }
+        return body.Finish(rootPositions, written, constantTable: tables.Values);
     }
 }
 
@@ -73,8 +89,16 @@ public static class WgslFloatWriter
 // the f32 text of a position that the integer writer holds as an integer, for example f32(w3). It gives null
 // for an f32 position. The step kernel of RecurrentKernelWriter passes cellName, which gives the variable of a
 // source cell, for example cell3. Then a read of a source cell reads the variable. A read of a source cell at
-// a computed index is a select over the variables, as for a list of computed values.
-internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floatName = null, Func<int, string>? cellName = null)
+// a computed index is a select over the variables, as for a list of computed values. candidateRead gives the
+// text of a read of the candidates at an i32 index, for example a read of a constant table, or null for the
+// forms below. sourceBuffer false (the loop kernels) reads no candidate from the buffer sources: such a read
+// is a select over the names of the cells.
+internal sealed partial class FloatBody(
+    int sourceSize,
+    Func<int, string?>? floatName = null,
+    Func<int, string>? cellName = null,
+    Func<ShaderCandidates, string, string?>? candidateRead = null,
+    bool sourceBuffer = true)
 {
     // A sum of more terms continues in a new statement (emit.ts termsPerStatement).
     private const int TermsPerStatement = 32;
@@ -99,6 +123,9 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
             default: throw new InvalidOperationException($"unknown row {row.GetType().Name}");
         }
     }
+
+    /// <summary>True when a read of source candidates reads the buffer sources.</summary>
+    public bool ReadsSourceBuffer => sourceBuffer && cellName is null;
 
     /// <summary>Add one statement after the statements so far.</summary>
     public void AddStatement(string statement) => statements.Add(statement);
@@ -127,22 +154,38 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     /// <summary>The number of calls of the keep function k in the text.</summary>
     public static int CountKeeps(string text) => KeepCall().Count(text);
 
-    public WgslModule Finish(int[] rootPositions, int floatRows, int wholeRows = 0, int bitRows = 0)
+    /// <summary>
+    /// The candidate read of the constant tables: buffer[offset + start + index] for a constant table, null
+    /// for other candidates.
+    /// </summary>
+    public static Func<ShaderCandidates, string, string?> TableRead(ConstantTables tables, string buffer, int offset) => (candidates, index) =>
+    {
+        var start = tables.StartOf(candidates);
+        return start < 0 ? null : $"{buffer}[{WgslText.Uint(offset + start)} + u32({index})]";
+    };
+
+    // A root that is a source cell is a copy from the buffer: a source cell gets a statement only where a
+    // row reads it (the phase 5 carried item "shader creation time").
+    public WgslModule Finish(int[] rootPositions, int floatRows, int wholeRows = 0, int bitRows = 0, ImmutableArray<float> constantTable = default)
     {
         var stores = new List<string>(rootPositions.Length);
         for (var root = 0; root < rootPositions.Length; root++)
         {
-            var value = rootPositions[root] < 0 ? NaN : Name(rootPositions[root]);
+            var position = rootPositions[root];
+            var value = position < 0 ? NaN : position < sourceSize ? SourceText(position) : Name(position);
             stores.Add($"outputs[o + {WgslText.Uint(root)}] = {value};");
         }
         var body = BodyStatements();
+        var table = constantTable.IsDefault ? [] : constantTable;
 
         var code = new StringBuilder();
         code.Append("@group(0) @binding(0) var<storage, read> sources: array<f32>;\n");
         code.Append("@group(0) @binding(1) var<storage, read_write> outputs: array<f32>;\n");
-        code.Append("@group(0) @binding(2) var<storage, read> params: Params;\n\n");
+        code.Append("@group(0) @binding(2) var<storage, read> params: Params;\n");
+        if (table.Length > 0) code.Append("@group(0) @binding(3) var<storage, read> tables: array<f32>;\n");
+        code.Append('\n');
         code.Append(WgslText.Prelude);
-        foreach (var table in tables) code.Append(table).Append('\n');
+        foreach (var declaration in tables) code.Append(declaration).Append('\n');
         code.Append('\n');
         code.Append($"@compute @workgroup_size({WgslFloatWriter.WorkgroupSize})\n");
         code.Append("fn main(@builtin(global_invocation_id) id: vec3<u32>) {\n");
@@ -157,7 +200,7 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
         }
         code.Append("}\n");
         var statistics = new WgslStatistics(body.Count + stores.Count, floatRows, wholeRows, bitRows, keeps);
-        return new WgslModule(code.ToString(), sourceSize, rootPositions.Length, WgslFloatWriter.WorkgroupSize, statistics);
+        return new WgslModule(code.ToString(), sourceSize, rootPositions.Length, WgslFloatWriter.WorkgroupSize, statistics) { ConstantTable = table };
     }
 
     [GeneratedRegex(@"(?<![A-Za-z0-9_])k\(")]
@@ -215,11 +258,12 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     private string Candidate(ShaderCandidates candidates, string index, string arrayName)
     {
         if (candidates.Count == 1) return Name(candidates.PositionAt(0));
-        if (cellName is null && candidates.Form == CandidateForm.Strided)
+        if (candidateRead?.Invoke(candidates, index) is { } read) return read;
+        if (ReadsSourceBuffer && candidates.Form == CandidateForm.Strided)
         {
             return $"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]";
         }
-        if (cellName is null && candidates.Form == CandidateForm.SourceList) return $"sources[base + {TableName(candidates)}[{index}]]";
+        if (ReadsSourceBuffer && candidates.Form == CandidateForm.SourceList) return $"sources[base + {TableName(candidates)}[{index}]]";
         statements.Add($"var {arrayName}: f32 = {Name(candidates.PositionAt(0))};");
         for (var candidate = 1; candidate < candidates.Count; candidate++)
         {

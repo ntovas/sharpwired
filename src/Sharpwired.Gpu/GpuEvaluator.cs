@@ -1,7 +1,9 @@
 // Handwired source: src/json-search/gpu/host.ts (the evaluate function of createProgramRunner). The GPU
 // batch evaluator. It has one shader of the program. It puts the source tables in chunks that fit the
 // buffer limits of the device. It does one dispatch and one readback for each chunk. It is also the root
-// evaluator of one table (IRootEvaluator) that ProgramEvaluator uses for a program on the GPU.
+// evaluator of one table (IRootEvaluator) that ProgramEvaluator uses for a program on the GPU. Binding 3
+// holds the constant tables of the shader. The source checks run on parallel threads before the device
+// lock (phase 5 carried item, task 3 of the phase 6 plan).
 
 using Sharpwired.Core;
 
@@ -10,7 +12,7 @@ namespace Sharpwired.Gpu;
 /// <summary>
 /// The GPU batch evaluator of one program. One shader invocation evaluates one source table. The
 /// evaluator checks each source table on the CPU, as <see cref="TensorEvaluator"/> does, before it
-/// sends the tables to the GPU.
+/// sends the tables to the GPU. The checks of a large batch run on parallel threads.
 /// </summary>
 /// <remarks>
 /// <para>The evaluator checks the arguments and the source tables before it takes the lock of its
@@ -30,12 +32,13 @@ namespace Sharpwired.Gpu;
 /// </remarks>
 public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 {
-    // The bindings of the shader: sources, outputs, params (WgslFloatWriter).
+    // The bindings of the shader: sources, outputs, params and the constant tables (WgslFloatWriter).
     private const int SourceBinding = 0;
     private const int OutputBinding = 1;
     private const int ParamsBinding = 2;
+    private const int TableBinding = 3;
 
-    private static readonly KernelBuffer[] Layout = [KernelBuffer.ReadOnlyStorage, KernelBuffer.Storage, KernelBuffer.ReadOnlyStorage];
+    private static readonly KernelBuffer[] Layout = [KernelBuffer.ReadOnlyStorage, KernelBuffer.Storage, KernelBuffer.ReadOnlyStorage, KernelBuffer.ReadOnlyStorage];
 
     private readonly GpuDevice device;
     private readonly Circuit circuit;
@@ -55,6 +58,16 @@ public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
         TablesPerChunk = tablesPerChunk;
         rootValues = new float[module.RootCount];
         kernel = new ComputeKernel(device, module.Code, Layout);
+        try
+        {
+            // A binding of no bytes is not valid, so a shader with no constant table gets one unused cell.
+            kernel.Write<float>(TableBinding, module.ConstantTable.IsEmpty ? [0f] : module.ConstantTable.AsSpan());
+        }
+        catch
+        {
+            kernel.Dispose();
+            throw;
+        }
     }
 
     /// <summary>The program that the evaluator runs.</summary>
@@ -121,14 +134,12 @@ public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 
     public void Evaluate(ReadOnlySpan<float> sources, int tableCount, Span<float> outputs)
     {
-        // The checks read only the circuit, the program and the arguments, so they run before the lock.
+        // The checks read only the circuit, the program and the arguments, so they run before the lock, on
+        // parallel threads (the phase 5 carried item "the integer evaluator CPU declaration checks").
         ObjectDisposedException.ThrowIf(disposed, this);
-        BatchArguments.Check(circuit, Program, sources, tableCount, outputs.Length);
+        BatchArguments.CheckLengths(Program, sources, tableCount, outputs.Length);
+        BatchArguments.CheckTables(circuit, Program, sources, tableCount, checksDeclarations, parallel: true);
         var sourceSize = Module.SourceSize;
-        if (checksDeclarations)
-        {
-            for (var table = 0; table < tableCount; table++) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(table * sourceSize, sourceSize));
-        }
         lock (device.Sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);

@@ -318,7 +318,7 @@ public sealed partial class WriterTests
         Line(module, "let o: u32 = t * 3u;");
         Line(module, $"outputs[o + 0u] = {Name(program, sum)};");
         Line(module, $"outputs[o + 1u] = {NaNBits};");
-        Line(module, "outputs[o + 2u] = s1;");
+        Line(module, "outputs[o + 2u] = sources[base + 1u];");
     }
 
     [Fact]

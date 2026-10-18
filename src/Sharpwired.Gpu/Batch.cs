@@ -102,9 +102,19 @@ public static class BatchEvaluators
 // The argument checks of IBatchEvaluator.Evaluate.
 internal static class BatchArguments
 {
+    // The tables of one block of the parallel checks.
+    private const int CheckBlock = 4096;
+
     // Check the count, the span lengths and each source table, before any evaluation. A source table
     // outside the declared ranges throws the exception of TensorEvaluator.
     public static void Check(Circuit circuit, TensorProgram program, ReadOnlySpan<float> sources, int tableCount, int outputLength)
+    {
+        CheckLengths(program, sources, tableCount, outputLength);
+        for (var table = 0; table < tableCount; table++) circuit.ValidateSourceRanges(sources.Slice(table * program.SourceSize, program.SourceSize));
+    }
+
+    // Check the count and the span lengths.
+    public static void CheckLengths(TensorProgram program, ReadOnlySpan<float> sources, int tableCount, int outputLength)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(tableCount);
         var sourceSize = program.SourceSize;
@@ -116,6 +126,61 @@ internal static class BatchArguments
         {
             throw new ArgumentException($"outputs holds {outputLength} values, and {tableCount} tables need {(long)tableCount * program.Roots.Count}", "outputs");
         }
-        for (var table = 0; table < tableCount; table++) circuit.ValidateSourceRanges(sources.Slice(table * sourceSize, sourceSize));
+    }
+
+    /// <summary>
+    /// Check the range of each cell of each table, then, with <paramref name="declarations"/>, the grid and
+    /// the bit declarations of each table (<see cref="IntegerProof.ValidateSourceDeclarations"/>). Throw the
+    /// exception of the first table that fails, in this order: the ranges of all tables come first. With
+    /// <paramref name="parallel"/>, blocks of tables run on parallel threads, and the exception is the same.
+    /// </summary>
+    public static void CheckTables(Circuit circuit, TensorProgram program, ReadOnlySpan<float> sources, int tableCount, bool declarations, bool parallel)
+    {
+        var sourceSize = program.SourceSize;
+        if (!parallel || tableCount <= CheckBlock)
+        {
+            for (var table = 0; table < tableCount; table++) circuit.ValidateSourceRanges(sources.Slice(table * sourceSize, sourceSize));
+            if (!declarations) return;
+            for (var table = 0; table < tableCount; table++) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(table * sourceSize, sourceSize));
+            return;
+        }
+        // A span cannot go into the lambda of the parallel loop, so the loop reads a copy.
+        var cells = sources.ToArray();
+        var range = FirstFailure(tableCount, table => circuit.ValidateSourceRanges(cells.AsSpan(table * sourceSize, sourceSize)));
+        // The check of the first bad table again, on this thread, throws its exception.
+        if (range < tableCount) circuit.ValidateSourceRanges(sources.Slice(range * sourceSize, sourceSize));
+        if (!declarations) return;
+        var declaration = FirstFailure(tableCount, table => IntegerProof.ValidateSourceDeclarations(circuit, cells.AsSpan(table * sourceSize, sourceSize)));
+        if (declaration < tableCount) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(declaration * sourceSize, sourceSize));
+    }
+
+    // The first table whose check throws ArgumentException, or tableCount when no table fails. A block
+    // stops at a table after the first failure that another block found.
+    private static int FirstFailure(int tableCount, Action<int> check)
+    {
+        var first = tableCount;
+        Parallel.For(0, (tableCount + CheckBlock - 1) / CheckBlock, block =>
+        {
+            var end = Math.Min(tableCount, (block + 1) * CheckBlock);
+            for (var table = block * CheckBlock; table < end && table < Volatile.Read(ref first); table++)
+            {
+                try
+                {
+                    check(table);
+                }
+                catch (ArgumentException)
+                {
+                    var seen = Volatile.Read(ref first);
+                    while (table < seen)
+                    {
+                        var previous = Interlocked.CompareExchange(ref first, table, seen);
+                        if (previous == seen) break;
+                        seen = previous;
+                    }
+                    return;
+                }
+            }
+        });
+        return first;
     }
 }
