@@ -496,3 +496,13 @@ The tasks run in this order. Each task ends with a green `dotnet test` and `dotn
 3. `i32` for whole numbers. R5.1 says "holds proven integers and bits as `u32` values". A whole value can be negative, for example the difference `a - b` of `Compare`. bit-emit.ts holds whole numbers as `i32` and bits as `u32`. Recommendation: `i32` for whole numbers and `u32` for bits, and a change of the R5.1 text to "as integer values". Do you accept?
 4. The subnormal limit of the f32 writer. Metal flushes subnormal results on this machine, and no WGSL form stops it. Recommendation: accept the limit, record it as `GpuDevice.FlushesSubnormals`, and compare only the evaluations with no subnormal value on a device that flushes (question 6). The alternative is an exact software path for each operation near 2^-126, which costs a branch for each product and each sum. Do you accept the limit?
 5. The default writer. Recommendation: `GpuWriter.Integer` is the default, because it gives the same values as the f32 writer and removes the keep cost on whole rows. Do you agree?
+
+## Decisions
+
+The controller decided the open questions on 2026-10-18.
+
+1. Zero adapters. The GPU tests fail when no adapter opens. They pass with the reason in the test output when the environment variable `SHARPWIRED_NO_GPU` holds a reason. The writer, proof and CPU tests always run. No test is skipped.
+2. Packed words (the lanes and `packWords` of bit-emit.ts) move to phase 6, where the JSON search loop and its shared tables exist. Phase 5 holds each bit as its own `u32`.
+3. Integer types. Whole numbers use `i32`, and bits use `u32`, as bit-emit.ts does. The spec item R5.1 says "u32"; the plan reads it as "integer values", because a whole number can be negative.
+4. Subnormal values. The f32 writer cannot stop Metal from flushing subnormal results to 0. `GpuDevice.FlushesSubnormals` reports it. On such a device, the tests compare the evaluations with no subnormal value and count the others. The design docs and the XML comments state that the f32 writer is not exact for subnormal values on such a device. Handwired execution-model.md states the same effect for the sign cascade below 2^-126.
+5. The default writer is `GpuWriter.Integer`.
