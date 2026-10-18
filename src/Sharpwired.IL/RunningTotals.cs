@@ -28,9 +28,9 @@
 // items with PrefixNetworks.Sklansky (depth first). The items are the value before the loop (when it is
 // not the identity of the combine) and the elements. The value before the loop has no gate. In a copy
 // with a runtime gate, the element is gated: ITE(g_k, t_k, identity), so an inactive copy adds
-// nothing. The identity is 0 for +, 1 for AND, 0 for OR, and a bound of the element ranges for Min and
-// Max. Each prefix replaces its
-// placeholder, and each pending store gets its prefix.
+// nothing. The identity is 0 for +, 1 for AND, 0 for OR. For Min and Max it is a bound of the ranges
+// of the elements and of the value before the loop. Each prefix replaces its placeholder, and each
+// pending store gets its prefix.
 //
 // Exactness (plan, decision 8): a prefix network groups the combines in another order. Min, Max, AND
 // and OR return one operand, so each grouping gives the same value. A float or int + is exact only
@@ -457,7 +457,7 @@ internal sealed partial class OperationLowering
             return items;
         }
 
-        if (GateIdentity(total, [.. steps.Select(step => step.Element)]) is not { } off)
+        if (GateIdentity(total, [first, .. steps.Select(step => step.Element)]) is not { } off)
         {
             return null;
         }
@@ -467,8 +467,11 @@ internal sealed partial class OperationLowering
         return items;
     }
 
-    // The identity of the combine for the elements: 0 for +, 1 for AND, 0 for OR, the largest maximum
-    // of the element ranges for Min and the smallest minimum for Max. Null when a range is not finite.
+    // The identity of the combine for the items: 0 for +, 1 for AND, 0 for OR, the largest maximum of
+    // the item ranges for Min and the smallest minimum for Max. Null when a range is not finite. The
+    // items are the value before the loop and the elements. The bound must include the value before
+    // the loop. When it is dropped as the identity, an inactive copy must give it back (final fix
+    // wave, item A). When it is kept, an inactive copy must not give a value past it.
     private ConstantValue? GateIdentity(RunningTotal total, ScalarValue[] elements)
     {
         if (total.Kind is CombineKind.Add or CombineKind.And or CombineKind.Or)

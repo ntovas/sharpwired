@@ -341,6 +341,56 @@ public static class PatternInputs
         return all;
     }
 
+    // Gated Min and Max totals whose value before the loop lies outside the element ranges (final fix
+    // wave, item A). With n = 0 the plain method returns the value before the loop.
+    [Handwired]
+    public static float CountedMinimumFromLarge([Range(0, 4)] int n, [FixedLength(4), Range(-1, 1)] float[] x)
+    {
+        float s = 1000f;
+        for (int i = 0; i < n; i++) s = Math.Min(s, x[i]);
+        return s;
+    }
+
+    [Handwired]
+    public static float CountedMinimumFromValue([Range(0, 4)] int n, [Range(-1000, 1000)] float y, [FixedLength(4), Range(-1, 1)] float[] x)
+    {
+        float s = y;
+        for (int i = 0; i < n; i++) s = Math.Min(s, x[i]);
+        return s;
+    }
+
+    [Handwired]
+    public static float CountedMaximumFromLow([Range(0, 4)] int n, [FixedLength(4), Range(0, 10)] float[] x)
+    {
+        float s = -1000f;
+        for (int i = 0; i < n; i++) s = Math.Max(s, x[i]);
+        return s;
+    }
+
+    [Handwired]
+    public static float CountedMaximumFromValue([Range(0, 4)] int n, [Range(-1000, 1000)] float y, [FixedLength(4), Range(0, 10)] float[] x)
+    {
+        float s = y;
+        for (int i = 0; i < n; i++) s = Math.Max(s, x[i]);
+        return s;
+    }
+
+    [Handwired]
+    public static int CountedIntMinimumFromValue([Range(0, 4)] int n, [Range(-100, 100)] int y, [FixedLength(4), Range(0, 20)] int[] x)
+    {
+        int s = y;
+        for (int i = 0; i < n; i++) s = Math.Min(s, x[i]);
+        return s;
+    }
+
+    [Handwired]
+    public static int CountedIntMaximumFromValue([Range(0, 4)] int n, [Range(-100, 100)] int y, [FixedLength(4), Range(0, 20)] int[] x)
+    {
+        int s = y;
+        for (int i = 0; i < n; i++) s = Math.Max(s, x[i]);
+        return s;
+    }
+
     // An [Associative] combine has no identity value, so a loop of form 2 keeps its normal form.
     [Handwired]
     public static float CountedLarger([Range(0, 8)] int n, [FixedLength(8), Range(-1000, 1000), Grid(1)] float[] x)

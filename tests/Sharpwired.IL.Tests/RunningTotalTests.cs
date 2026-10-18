@@ -150,6 +150,50 @@ public class RunningTotalTests
         Assert.Equal(14f, translated.CreateEvaluator().Evaluate(source).Outputs[0]);
     }
 
+    // The review counterexamples of the final fix wave (item A). The value before the loop lies
+    // outside the element ranges. A gated element with the element bound as its off value gave the
+    // bound for n = 0: 1, 1, 0 and 20.
+    [Theory]
+    [InlineData(nameof(PatternInputs.CountedMinimumFromLarge), new float[] { 0, 0.5f, 0.5f, 0.5f, 0.5f }, 1000f)]
+    [InlineData(nameof(PatternInputs.CountedMinimumFromValue), new float[] { 0, 500, 0.5f, 0.5f, 0.5f, 0.5f }, 500f)]
+    [InlineData(nameof(PatternInputs.CountedMaximumFromLow), new float[] { 0, 5, 5, 5, 5 }, -1000f)]
+    [InlineData(nameof(PatternInputs.CountedIntMinimumFromValue), new float[] { 0, 50, 3, 3, 3, 3 }, 50f)]
+    public void A_gated_minimum_or_maximum_with_no_active_copy_gives_the_value_before_the_loop(string name, float[] source, float expected)
+    {
+        var translated = PatternSupport.Translate(name);
+        Assert.Equal(expected, translated.EvaluatePlain(source)[0]);
+        Assert.Equal(expected, translated.CreateEvaluator().Evaluate(source).Outputs[0]);
+    }
+
+    // Each count, with values before the loop below, inside and above the element ranges.
+    [Theory]
+    [InlineData(nameof(PatternInputs.CountedMinimumFromLarge))]
+    [InlineData(nameof(PatternInputs.CountedMinimumFromValue))]
+    [InlineData(nameof(PatternInputs.CountedMaximumFromLow))]
+    [InlineData(nameof(PatternInputs.CountedMaximumFromValue))]
+    [InlineData(nameof(PatternInputs.CountedIntMinimumFromValue))]
+    [InlineData(nameof(PatternInputs.CountedIntMaximumFromValue))]
+    public void A_gated_minimum_or_maximum_gives_the_plain_values_for_each_value_before_the_loop(string name)
+    {
+        var translated = PatternSupport.Translate(name);
+        AssertMatchesPlain(translated, 6209, ZeroSign.MayDiffer);
+        var withValue = translated.Inputs[1].Path == "y";
+        var source = SeededSources.Create(translated.Table, 1, 6210)[0];
+        for (var count = 0; count <= 4; count++)
+        {
+            source[0] = count;
+            foreach (var before in withValue ? new float[] { -100, -1, 0, 5, 15, 100 } : [source[1]])
+            {
+                if (withValue)
+                {
+                    source[1] = before;
+                }
+
+                AssertMatchesPlainAt(translated, source, ZeroSign.MayDiffer);
+            }
+        }
+    }
+
     [Fact]
     public void A_running_sum_in_form_2_has_fewer_operations_and_layers_than_its_normal_form()
     {
