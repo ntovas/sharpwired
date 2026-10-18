@@ -12,6 +12,10 @@
 // does not compute it. Then Select(0, kept, Infinity) gives NaN. The emitter refuses such a side
 // (review of task 5, round 2, finding A). A cell holds a finite value (the cell validator checks it).
 // An emitted gate holds one of its checked sides. So the emitter accepts these sides.
+//
+// The phase 6 plan, task 1, adds three parts: a bit that the program reads as a number gets the grid 1
+// (rule 1, BitAsNumber), a gate of two bits gets the grid 1 (phase 4 carried item a), and an AND with a
+// read of a bool table gives the gated read of rule 4 (EmitAnd).
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -129,6 +133,8 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
             OrValue disjunction => EmitOr(disjunction.Literals),
             XorValue xor => EmitXor(Emit(xor.Left), Emit(xor.Right)),
             GateValue gate => EmitGate(gate),
+            ClampValue clamp => clamp.Build(),
+            TableReadValue read => read.Build(),
             _ => throw new InvalidOperationException($"the value {value.GetType().Name} has no emit rule"),
         };
 
@@ -414,8 +420,16 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.
+    // A literal that is a read of a bool table with no wire gives the gated read of rule 4 of the
+    // phase 6 plan, task 1 (createStepAnd of data-program.ts): the AND of the other literals is the gate.
     private Wire EmitAnd(ImmutableArray<ScalarValue> literals)
     {
+        if (RecognizePatterns && literals.Length >= 2 && literals.OfType<TableReadValue>().FirstOrDefault(read => read.Wire is null) is { } gated)
+        {
+            ImmutableArray<ScalarValue> others = [.. literals.Where(literal => !ReferenceEquals(literal, gated))];
+            return gated.BuildGated(others.Length == 1 ? Emit(others[0]) : EmitAnd(others));
+        }
+
         var wires = literals.Select(Emit).ToArray();
         return Circuit.Reglu([], 1, [.. wires.Select(wire => new Term(wire, 1))], 1 - wires.Length);
     }

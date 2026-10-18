@@ -9,7 +9,7 @@
 // branch, a ret or another phi reads stays symbolic, so that an AND chain gives one AND. A call to a
 // [Handwired] method is inlined (Inliner.cs). A loop is unrolled at the position of its first block
 // in IL order (LoopForms.cs). A floor, an int division and an int remainder with few results give a
-// threshold count (ThresholdCounts.cs).
+// threshold count (ThresholdCounts.cs). The array reads are in IndexReads.cs.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -33,6 +33,9 @@ internal sealed partial class OperationLowering
     private readonly Dictionary<SsaValue, int> operationUses = [];
     private readonly Gates gates;
     private ImmutableArray<SsaBlock> returns = [];
+
+    // The values whose only use is the index of an array read (ldelem).
+    private readonly HashSet<SsaValue> soleIndexOperands = [];
 
     // A cgt or clt whose only use is "ldc.i4.0; ceq": the ceq gives the comparison with the other relation.
     private readonly Dictionary<SsaValue, SsaValue> invertedComparisons = [];
@@ -204,6 +207,14 @@ internal sealed partial class OperationLowering
             operationUses[operand] = operationUses.GetValueOrDefault(operand) + 1;
         }
 
+        foreach (var read in ssa.Blocks.SelectMany(b => b.Operations).Where(v => v.Op is ILOpCode.Ldelem or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i1))
+        {
+            if (read.Operands is [_, var index] && uses.GetValueOrDefault(index) == 1)
+            {
+                soleIndexOperands.Add(index);
+            }
+        }
+
         var users = ssa.Blocks.SelectMany(b => b.Operations).SelectMany(user => user.Operands.Select(operand => (operand, user)))
             .GroupBy(pair => pair.operand).ToDictionary(group => group.Key, group => group.Select(pair => pair.user).ToArray());
         foreach (var comparison in ssa.Blocks.SelectMany(b => b.Operations))
@@ -289,7 +300,7 @@ internal sealed partial class OperationLowering
             case ILOpCode.Newarr:
                 return NewArray(operation);
             case ILOpCode.Ldelem or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_i1:
-                return ReadElement(Array(operation.Operands[0], offset), operation.Operands[1], offset);
+                return ReadElement(Array(operation.Operands[0], offset), operation.Operands[1], operation);
             case ILOpCode.Stelem or ILOpCode.Stelem_r4 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i1:
                 StoreElement(operation);
                 return null;
@@ -576,6 +587,13 @@ internal sealed partial class OperationLowering
         var operands = operation.Operands.Select(Get).ToImmutableArray();
         if (Intrinsics.TryLower(this, callee, operands, offset) is { } known)
         {
+            if (known is ClampValue clamp && !soleIndexOperands.Contains(operation))
+            {
+                // A Math.Clamp result emits at the call, as in phase 4, unless its only reader is an
+                // array read, which can give the clamp read (IndexReads.cs).
+                Emit(clamp, offset);
+            }
+
             return known;
         }
 
@@ -658,45 +676,6 @@ internal sealed partial class OperationLowering
 
     private ArrayValue Array(SsaValue value, int offset) => Get(value) as ArrayValue
         ?? throw Refuse(offset, "an array that is not a fixed-length value", "the program reads an array of a cell, a static readonly field or newarr");
-
-    // ldelem: a constant index gives the element. A computed index gives IndexRead with the range
-    // of the index in 0..length - 1 (plan, "Lowering table", rows "array[i]").
-    private Value ReadElement(ArrayValue array, SsaValue indexValue, int offset)
-    {
-        var count = array.Elements.Length;
-        var index = Scalar(indexValue, offset);
-        if (index is ConstantValue constant)
-        {
-            return constant.Number >= 0 && constant.Number < count
-                ? array.Elements[(int)constant.Number]
-                : throw Refuse(offset, $"the array index {Fp32.Format(constant.Number)}", $"the index must lie in 0..{count - 1}");
-        }
-
-        if (index.Kind != ScalarKind.Int || array.Elements.Any(element => element is not ScalarValue))
-        {
-            throw Refuse(offset, "an array read at a computed index", "a computed index is an int, and the array holds float, int or bool values");
-        }
-
-        var indexWire = Emit(index, offset);
-        var range = Circuit.Ranges[indexWire.Position];
-        if (!(range.Minimum >= 0 && range.Maximum <= count - 1))
-        {
-            throw Refuse(offset, "an array index with a range past the array",
-                $"the index range {Fp32.Format(range.Minimum)}..{Fp32.Format(range.Maximum)} must lie in 0..{count - 1}");
-        }
-
-        var candidates = array.Elements.Select(element => Emit(element, offset)).ToArray();
-        var kind = ((ScalarValue)array.Elements[0]).Kind;
-        var read = Macro(offset, "an array read at a computed index", () => Circuit.IndexRead(indexWire, candidates, OutOfRange.Clamp));
-        if (kind == ScalarKind.Int)
-        {
-            // An index read infers no grid. Each element of an int array is an integer. So the read is
-            // on the grid 1, and an int form that reads it stays exact.
-            Circuit.AssumeGrid(read, 1);
-        }
-
-        return new WireValue(read, kind);
-    }
 
     private void StoreElement(SsaValue operation)
     {

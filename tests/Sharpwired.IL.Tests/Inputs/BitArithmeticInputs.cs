@@ -23,7 +23,7 @@ public static class BitArithmeticInputs
 
     // Carried item a: a bool as an int in an int sum.
     [Handwired]
-    public static int ConstantPlusBit([Range(-100, 100)] int k, bool b) => k + (b ? 1 : 0); // marker: constant plus bit
+    public static int ConstantPlusBit([Range(-100, 100)] int k, bool b) => k + (b ? 1 : 0);
 
     [Handwired]
     public static int TwoBits(bool a, bool b) => (a ? 1 : 0) + (b ? 1 : 0);
@@ -102,7 +102,7 @@ public static class BitArithmeticInputs
         return count;
     }
 
-    // The forward step of search-step.ts at 8 states. The marker lines name the probe refusals.
+    // The forward step of search-step.ts at 8 states.
     [Handwired]
     public static (bool[] Reached, int Mark, int MatchCount) Forward(
         [Range(0, 16)] int codePointClass,
@@ -127,7 +127,7 @@ public static class BitArithmeticInputs
             live[s] = s == 0 ? continuing[s] ^ start : continuing[s];
         }
 
-        int mark = (highlighted ? 1 : 0) + (start ? 1 : 0); // marker: forward mark
+        int mark = (highlighted ? 1 : 0) + (start ? 1 : 0);
         var next = new bool[States];
         for (int to = 0; to < States; to++)
         {

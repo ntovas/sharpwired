@@ -2,7 +2,8 @@
 // Math.max(a, b), clamps and Math.abs(x)", and the plan, section "Lowering table", rows Math.Min to
 // Hw.FirstActive. The known calls of a plain method: Math.Min, Math.Max, Math.Clamp, Math.Abs,
 // MathF.Min, MathF.Max and MathF.Abs give MinimumExact, MaximumExact, ClampExact and Absolute; each
-// Hw method gives its macro (Relu, Boolean, ApplySpringMatrix, FirstActive, AnimatedObject).
+// Hw method gives its macro (Relu, Boolean, ApplySpringMatrix, FirstActive, AnimatedObject). Hw.ReadOrZero
+// gives one index read with the zero rule (phase 6 plan, task 1, rule 3; IndexReads.cs).
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -58,6 +59,14 @@ internal static class Intrinsics
                     {
                         throw lowering.Refuse(offset, construct,
                             "the declared range of the minimum can pass the maximum; .NET throws, and ClampExact returns the maximum");
+                    }
+
+                    if (lowering.Emitter.RecognizePatterns)
+                    {
+                        // Rule 2 of the phase 6 plan, task 1: a read at this value can give one index read
+                        // with the clamp rule (IndexReads.cs). Another reader emits ClampExact.
+                        return new ClampValue(kind.Value, value, minimum, maximum,
+                            () => lowering.Macro(offset, construct, () => lowering.Circuit.ClampExact(value, minimum, maximum)));
                     }
 
                     return new WireValue(lowering.Macro(offset, construct, () => lowering.Circuit.ClampExact(value, minimum, maximum)), kind.Value);
@@ -136,6 +145,8 @@ internal static class Intrinsics
 
             case nameof(Hw.AnimatedObject):
                 return AnimatedObject(lowering, operands, construct, offset);
+            case nameof(Hw.ReadOrZero):
+                return lowering.ReadOrZero(operands, construct, offset);
             default:
                 throw lowering.Refuse(offset, construct, "the translator has no macro for this Hw method");
         }

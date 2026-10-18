@@ -1,5 +1,7 @@
 // Handwired source: src/runtime/numeric-ui-core.ts (emitRelu, Circuit.boolean, emitApplySpringMatrix,
-// emitAnimatedObject, emitFirstActive), through the macros of Sharpwired.Core that port them.
+// emitAnimatedObject, emitFirstActive, and the index read with the zero rule), through the macros of
+// Sharpwired.Core that port them. ReadOrZero follows the "zero" reads of src/json-search/json-step.ts
+// and src/json-search/regex/data-program.ts.
 // Each body is a plain .NET body in FP32. It has one statement for each operation of the macro,
 // with the terms in the order that the reference evaluator (Circuit.EvaluateReference) adds them.
 // An operation adds its terms to f(bias) one at a time, so a sum with the bias 0 starts at +0.
@@ -103,6 +105,26 @@ public static class Hw
         float velocityFromVelocity = Multiply(matrix[3], velocity);
         float nextVelocity = 0f + velocityFromDisplacement + velocityFromVelocity;
         return new SpringValue(nextDisplacement, nextVelocity);
+    }
+
+    /// <summary>
+    /// table[index], or 0 when index is outside 0..table.Length - 1: the index read with the zero rule
+    /// on both sides (Circuit.IndexRead with OutOfRange.Zero). The translator gives one index read.
+    /// </summary>
+    public static int ReadOrZero(int[] table, int index)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        return index >= 0 && index < table.Length ? table[index] : 0;
+    }
+
+    /// <summary>
+    /// table[index] with no change of its bits, or +0 when index is outside 0..table.Length - 1: the
+    /// index read with the zero rule on both sides. The read copies the value, so -0 stays -0.
+    /// </summary>
+    public static float ReadOrZero(float[] table, int index)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        return index >= 0 && index < table.Length ? table[index] : 0f;
     }
 
     /// <summary>Macros.Relu: f(max(0, value)) in one operation. MathF.Max(0, value) costs a Compare.</summary>

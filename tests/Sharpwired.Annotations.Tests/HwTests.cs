@@ -80,6 +80,43 @@ public class HwTests
         }
     }
 
+    // Hw.ReadOrZero against one index read with the zero rule on both sides (phase 6 plan, task 1,
+    // rule 3). The float table holds 0, -0, subnormal values and the range ends. The index runs past
+    // each end of the table.
+    [Fact]
+    public void ReadOrZero_equals_the_index_read_with_the_zero_rule_bit_for_bit()
+    {
+        const int Length = 37;
+        var random = Js.CreateRandom(46);
+        var floats = new float[Length];
+        for (var item = 0; item < Length; item++) floats[item] = Sample(random, -float.MaxValue, float.MaxValue);
+        floats[0] = -0f;
+        floats[Length - 1] = float.Epsilon;
+        var ints = new int[Length];
+        for (var item = 0; item < Length; item++) ints[item] = (int)(random() * 33_554_433) - 16_777_216;
+
+        foreach (var table in new[] { floats, ints.Select(value => (float)value).ToArray() })
+        {
+            var circuit = new Circuit(Length + 1);
+            circuit.AssumeRange(circuit.Source(Length), -100, 100);
+            circuit.AssumeGrid(circuit.Source(Length), 1);
+            var read = circuit.IndexRead(circuit.Source(Length), [.. Enumerable.Range(0, Length).Select(circuit.Source)], OutOfRange.Zero);
+            for (var index = -100; index <= 100; index++)
+            {
+                var values = circuit.EvaluateReference([.. table, index]);
+                var plain = table == floats ? Hw.ReadOrZero(floats, index) : Hw.ReadOrZero(ints, index);
+                AssertIs(values[read.Position], plain, $"ReadOrZero(table, {index})");
+            }
+        }
+    }
+
+    [Fact]
+    public void ReadOrZero_refuses_a_null_table()
+    {
+        Assert.Throws<ArgumentNullException>(() => Hw.ReadOrZero((int[])null!, 0));
+        Assert.Throws<ArgumentNullException>(() => Hw.ReadOrZero((float[])null!, 0));
+    }
+
     [Fact]
     public void Boolean_equals_the_boolean_atom_bit_for_bit_and_refuses_a_score_outside_0_to_1()
     {
