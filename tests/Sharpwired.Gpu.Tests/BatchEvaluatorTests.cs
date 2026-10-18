@@ -18,9 +18,19 @@ internal static class GpuChecks
     /// of the phase 5 plan). Return the count of compared tables and the count of tables that were not
     /// compared. A root that the program does not hold must give NaN, as TensorEvaluator gives.
     /// </summary>
+    /// <remarks>
+    /// With <paramref name="gatherNaN"/> not null (a program with gather lowering), a root whose
+    /// reference value is NaN and whose TensorEvaluator value is not NaN is compared with the
+    /// TensorEvaluator value, and counted in <paramref name="gatherNaN"/>. A gather reads only the
+    /// candidate of the bit that is 1, so it skips the product 0 × NaN of the dense sum of the
+    /// reference. This difference is a property of the gather lowering of Core, and the GPU must
+    /// give the value of the compiled program.
+    /// </remarks>
     public static (int Compared, int Excluded) Compare(
-        GpuDevice? device, Circuit circuit, TensorProgram program, float[] sources, int tableCount, float[] outputs, bool sameNumericValue)
+        GpuDevice? device, Circuit circuit, TensorProgram program, float[] sources, int tableCount, float[] outputs, bool sameNumericValue,
+        System.Runtime.CompilerServices.StrongBox<int>? gatherNaN = null)
     {
+        TensorEvaluator? tensor = null;
         var rows = ShaderRows.FlattenProgram(program);
         var sourceSize = program.SourceSize;
         var rootCount = program.Roots.Count;
@@ -42,10 +52,20 @@ internal static class GpuChecks
                 }
             }
             var reference = circuit.EvaluateReference(source);
+            float[]? tensorValues = null;
             for (var root = 0; root < rootCount; root++)
             {
                 var expected = held[root] ? reference[program.Roots[root]] : float.NaN;
                 var actual = outputs[(table * rootCount) + root];
+                if (gatherNaN is not null && held[root] && float.IsNaN(expected))
+                {
+                    tensorValues ??= [.. (tensor ??= circuit.CreateTensorProgramEvaluator(program)).Evaluate(source)];
+                    if (!float.IsNaN(tensorValues[root]))
+                    {
+                        expected = tensorValues[root];
+                        gatherNaN.Value++;
+                    }
+                }
                 var agrees = sameNumericValue ? Js.SameNumericValue(expected, actual) : Js.ObjectIs(expected, actual);
                 if (!agrees)
                 {

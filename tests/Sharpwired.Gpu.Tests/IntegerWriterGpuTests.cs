@@ -73,6 +73,64 @@ public sealed class IntegerWriterGpuTests(GpuFixture fixture, ITestOutputHelper 
         Check(circuit, circuit.CompileTensorProgram(), sources, 4, "every wire as a root");
     }
 
+    // Fix round 2 of the review of task 3. A masked gather with integer candidates wrote i32(gm) *
+    // candidate, with gm the f32 sum of the bits of the slot. For a bit that is NaN, i32(NaN) gave 0, and
+    // the reference gives NaN. FirstActive declares a group that allows all zeros over two boolean atoms,
+    // and the first atom is NaN for s0 = s1 = +Infinity.
+    [Fact]
+    public void A_masked_gather_over_a_NaN_bit_of_FirstActive_stays_NaN()
+    {
+        var circuit = new Circuit(6);
+        var (s0, s1, u, c0, c1, one) = (circuit.Source(0), circuit.Source(1), circuit.Source(2), circuit.Source(3), circuit.Source(4), circuit.Source(5));
+        circuit.AssumeRange(u, 0, 1);
+        circuit.AssumeRange(one, 1, 1);
+        foreach (var cell in new[] { c0, c1 })
+        {
+            circuit.AssumeRange(cell, -10, 10);
+            circuit.AssumeGrid(cell, 1);
+        }
+        var ramp = circuit.Reglu([], 1, [(circuit.Affine([(s0, 1), (s1, -1)]), 1)], 0);
+        var p = circuit.Reglu([(u, 1)], 0, [(circuit.Affine([(ramp, -1)], 1), 1)], 0);
+        var selected = circuit.FirstActive(one, [circuit.Boolean(p), circuit.Boolean(u)]);
+        var sum = circuit.Affine([(circuit.Multiply(selected[0], c0), 1), (circuit.Multiply(selected[1], c1), 1)]);
+        CheckMaskedGather(circuit, sum, [float.PositiveInfinity, float.PositiveInfinity, 1, 3, 4, 1, 1, 0.25f, 0, -3, 7, 1, 0, 0, 1, 5, -6, 1, 0.5f, 0.5f, 1, 2, 9, 1]);
+    }
+
+    // The same defect with a group that AssumeOneHot declares on two operation wires.
+    [Fact]
+    public void A_masked_gather_over_a_NaN_bit_of_an_AssumeOneHot_group_stays_NaN()
+    {
+        var circuit = new Circuit(5);
+        var (s0, s1, u, c0, c1) = (circuit.Source(0), circuit.Source(1), circuit.Source(2), circuit.Source(3), circuit.Source(4));
+        circuit.AssumeRange(u, 0, 1);
+        circuit.AssumeBit(u);
+        foreach (var cell in new[] { c0, c1 })
+        {
+            circuit.AssumeRange(cell, -10, 10);
+            circuit.AssumeGrid(cell, 1);
+        }
+        var ramp = circuit.Reglu([], 1, [(circuit.Affine([(s0, 1), (s1, -1)]), 1)], 0);
+        var p = circuit.Reglu([(u, 1)], 0, [(circuit.Affine([(ramp, -1)], 1), 1)], 0);
+        var q = circuit.Affine([(u, -1)], 1);
+        circuit.AssumeOneHot([p, q], allowAllZero: true);
+        var sum = circuit.Affine([(circuit.Multiply(p, c0), 1), (circuit.Multiply(q, c1), 1)]);
+        CheckMaskedGather(circuit, sum, [float.PositiveInfinity, float.PositiveInfinity, 1, 3, 4, 1, 1, 0, -3, 7, 0, 0, 1, 5, -6, 2, 0, 1, 2, 9]);
+    }
+
+    // The program of the root must hold a masked gather. The first table gives NaN in the reference.
+    private void CheckMaskedGather(Circuit circuit, Wire root, float[] sources)
+    {
+        var tableCount = sources.Length / circuit.SourceSize;
+        Assert.True(float.IsNaN(circuit.EvaluateReference(sources.AsSpan(0, circuit.SourceSize))[root.Position]));
+        var program = circuit.CompileTensorProgram([root]);
+        Assert.Contains(program.Layers, layer => layer.GatherReads.Any(read => read.Masked));
+        Assert.True(float.IsNaN(circuit.CreateTensorProgramEvaluator(program).Evaluate(sources.AsSpan(0, circuit.SourceSize))[0]));
+        // A bit of the slot can be NaN, so the row of the masked read is an f32 row.
+        Assert.Equal(WholeKind.Float, IntegerProof.Prove(circuit, program)[ShaderRows.RootPositions(program)[0]].Kind);
+        Check(circuit, program, sources, tableCount, "the masked gather");
+        Check(circuit, circuit.CompileTensorProgram(), sources, tableCount, "every wire as a root");
+    }
+
     // Review finding 1. An f32 row reads a constant integer row, in the form of circuit 25 of seed 4242:
     // k(... + k(k(0.0f) * f32(b))) - f32(b), and a product of a constant 0 and Infinity. On the M5 Pro,
     // this program gave the reference values also without keep on f32(b). The seeded circuits of the

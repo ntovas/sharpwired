@@ -67,9 +67,12 @@ internal static class RandomPrograms
     internal static int RandomInteger(Func<double> random, int limit) => (int)Math.Floor(random() * limit);
 
     // Build one random circuit. The result holds the circuit, the source cells, the source groups,
-    // and the pool of wires that the builder calls returned.
+    // and the pool of wires that the builder calls returned. With openRangeShare above 0 (the
+    // open-range variant of the GPU tests), the finite cell 1 and each random cell that is not a group
+    // member become cells with no range with that probability. The default 0 takes no random number
+    // for it, so the sequence of the phase 2 test does not change.
     internal static (Circuit Circuit, Cell[] Cells, List<SourceGroup> Groups, List<Wire> Wires) BuildCircuit(
-        Func<double> random, int[] builderCalls)
+        Func<double> random, int[] builderCalls, double openRangeShare = 0)
     {
         // The first 4 cells are fixed: an integer, a finite value, a unit value and the cell that
         // holds 1. The other cells are groups and cells of random kinds.
@@ -79,6 +82,7 @@ internal static class RandomPrograms
         cells[1] = new Cell(CellKind.Finite, 0);
         cells[2] = new Cell(CellKind.Unit, 0);
         cells[3] = new Cell(CellKind.One, 0);
+        if (openRangeShare > 0 && random() < openRangeShare) cells[1] = new Cell(CellKind.Unbounded, 0);
         var groups = new List<SourceGroup>();
         var cell = 4;
         while (cell < sourceSize)
@@ -91,6 +95,7 @@ internal static class RandomPrograms
                 continue;
             }
             var kind = (CellKind)RandomInteger(random, (int)CellKind.GroupMember);
+            if (openRangeShare > 0 && random() < openRangeShare) kind = CellKind.Unbounded;
             cells[cell++] = new Cell(kind, kind == CellKind.Grid ? Math.Pow(2, -RandomInteger(random, 8)) : 1);
         }
 
@@ -277,6 +282,25 @@ internal static class RandomPrograms
                     }
             }
         }
+        // The open-range variant only, after the builder calls, so that the default sequence does not
+        // change: 1 to 3 values u × relu(1 - relu(a - b)) with a and b wires of no finite range. Range
+        // inference puts each value in 0..1, and the value is NaN for a = b = ±Infinity. A boolean
+        // atom, a Compare bit and an index read of the value then read a NaN that their ranges do not
+        // show. The builder calls above make no value in 0..1 over an open cell.
+        var open = wires.Where(wire => !double.IsFinite(circuit.Ranges[wire.Position].Minimum) || !double.IsFinite(circuit.Ranges[wire.Position].Maximum)).ToList();
+        if (openRangeShare > 0 && open.Count > 0)
+        {
+            var clamps = 1 + RandomInteger(random, 3);
+            for (var clamp = 0; clamp < clamps; clamp++)
+            {
+                var ramp = circuit.Reglu([], 1, [(circuit.Affine([(Pick(open), 1), (Pick(open), -1)]), 1)], 0);
+                var value = circuit.Reglu([(circuit.Source(2), 1)], 0, [(circuit.Affine([(ramp, -1)], 1), 1)], 0);
+                wires.Add(value);
+                wires.Add(circuit.Boolean(value));
+                wires.Add(circuit.Compare(value, Relation.Greater, circuit.Constant(0.5)));
+                wires.Add(circuit.IndexRead(value, [Pick(integers), Pick(integers)]));
+            }
+        }
         foreach (var group in groups.Where(group => group.DeclaredAfter))
         {
             circuit.AssumeOneHot(GroupMembers(circuit, group), group.AllowAllZero, allowExistingReaders: true);
@@ -334,8 +358,10 @@ internal static class RandomPrograms
     // One source table. Each cell gets a value in its declared range. The value is a random value,
     // an end of the range, ±0, the smallest subnormal, or the largest FP32 value in the range. A
     // cell with no bound can also get ±Infinity. Each group gets a valid one-hot, or all zeros
-    // where the group allows it.
-    internal static float[] CreateSource(Func<double> random, Cell[] cells, List<SourceGroup> groups)
+    // where the group allows it. With subnormals false (the GPU tests), the subnormal choice gives ±0
+    // and each other subnormal value becomes +0, so that a device that flushes subnormal values compares
+    // more evaluations. The default true keeps the sequence and the values of the phase 2 test.
+    internal static float[] CreateSource(Func<double> random, Cell[] cells, List<SourceGroup> groups, bool subnormals = true)
     {
         var source = new float[cells.Length];
         for (var position = 0; position < cells.Length; position++)
@@ -343,16 +369,17 @@ internal static class RandomPrograms
             var cell = cells[position];
             source[position] = cell.Kind switch
             {
-                CellKind.Finite => (float)RangeValue(random, -FiniteLimit, FiniteLimit),
-                CellKind.NonNegative => (float)RangeValue(random, 0, NonNegativeLimit),
-                CellKind.Unit => (float)RangeValue(random, 0, 1),
-                CellKind.Unbounded => (float)RangeValue(random, double.NegativeInfinity, double.PositiveInfinity),
+                CellKind.Finite => (float)RangeValue(random, -FiniteLimit, FiniteLimit, subnormals),
+                CellKind.NonNegative => (float)RangeValue(random, 0, NonNegativeLimit, subnormals),
+                CellKind.Unit => (float)RangeValue(random, 0, 1, subnormals),
+                CellKind.Unbounded => (float)RangeValue(random, double.NegativeInfinity, double.PositiveInfinity, subnormals),
                 CellKind.Grid => (float)GridValue(random, cell.Step, GridLimit),
                 CellKind.Integer => (float)GridValue(random, 1, IntegerLimit),
                 CellKind.ExactBit => (float)(random() < 0.5 ? 1 : random() < 0.5 ? 0 : -0.0),
                 CellKind.One => 1,
                 _ => 0,
             };
+            if (!subnormals && float.IsSubnormal(source[position])) source[position] = 0;
         }
         foreach (var group in groups)
         {
@@ -366,7 +393,7 @@ internal static class RandomPrograms
         return source;
     }
 
-    private static double RangeValue(Func<double> random, double minimum, double maximum)
+    private static double RangeValue(Func<double> random, double minimum, double maximum, bool subnormals)
     {
         var lower = Math.Max(minimum, -LargestFloat32);
         var upper = Math.Min(maximum, LargestFloat32);
@@ -377,7 +404,7 @@ internal static class RandomPrograms
             1 => maximum,
             2 => 0,
             3 => -0.0,
-            4 => random() < 0.5 ? SmallestSubnormalFloat32 : -SmallestSubnormalFloat32,
+            4 => (random() < 0.5 ? 1 : -1) * (subnormals ? SmallestSubnormalFloat32 : 0.0),
             5 => random() < 0.5 ? LargestFloat32 : -LargestFloat32,
             // A cell with no bound gets a random value of a random magnitude.
             _ => double.IsFinite(maximum - minimum)

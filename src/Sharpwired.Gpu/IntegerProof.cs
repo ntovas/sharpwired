@@ -76,7 +76,12 @@ public readonly record struct WholeProof(WholeKind Kind, long Minimum, long Maxi
 /// checks it. A whole value can be +0 where the reference value is -0, because i32 has no -0. The sign
 /// of a zero never changes a nonzero value of the four instructions.</para>
 /// <para>A gather read selects the candidate of the one bit of its group that is 1. The proof uses the
-/// declared one-hot groups, as TensorExecution and the f32 writer do.</para>
+/// declared one-hot groups, as TensorExecution and the f32 writer do. A masked read multiplies the
+/// candidate by the mass of the group, the f32 sum of its bits. A bit that is NaN or infinite makes the
+/// mass and the row NaN, and the integer form <c>i32(gm) * candidate</c> gives no NaN. So a row with a
+/// masked read is whole only when each bit of the slot is a proven bit or has a finite cone, and the
+/// cone of the row is finite only when the cone of each bit is finite (fix round 2 of the review of
+/// task 3).</para>
 /// </remarks>
 public static class IntegerProof
 {
@@ -110,18 +115,25 @@ public static class IntegerProof
             magnitudes[cell] = Magnitude(circuit.Ranges[cell]);
             finite[cell] = double.IsFinite(magnitudes[cell]);
         }
+        // The bit positions of each gather slot. A gather compute comes before the reads of its slot.
+        var slotBits = new Dictionary<int, ImmutableArray<int>>();
+        // A bit of a masked read that cannot make the mass NaN: a proven bit, or a bit with a finite cone.
+        bool SafeBit(int position) => proofs[position].IsBit || finite[position];
         foreach (var row in rows)
         {
             if (row is not GatherComputeRow) Bound(row);
             switch (row)
             {
+                case GatherComputeRow compute:
+                    slotBits[compute.Slot] = compute.BitPositions;
+                    break;
                 case AffineRow affine:
                     {
                         var sum = SumRange(proofs, affine.Bias, affine.Terms);
                         foreach (var gather in affine.Gathers)
                         {
                             if (sum is not { } partial) break;
-                            sum = GatherRange(proofs, partial, gather);
+                            sum = gather.Masked && !slotBits[gather.Slot].All(SafeBit) ? null : GatherRange(proofs, partial, gather);
                         }
                         Set(affine.Position, sum is { } range ? WholeProof.Of(range.Minimum, range.Maximum) : WholeProof.Float, sum is not null);
                         break;
@@ -200,7 +212,16 @@ public static class IntegerProof
                 case AffineRow affine:
                     value = Sum(affine.Bias, affine.Terms);
                     // The mass of a gather slot is 0 or 1, so a gather read adds at most its candidate.
-                    foreach (var gather in affine.Gathers) value += Candidates(gather.Candidates);
+                    // A masked read multiplies the candidate by the mass, so a bit with a cone that is
+                    // not finite can make the row NaN.
+                    foreach (var gather in affine.Gathers)
+                    {
+                        value += Candidates(gather.Candidates);
+                        if (gather.Masked)
+                        {
+                            foreach (var bit in slotBits[gather.Slot]) ok &= finite[bit];
+                        }
+                    }
                     ok &= Fits(value);
                     break;
                 case RegluRow reglu:
