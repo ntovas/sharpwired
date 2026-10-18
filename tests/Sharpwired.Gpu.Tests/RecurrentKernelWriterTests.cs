@@ -1,6 +1,6 @@
-// No Handwired source. The tests of RecurrentKernelWriter that need no adapter (phase 5 plan, task 5):
-// one var for each state cell and one let for each invariant, the cell checks of the WGSL forms table,
-// and the status codes of a lane.
+// No Handwired source. The tests of RecurrentKernelWriter that need no adapter (phase 5 plan, task 5).
+// They check one var for each state cell and one let for each invariant. They also check the cell checks
+// of the WGSL forms table and the status codes of a lane.
 
 using System.Text.RegularExpressions;
 using Sharpwired.Cells;
@@ -138,8 +138,9 @@ public sealed class RecurrentKernelWriterTests
         Assert.Throws<ArgumentException>(() => RecurrentKernelWriter.Write(step, new RecurrentInitial(0, cells + 1, 2), GpuWriter.Integer));
     }
 
-    // A step with one cell of each kind of check: a: -2.5..100; b: wide int; c: a bit; d: grid 4;
-    // e: grid 0.25; f: any number; h: 1e-50..1; g0..g2: a one-hot group; p, q: an at-most-one rule.
+    // A step with one cell of each kind of check. The cells are a: -2.5..100; b: wide int; c: a bit;
+    // d: grid 4; e: grid 0.25; f: any number; h: 1e-50..1. The cells g0..g2 are a one-hot group, and the
+    // cells p, q have an at-most-one rule.
     // The next values: a + 1, b + 1, 1 - c, g unchanged. Done is the constant 1.
     internal static RecurrentStep CheckStep(out int cellCount)
     {
@@ -167,5 +168,31 @@ public sealed class RecurrentKernelWriterTests
         Wire[] invariants = [d, e, f, h, p, q];
         return new RecurrentStep(finished, [.. state.Select(wire => new NamedWire($"cell{wire.Position}", wire))],
             [.. invariants.Select(wire => new NamedWire($"cell{wire.Position}", wire))], done);
+    }
+
+    // Final review of phase 5: the runner reads back one byte array of laneBytes + outputBytes. A device
+    // with a large buffer limit gave a chunk whose readback does not fit one array.
+    [Theory]
+    [InlineData(1L << 40, 1L << 40, 1)]
+    [InlineData(1L << 40, 1L << 40, 7)]
+    [InlineData(1L << 34, 1L << 36, 0)]
+    [InlineData(1L << 31, 1L << 31, 2)]
+    public void The_chunk_readback_of_the_runner_fits_one_array(long maxBinding, long maxBuffer, int suffixStride)
+    {
+        var lanes = GpuRecurrentRunner.ChunkLimit(maxBinding, maxBuffer, int.MaxValue, 64, 1, suffixStride);
+        var bytes = (long)lanes * 4 * (RecurrentKernelWriter.LaneWords + suffixStride);
+        Assert.True(lanes >= 1);
+        Assert.True(bytes <= Array.MaxLength, $"{lanes} lanes read back {bytes} bytes");
+    }
+
+    [Fact]
+    public void The_chunk_limit_of_the_runner_keeps_the_device_limits()
+    {
+        // The binding limit: 4,000 bytes and 10 values of one lane give 100 lanes.
+        Assert.Equal(100, GpuRecurrentRunner.ChunkLimit(4_000, 1L << 20, 65_535, 64, 10, 1));
+        // The workgroup limit: 2 workgroups of 64.
+        Assert.Equal(128, GpuRecurrentRunner.ChunkLimit(1L << 30, 1L << 30, 2, 64, 1, 1));
+        // The readback limit: 3 lane words and 5 outputs of 4 bytes in 3,200 bytes give 100 lanes.
+        Assert.Equal(100, GpuRecurrentRunner.ChunkLimit(1L << 30, 3_200, 65_535, 64, 1, 5));
     }
 }

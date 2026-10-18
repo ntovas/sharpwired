@@ -1,8 +1,9 @@
 // No Handwired source. The integer writer on each adapter, against the reference evaluator, for the two
-// findings of the review of task 3 of the phase 5 plan: an f32 row that reads an integer value with no
-// keep, which Metal fast math regroups, and a row that converts an f32 value that can be NaN to an
-// integer. The test also runs the seeded circuits of the review and a program at the 2^24 bound of
-// the affine rule. The comparison is sameNumericValue, which also requires NaN for NaN.
+// findings of the review of task 3 of the phase 5 plan. The first finding is an f32 row that reads an
+// integer value with no keep, which Metal fast math regroups. The second finding is a row that converts
+// an f32 value that can be NaN to an integer. The test also runs the seeded circuits of the review and a
+// program at the 2^24 bound of the affine rule. The comparison is sameNumericValue, which also requires
+// NaN for NaN.
 
 using Sharpwired.Core;
 using Xunit.Abstractions;
@@ -117,6 +118,43 @@ public sealed class IntegerWriterGpuTests(GpuFixture fixture, ITestOutputHelper 
         CheckMaskedGather(circuit, sum, [float.PositiveInfinity, float.PositiveInfinity, 1, 3, 4, 1, 1, 0, -3, 7, 0, 0, 1, 5, -6, 2, 0, 1, 2, 9]);
     }
 
+    // Final review of phase 5. A declaration on an operation is not a proof, so a member of an
+    // AssumeOneHot group can hold 0.5. The integer row wrote i32(gm) * candidate, and i32(0.5) gave 0.
+    // The reference gives 0.5 * 4 = 2. The cone of each member is finite, so the old rule accepted it.
+    [Fact]
+    public void A_masked_gather_over_a_member_that_is_not_a_bit_gives_the_reference_value()
+    {
+        var (circuit, sum) = BrokenOneHotGather();
+        float[] sources = [0.5f, 0, 1, 4, 6, 0, 0, 1, 4, 6, 0, 0, 0, 4, 6, 0.25f, 0, 1, -3, 7];
+        Assert.Equal(2f, circuit.EvaluateReference(sources.AsSpan(0, 5))[sum.Position]);
+        var program = circuit.CompileTensorProgram([sum]);
+        Assert.Contains(program.Layers, layer => layer.GatherReads.Any(read => read.Masked));
+        Assert.Equal(WholeKind.Float, IntegerProof.Prove(circuit, program)[ShaderRows.RootPositions(program)[0]].Kind);
+        Check(circuit, program, sources, 4, "the masked gather over a member that is not a bit");
+    }
+
+    // p = u · relu(1 - relu(s0 - s1)) and q = 1 - u, declared one-hot. The ranges of s0 and s1 make the
+    // cone of p finite. The root is p · c0 + q · c1, which the compiler lowers to a masked gather.
+    internal static (Circuit Circuit, Wire Sum) BrokenOneHotGather()
+    {
+        var circuit = new Circuit(5);
+        var (s0, s1, u, c0, c1) = (circuit.Source(0), circuit.Source(1), circuit.Source(2), circuit.Source(3), circuit.Source(4));
+        circuit.AssumeRange(s0, -10, 10);
+        circuit.AssumeRange(s1, -10, 10);
+        circuit.AssumeRange(u, 0, 1);
+        circuit.AssumeBit(u);
+        foreach (var cell in new[] { c0, c1 })
+        {
+            circuit.AssumeRange(cell, -10, 10);
+            circuit.AssumeGrid(cell, 1);
+        }
+        var ramp = circuit.Reglu([], 1, [(circuit.Affine([(s0, 1), (s1, -1)]), 1)], 0);
+        var p = circuit.Reglu([(u, 1)], 0, [(circuit.Affine([(ramp, -1)], 1), 1)], 0);
+        var q = circuit.Affine([(u, -1)], 1);
+        circuit.AssumeOneHot([p, q], allowAllZero: true);
+        return (circuit, circuit.Affine([(circuit.Multiply(p, c0), 1), (circuit.Multiply(q, c1), 1)]));
+    }
+
     // The program of the root must hold a masked gather. The first table gives NaN in the reference.
     private void CheckMaskedGather(Circuit circuit, Wire root, float[] sources)
     {
@@ -156,9 +194,9 @@ public sealed class IntegerWriterGpuTests(GpuFixture fixture, ITestOutputHelper 
         Check(circuit, program, [.. sources], sources.Count / 2, "the f32 row and the product");
     }
 
-    // The review found mismatches in these circuits of RandomPrograms with the integer writer: circuits
-    // 25, 86, 199 and 209 of seed 4242 (an f32 row that reads an integer value), and circuit 141 of seed
-    // 77713 (a sign cascade bit of a NaN difference). Each circuit runs in the 5 compile modes over 200
+    // The review found mismatches in these circuits of RandomPrograms with the integer writer. Circuits
+    // 25, 86, 199 and 209 of seed 4242 have an f32 row that reads an integer value. Circuit 141 of seed
+    // 77713 has a sign cascade bit of a NaN difference. Each circuit runs in the 5 compile modes over 200
     // tables, with the generator sequence of 300 circuits.
     [Theory]
     [InlineData(4242, new[] { 25, 86, 199, 209 })]
@@ -184,8 +222,8 @@ public sealed class IntegerWriterGpuTests(GpuFixture fixture, ITestOutputHelper 
         }
     }
 
-    // The affine rule at its bound: sums whose products and partial sums reach 2^24 are i32 rows, and
-    // sums one step past the bound are f32 rows. The seeded tables include each end of each range.
+    // The affine rule at its bound. Sums whose products and partial sums reach 2^24 are i32 rows. Sums
+    // one step past the bound are f32 rows. The seeded tables include each end of each range.
     [Fact]
     public void Sums_at_the_2_to_the_24_bound_give_the_reference_value()
     {

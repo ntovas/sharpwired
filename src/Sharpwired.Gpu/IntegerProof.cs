@@ -41,11 +41,12 @@ public readonly record struct WholeProof(WholeKind Kind, long Minimum, long Maxi
 
 /// <summary>
 /// The proof of the whole wires and the bits of a program. A proven wire holds a whole number within
-/// ±2^24 for each source table that passes the checks of the integer evaluator (the ranges, the grids
-/// and the exact bits of the source cells), when the ranges that the circuit keeps for its operations
-/// hold, and when the declarations that Compare used hold. A row with an integer statement computes
-/// each product and each partial sum as a whole number within ±2^24. FP32 computes such a number with
-/// no rounding, in any order, so the i32 statement gives the value of the f32 statement.
+/// ±2^24 for each source table that passes the checks of the integer evaluator. These checks are the
+/// ranges, the grids and the exact bits of the source cells. This is true only when the ranges that the
+/// circuit keeps for its operations hold, and when the declarations that Compare used hold. A row with an
+/// integer statement computes each product and each partial sum as a whole number within ±2^24. FP32
+/// computes such a number with no rounding, in any order, so the i32 statement gives the value of the f32
+/// statement.
 /// </summary>
 /// <remarks>
 /// <para>The rules, in the order of the rows:</para>
@@ -54,34 +55,38 @@ public readonly record struct WholeProof(WholeKind Kind, long Minimum, long Maxi
 /// its grid is 1 or more and its range is inside ±2^24, or when its range holds one whole number.
 /// The integer GPU evaluator checks the grid and the bit declarations of each source table
 /// (<see cref="ValidateSourceDeclarations"/>).</item>
-/// <item>An affine row is whole when its bias, its weights and its operands are whole, and the sum of
-/// the magnitudes of the bias and of each product is at most 2^24. That sum bounds each product and
+/// <item>An affine row is whole when its bias, its weights and its operands are whole. Also, the sum of
+/// the magnitudes of the bias and of each product must be at most 2^24. That sum bounds each product and
 /// each partial sum. A gather read adds a whole candidate, or the mass times the candidate.</item>
-/// <item>A ReGLU row is whole when its left form and its gate form are whole by the same rule, and each
-/// product of the two ranges is at most 2^24.</item>
+/// <item>A ReGLU row is whole when its left form and its gate form are whole by the same rule. Also,
+/// each product of the two ranges must be at most 2^24.</item>
 /// <item>A boolean atom is a bit. The builder accepts a score within 0..1 only.</item>
 /// <item>An index read is whole when each candidate that its index range can reach is whole. With an
 /// index form that is not whole, the read can reach each candidate. A side that reads zero adds 0.</item>
 /// <item>The bit that Compare returns (<see cref="Operation.ComparisonBit"/>) is a bit. Compare proves
 /// it for each pair of operand values within their ranges and grids. This rule trusts the ranges and
-/// the grids that Compare used, also the range or the grid of an operand that is an operation.</item>
+/// the grids that Compare used, also the range or the grid of an operand that is an operation. A false
+/// declaration on such an operand can give a wrong bit. The tests check the declarations with
+/// ValidateGrids.</item>
 /// </list>
-/// <para>Three rules prove a row that the writer computes in f32 and then converts to an integer: a
-/// boolean atom of an f32 score, an index read with an f32 index, and the Compare bit. Range inference
-/// does not follow NaN, so such a value can be NaN, for example after Infinity - Infinity, and NaN has
-/// no integer. Each of these rules applies only when each wire in the cone of the row has a finite
-/// magnitude bound: the bound of its source range, or of its products and partial sums, or of its
-/// circuit range. Then no wire of the cone is infinite, so no NaN occurs.</para>
+/// <para>Three rules prove a row that the writer computes in f32 and then converts to an integer. The
+/// rules are a boolean atom of an f32 score, an index read with an f32 index, and the Compare bit. Range
+/// inference does not follow NaN, so such a value can be NaN, for example after Infinity - Infinity, and
+/// NaN has no integer. Each of these rules applies only when each wire in the cone of the row has a
+/// finite magnitude bound. The bound is the bound of its source range, of its products and partial sums,
+/// or of its circuit range. Then no wire of the cone is infinite, so no NaN occurs.</para>
 /// <para>A grid or a bit that the caller declares on an operation is not a proof, because no evaluator
-/// checks it. A whole value can be +0 where the reference value is -0, because i32 has no -0. The sign
-/// of a zero never changes a nonzero value of the four instructions.</para>
+/// checks it. The Compare bit rule above is the one exception. A whole value can be +0 where the
+/// reference value is -0, because i32 has no -0. The sign of a zero never changes a nonzero value of the
+/// four instructions.</para>
 /// <para>A gather read selects the candidate of the one bit of its group that is 1. The proof uses the
 /// declared one-hot groups, as TensorExecution and the f32 writer do. A masked read multiplies the
-/// candidate by the mass of the group, the f32 sum of its bits. A bit that is NaN or infinite makes the
-/// mass and the row NaN, and the integer form <c>i32(gm) * candidate</c> gives no NaN. So a row with a
-/// masked read is whole only when each bit of the slot is a proven bit or has a finite cone, and the
-/// cone of the row is finite only when the cone of each bit is finite (fix round 2 of the review of
-/// task 3).</para>
+/// candidate by the mass of the group, the f32 sum of its bits. The integer form is
+/// <c>i32(gm) * candidate</c>. A member that is NaN gives no NaN in this form (fix round 2 of the
+/// review of task 3). A member that is not 0 or 1 gives a truncated mass (final review of
+/// phase 5). An example is 0.5 in a broken declaration on an operation. So a row with a masked read is whole
+/// only when each member of the slot is a proven bit. A finite cone alone is not enough. The cone of
+/// the row is finite only when the cone of each member is finite.</para>
 /// </remarks>
 public static class IntegerProof
 {
@@ -117,8 +122,9 @@ public static class IntegerProof
         }
         // The bit positions of each gather slot. A gather compute comes before the reads of its slot.
         var slotBits = new Dictionary<int, ImmutableArray<int>>();
-        // A bit of a masked read that cannot make the mass NaN: a proven bit, or a bit with a finite cone.
-        bool SafeBit(int position) => proofs[position].IsBit || finite[position];
+        // A member of a masked read gives an integer mass only when it is a proven bit. A declaration on
+        // an operation is not a proof, so a finite cone is not enough: the member can hold 0.5.
+        bool SafeBit(int position) => proofs[position].IsBit;
         foreach (var row in rows)
         {
             if (row is not GatherComputeRow) Bound(row);
@@ -165,7 +171,8 @@ public static class IntegerProof
             var wire = program.WireOrder[position];
             var operation = circuit.Operations[wire - circuit.SourceSize];
             // Compare proves its bit also where the range arithmetic does not reach, for example
-            // after a sign cascade. The rule trusts the declarations that Compare used.
+            // after a sign cascade. The rule trusts the declarations that Compare used, also a
+            // declaration on an operand that is an operation, which no evaluator checks.
             var proof = !inferred.IsProven && operation.ComparisonBit ? WholeProof.Of(0, 1) : inferred;
             // A proven value that the writer converts from an f32 statement needs a cone with no
             // infinite wire, because NaN has no integer.
@@ -176,10 +183,10 @@ public static class IntegerProof
             exact[position] = rowExact && (inferred.IsProven || operation.Kind == OperationKind.Index);
         }
 
-        // The magnitude bound of a row, and whether its cone is finite: each operand has a finite cone,
-        // and twice the bound of each product and partial sum is at most the largest FP32 value. The
-        // factor 2 covers the FP32 rounding of each step. The bound of the value is also at most the
-        // magnitude of the circuit range of the wire.
+        // The magnitude bound of a row, and whether its cone is finite. The cone is finite when each
+        // operand has a finite cone. Also, twice the bound of each product and partial sum must be at
+        // most the largest FP32 value. The factor 2 covers the FP32 rounding of each step. The bound of
+        // the value is also at most the magnitude of the circuit range of the wire.
         void Bound(ShaderRow row)
         {
             var position = IntegerPlan.PositionOf(row);
@@ -249,7 +256,7 @@ public static class IntegerProof
     private static bool Fits(double bound) => 2 * bound <= float.MaxValue;
 
     /// <summary>
-    /// Check the grid and the bit declarations of the source cells: a cell on a grid holds a finite
+    /// Check the grid and the bit declarations of the source cells. A cell on a grid holds a finite
     /// multiple of the grid, and an exact bit holds 0, -0 or 1. The integer writer reads the cells
     /// with these declarations as whole numbers, and Compare uses the grids for its bits.
     /// </summary>
@@ -274,9 +281,9 @@ public static class IntegerProof
     }
 
     /// <summary>
-    /// bit-emit.ts sumRange: the range of bias + Σ weight × value, when the bias, each weight and each
-    /// value are whole, and the sum of the magnitudes of the bias and of each product is at most 2^24.
-    /// Null otherwise. That sum bounds each product and each partial sum, in any order.
+    /// bit-emit.ts sumRange: the range of bias + Σ weight × value. It applies when the bias, each weight
+    /// and each value are whole. The sum of the magnitudes of the bias and of each product must also be
+    /// at most 2^24. Null otherwise. That sum bounds each product and each partial sum, in any order.
     /// </summary>
     internal static SumBound? SumRange(IReadOnlyList<WholeProof> proofs, float bias, ImmutableArray<ShaderTerm> terms)
     {

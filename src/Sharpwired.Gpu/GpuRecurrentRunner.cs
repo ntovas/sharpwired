@@ -1,6 +1,7 @@
-// No Handwired source. The GPU runner of a step program (phase 5 plan, question 5, R5.4): the prefix, the
-// step kernel and the suffix of a RecurrentFunction in one command buffer, more dispatches while a lane
-// runs, the lane status, and the CPU replay of a failed lane for the message of the CPU runner.
+// No Handwired source. The GPU runner of a step program (phase 5 plan, question 5, R5.4). It runs the
+// prefix, the step kernel and the suffix of a RecurrentFunction in one command buffer. It submits more
+// dispatches while a lane runs, and it reads the lane status. It replays a failed lane on the CPU to
+// get the message of the CPU runner.
 
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
@@ -34,13 +35,14 @@ public sealed record GpuRecurrentBatch(ImmutableArray<float> Outputs, ImmutableA
 /// <see cref="StepsPerDispatch"/> evaluations of each lane in one dispatch, because a GPU command that
 /// runs too long stops on some systems. The runner submits more dispatches of the step kernel and the
 /// suffix while a lane runs. A lane that is done stays idle until the other lanes are done.</para>
-/// <para>The step kernel checks each cell with the declarations of the step table: at the first
-/// evaluation each cell, and then each next value of a state cell, before the done test. So a value past
-/// a cell range, also the range -2^23..2^23 of a wide int cell, stops the lane. It is never a silent wrong
-/// value. The kernel checks use is_finite and bit tests on computed values, which the WGSL specification
-/// does not guarantee. For the message, the runner replays the first failed lane on the CPU with
-/// <see cref="RecurrentRunner"/>, and throws <see cref="InvalidOperationException"/> with "lane n: " and
-/// the CPU message, with the CPU exception as the inner exception. When the CPU replay passes, the
+/// <para>The step kernel checks each cell with the declarations of the step table. At the first
+/// evaluation it checks each cell. Then it checks each next value of a state cell, before the done test.
+/// So a value past a cell range, also the range -2^23..2^23 of a wide int cell, stops the lane. It is
+/// never a silent wrong value. The kernel checks use is_finite and bit tests on computed values, which
+/// the WGSL specification does not guarantee. For the message, the runner replays the first failed lane
+/// on the CPU with <see cref="RecurrentRunner"/>. Then it throws
+/// <see cref="InvalidOperationException"/> with "lane n: " and the CPU message. The CPU exception is the
+/// inner exception. When the CPU replay passes, the
 /// runner throws a message that names the GPU fault. The same replay gives the message of a nonzero loop
 /// overflow bit and of a suffix output that is not finite.</para>
 /// <para>The runner uses the lock of its device for the full call. Dispose the runner before its
@@ -227,15 +229,26 @@ public sealed class GpuRecurrentRunner : IDisposable
         owned.Clear();
     }
 
-    // The largest chunk: each buffer of a chunk fits one binding and one buffer, the readback of a
-    // chunk fits one buffer, and the workgroups fit one dispatch dimension.
+    // The largest chunk of this runner on the device.
     private int ChunkLimit(GpuDevice gpu)
     {
-        var binding = Math.Min(gpu.MaxStorageBufferBindingSize, gpu.MaxBufferSize);
-        long widest = Math.Max(Math.Max(argumentCount, prefixStride), Math.Max(Math.Max(cellCount, suffixStride), RecurrentKernelWriter.LaneWords));
+        long widest = Math.Max(Math.Max(argumentCount, prefixStride), Math.Max(cellCount, suffixStride));
+        return ChunkLimit(gpu.MaxStorageBufferBindingSize, gpu.MaxBufferSize, gpu.MaxWorkgroupsPerDimension, workgroupSize, widest, suffixStride);
+    }
+
+    /// <summary>
+    /// The largest chunk. Each buffer of a chunk fits one binding and one buffer. The readback of a
+    /// chunk fits one buffer and one byte array. The workgroups fit one dispatch dimension.
+    /// <paramref name="widest"/> is the largest count of values of one lane in one buffer.
+    /// </summary>
+    internal static int ChunkLimit(long maxBinding, long maxBuffer, int maxWorkgroups, int workgroupSize, long widest, int suffixStride)
+    {
+        var binding = Math.Min(maxBinding, maxBuffer);
+        widest = Math.Max(widest, RecurrentKernelWriter.LaneWords);
         var byBindings = binding / (4L * widest);
-        var byReadback = gpu.MaxBufferSize / (4L * (RecurrentKernelWriter.LaneWords + suffixStride));
-        var byWorkgroups = (long)workgroupSize * gpu.MaxWorkgroupsPerDimension;
+        // The readback of a chunk goes into one byte array, whose length is below int.MaxValue.
+        var byReadback = Math.Min(maxBuffer, Array.MaxLength) / (4L * (RecurrentKernelWriter.LaneWords + suffixStride));
+        var byWorkgroups = (long)workgroupSize * maxWorkgroups;
         return (int)Math.Max(1, Math.Min(Math.Min(byBindings, byReadback), Math.Min(byWorkgroups, int.MaxValue)));
     }
 

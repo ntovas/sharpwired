@@ -86,8 +86,9 @@ public sealed partial class WriterTests
         Assert.Equal(1, module.Statistics.FloatRows);
     }
 
-    // bit-emit.ts, "Gate": relu(bias + Σ weight × value) with the largest value 1, bits of positive
-    // weight and nonnegative values of negative weight, is an AND of the bits and of "each value is 0".
+    // bit-emit.ts, "Gate". The gate relu(bias + Σ weight × value) has the largest value 1. Its values of
+    // positive weight are bits, and its values of negative weight are nonnegative. This gate is an AND of
+    // the bits and of "each value is 0".
     [Fact]
     public void A_gate_of_bits_is_an_AND_and_a_NOR()
     {
@@ -107,7 +108,7 @@ public sealed partial class WriterTests
     }
 
     // A term of weight 0 adds nothing to a gate, so it gets no test. bit-emit.ts puts such a term with
-    // the values that must be 0, which gives relu(a + 0 × c) = a & (c ^ 1u), and 0 for a = c = 1. The
+    // the values that must be 0. This gives relu(a + 0 × c) = a & (c ^ 1u), and 0 for a = c = 1. The
     // public builder drops a weight of 0, so this test writes the row of a compiled program directly.
     [Fact]
     public void A_gate_term_of_weight_0_gets_no_test()
@@ -122,8 +123,9 @@ public sealed partial class WriterTests
         Assert.Empty(form.Tests);
     }
 
-    // The near misses of the gate rule: a value of positive weight that is not a bit, a value of
-    // negative weight that can be negative, and a largest value of 2. Each is a ReLU in i32.
+    // The near misses of the gate rule. In the first, a value of positive weight is not a bit. In the
+    // second, a value of negative weight can be negative. In the third, the largest value is 2. Each is a
+    // ReLU in i32.
     [Fact]
     public void A_gate_that_misses_one_precondition_is_max_or_a_test_above_zero()
     {
@@ -216,8 +218,8 @@ public sealed partial class WriterTests
         Line(module, $"let {B(program, atom)}: u32 = u32({V(program, atom)});");
     }
 
-    // bit-emit.ts, "Read": a whole index form computes in i32 with no floor, and the writer drops a
-    // clamp or a select that the index range rules out.
+    // bit-emit.ts, "Read": a whole index form computes in i32 with no floor. The writer drops a clamp or
+    // a select that the index range excludes.
     [Fact]
     public void An_index_read_with_a_whole_index_computes_the_index_in_i32()
     {
@@ -261,8 +263,8 @@ public sealed partial class WriterTests
         Assert.Equal(start + 3, Line(module, $"let w{p}: i32 = a{p};"));
     }
 
-    // A gather read of whole candidates adds the selected candidate in i32, or the mass times the
-    // candidate for a group that allows all zeros.
+    // A gather read of whole candidates adds the selected candidate in i32. For a group of proven bits
+    // that allows all zeros, it adds the mass times the candidate.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -271,6 +273,10 @@ public sealed partial class WriterTests
         var circuit = new Circuit(6);
         var cells = Enumerable.Range(0, 6).Select(circuit.Source).ToArray();
         circuit.AssumeOneHot(cells[..3], allowAllZero);
+        if (allowAllZero)
+        {
+            foreach (var cell in cells[..3]) circuit.AssumeBit(cell);
+        }
         foreach (var cell in new[] { 3, 4, 5 }) WholeCell(circuit, cell, -5, 5);
         var sum = circuit.Affine([
             (circuit.Multiply(cells[0], cells[3]), 1),
@@ -281,7 +287,8 @@ public sealed partial class WriterTests
         Assert.Equal(1, TensorChecks.ProgramCounts(program).GatherReads);
         var module = WgslIntegerWriter.Write(circuit, program);
 
-        Line(module, "let gi0: i32 = i32(s1 + 2.0f * s2);");
+        // The gather compute reads a proven bit as f32(b), which is exact.
+        Line(module, allowAllZero ? "let gi0: i32 = i32(k(f32(b1)) + 2.0f * k(f32(b2)));" : "let gi0: i32 = i32(s1 + 2.0f * s2);");
         var candidate = "i32(sources[base + u32(3i + clamp(gi0, 0i, 2i) * 1i)])";
         Line(module, $"let {W(program, sum)}: i32 = 2i + {(allowAllZero ? $"i32(gm0) * {candidate}" : candidate)};");
     }

@@ -106,8 +106,8 @@ public sealed class IntegerProofTests
         IsWhole(ProofOf(circuit, twoBits), 0, 2);
     }
 
-    // The counterexamples of an affine row: a weight of 0.5, a bias of 0.5, an operand that is not
-    // whole, and a partial sum of 2^24 + 1.
+    // The counterexamples of an affine row. They are a weight of 0.5, a bias of 0.5, an operand that is
+    // not whole, and a partial sum of 2^24 + 1.
     [Fact]
     public void An_affine_row_with_a_fraction_or_a_large_partial_sum_stays_f32()
     {
@@ -126,8 +126,8 @@ public sealed class IntegerProofTests
         IsFloat(ProofOf(circuit, floatOperand));
         IsWhole(ProofOf(circuit, atLimit), 0, (long)Limit);
         IsFloat(ProofOf(circuit, pastLimit));
-        // The final value is within 0..2^23, but the partial sum large + large can be 2^24, and the
-        // bound of every product and partial sum is 3 × 2^23.
+        // The final value is within 0..2^23, but the partial sum large + large can be 2^24. The bound of
+        // every product and partial sum is 3 × 2^23.
         IsFloat(ProofOf(circuit, pastLimitFirst));
     }
 
@@ -190,17 +190,47 @@ public sealed class IntegerProofTests
         IsFloat(ProofOf(circuit, floatIndexOneFloat));
     }
 
+    // Final review of phase 5. A member of an AssumeOneHot group is not a proven bit, on an operation
+    // or on a source cell without AssumeBit. A finite cone does not make it a bit, so a masked gather
+    // over it keeps the row f32.
+    [Fact]
+    public void A_masked_gather_needs_a_proven_bit_for_each_member()
+    {
+        var (circuit, sum) = IntegerWriterGpuTests.BrokenOneHotGather();
+        var program = circuit.CompileTensorProgram([sum]);
+        Assert.Contains(program.Layers, layer => layer.GatherReads.Any(read => read.Masked));
+        IsFloat(IntegerProof.Prove(circuit, program)[PositionOf(program, sum)]);
+
+        var sources = new Circuit(6);
+        var cells = Enumerable.Range(0, 6).Select(sources.Source).ToArray();
+        sources.AssumeOneHot(cells[..3], allowAllZero: true);
+        foreach (var cell in new[] { 3, 4, 5 }) Whole(sources, cell, -5, 5);
+        var masked = sources.Affine([
+            (sources.Multiply(cells[0], cells[3]), 1),
+            (sources.Multiply(cells[1], cells[4]), 1),
+            (sources.Multiply(cells[2], cells[5]), 1),
+        ], 2);
+        var maskedProgram = sources.CompileTensorProgram([masked]);
+        Assert.Contains(maskedProgram.Layers, layer => layer.GatherReads.Any(read => read.Masked));
+        IsFloat(IntegerProof.Prove(sources, maskedProgram)[PositionOf(maskedProgram, masked)]);
+    }
+
     // One-hot source bits select a whole value (a gather read of the lowered program). A candidate
-    // that is not whole keeps the row f32.
+    // that is not whole keeps the row f32. A group that allows all zeros gives a masked read, which
+    // needs a proven bit for each member. The evaluators do not check a one-hot group.
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void A_row_with_a_gather_read_is_whole_when_its_sum_and_each_candidate_are_whole(bool allowAllZero, bool floatCandidate)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, false)]
+    public void A_row_with_a_gather_read_is_whole_when_its_sum_and_each_candidate_are_whole(bool allowAllZero, bool floatCandidate, bool bits)
     {
         var circuit = new Circuit(6);
         var cells = Enumerable.Range(0, 6).Select(circuit.Source).ToArray();
         circuit.AssumeOneHot(cells[..3], allowAllZero);
+        if (bits)
+        {
+            foreach (var cell in cells[..3]) circuit.AssumeBit(cell);
+        }
         Whole(circuit, 3, -5, 5);
         Whole(circuit, 4, 0, 7);
         if (floatCandidate) circuit.AssumeRange(cells[5], -1, 1);
@@ -289,7 +319,7 @@ public sealed class IntegerProofTests
         IsFloat(ProofOf(circuit, halfBit));
     }
 
-    // The integer evaluator checks the declarations that the proof and Compare use: each cell on a grid
+    // The integer evaluator checks the declarations that the proof and Compare use. Each cell on a grid
     // holds a multiple of the grid, and each exact bit holds 0, -0 or 1.
     [Fact]
     public void The_source_check_refuses_a_cell_off_its_grid_and_a_bit_that_is_not_0_or_1()
