@@ -1,11 +1,11 @@
-// Handwired source: the idea of the WGSL interpreter of the json-search tests (wgsl-interpreter.ts): run
-// the rows of a shader on the CPU and compare them with the reference. RowInterpreter runs the rows of
-// ShaderRows in the f32 form of WgslFloatWriter, with C# float arithmetic: one FP32 round for each
-// product and each partial sum, in the stored term order. It also records whether a value of the
-// evaluation is a nonzero subnormal value. The GPU tests use this record on a device that flushes
+// Handwired source: the idea of the WGSL interpreter of the json-search tests (wgsl-interpreter.ts). The
+// idea is to run the rows of a shader on the CPU and compare them with the reference. RowInterpreter runs
+// the rows of ShaderRows in the f32 form of WgslFloatWriter, with C# float arithmetic. It does one FP32
+// round for each product and each partial sum, in the stored term order. It also records whether a value
+// of the evaluation is a nonzero subnormal value. The GPU tests use this record on a device that flushes
 // subnormal values (decision 4 of the phase 5 plan). RunInteger runs the forms of WgslIntegerWriter
-// (IntegerPlan) with C# int and uint arithmetic, which wraps as WGSL i32 and u32 do, and the f32 form
-// for each f32 row.
+// (IntegerPlan) with C# int and uint arithmetic, which wraps as WGSL i32 and u32 do. It runs the f32
+// form for each f32 row.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -31,8 +31,8 @@ internal static class RowInterpreter
 
     /// <summary>
     /// Run the forms of the integer writer on one source table. Return, for each packed position, the
-    /// f32 value that the shader stores for it: f32(w) or f32(b) for an integer, and the f32 value for
-    /// an f32 row.
+    /// f32 value that the shader stores for it. This is f32(w) or f32(b) for an integer, and the f32
+    /// value for an f32 row.
     /// </summary>
     public static float[] RunInteger(TensorProgram program, ImmutableArray<ShaderRow> rows, IntegerPlan plan, ReadOnlySpan<float> source)
     {
@@ -57,7 +57,7 @@ internal static class RowInterpreter
             return sum;
         }
 
-        // The candidate as the shader reads it: a source cell converts from the buffer with i32 or u32,
+        // The candidate as the shader reads it. A source cell converts from the buffer with i32 or u32,
         // and a list of computed values selects over first..final.
         float Candidate(ShaderCandidates candidates, int index, WholeKind kind, int first, int final)
         {
@@ -258,8 +258,8 @@ internal static class RowInterpreter
             return value;
         }
 
-        // The left fold of WgslFloatWriter: a weight of 1 adds the value, a weight of -1 subtracts it,
-        // and another weight adds or subtracts the product of its magnitude, after the sign bit.
+        // The left fold of WgslFloatWriter. A weight of 1 adds the value, and a weight of -1 subtracts
+        // it. Another weight adds or subtracts the product of its magnitude, after the sign bit.
         private float Sum(float bias, ImmutableArray<ShaderTerm> terms)
         {
             var sum = Note(bias);

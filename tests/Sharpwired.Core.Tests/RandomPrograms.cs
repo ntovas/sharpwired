@@ -67,9 +67,9 @@ internal static class RandomPrograms
     internal static int RandomInteger(Func<double> random, int limit) => (int)Math.Floor(random() * limit);
 
     // Build one random circuit. The result holds the circuit, the source cells, the source groups,
-    // and the pool of wires that the builder calls returned. With openRangeShare above 0 (the
-    // open-range variant of the GPU tests), the finite cell 1 and each random cell that is not a group
-    // member become cells with no range with that probability. The default 0 takes no random number
+    // and the pool of wires that the builder calls returned. openRangeShare above 0 gives the
+    // open-range variant of the GPU tests. Then the finite cell 1 and each random cell that is not a
+    // group member become cells with no range, with that probability. The default 0 takes no random number
     // for it, so the sequence of the phase 2 test does not change.
     internal static (Circuit Circuit, Cell[] Cells, List<SourceGroup> Groups, List<Wire> Wires) BuildCircuit(
         Func<double> random, int[] builderCalls, double openRangeShare = 0)
@@ -282,11 +282,11 @@ internal static class RandomPrograms
                     }
             }
         }
-        // The open-range variant only, after the builder calls, so that the default sequence does not
-        // change: 1 to 3 values u × relu(1 - relu(a - b)) with a and b wires of no finite range. Range
-        // inference puts each value in 0..1, and the value is NaN for a = b = ±Infinity. A boolean
-        // atom, a Compare bit and an index read of the value then read a NaN that their ranges do not
-        // show. The builder calls above make no value in 0..1 over an open cell.
+        // The open-range variant only. This part comes after the builder calls, so that the default
+        // sequence does not change. It makes 1 to 3 values u × relu(1 - relu(a - b)), with a and b wires
+        // of no finite range. Range inference puts each value in 0..1, and the value is NaN for
+        // a = b = ±Infinity. A boolean atom, a Compare bit and an index read of the value then read a NaN
+        // that their ranges do not show. The builder calls above make no value in 0..1 over an open cell.
         var open = wires.Where(wire => !double.IsFinite(circuit.Ranges[wire.Position].Minimum) || !double.IsFinite(circuit.Ranges[wire.Position].Maximum)).ToList();
         if (openRangeShare > 0 && open.Count > 0)
         {
@@ -358,8 +358,8 @@ internal static class RandomPrograms
     // One source table. Each cell gets a value in its declared range. The value is a random value,
     // an end of the range, ±0, the smallest subnormal, or the largest FP32 value in the range. A
     // cell with no bound can also get ±Infinity. Each group gets a valid one-hot, or all zeros
-    // where the group allows it. With subnormals false (the GPU tests), the subnormal choice gives ±0
-    // and each other subnormal value becomes +0, so that a device that flushes subnormal values compares
+    // where the group allows it. With subnormals false (the GPU tests), the subnormal choice gives ±0,
+    // and each other subnormal value becomes +0. Thus a device that flushes subnormal values compares
     // more evaluations. The default true keeps the sequence and the values of the phase 2 test.
     internal static float[] CreateSource(Func<double> random, Cell[] cells, List<SourceGroup> groups, bool subnormals = true)
     {

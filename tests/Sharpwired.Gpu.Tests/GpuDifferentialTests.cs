@@ -1,12 +1,12 @@
-// Handwired source: no single Handwired test. TensorDifferentialTests (spec item R2.4) on the GPU: the
-// seeded programs of RandomPrograms run through GpuEvaluator on each adapter, with both writers, and
-// each compared value equals the reference evaluator. The compile modes are the 5 modes of the phase 2
-// differential and the mode "no gather lowering, every wire as a root" of question 6 of the phase 5
-// plan. The comparison rule is the rule of question 6: Object.is for the f32 writer without gather
-// lowering, sameNumericValue with gather lowering and for the integer writer. On a device that flushes
-// subnormal values, an evaluation with a subnormal value is not compared and is counted (decision 4).
-// The open-range variant (fix round 2 of the review of task 3) gives about 30% of the source
-// cells no range, and writes no subnormal source value. So NaN and the infinities reach more rows, and
+// Handwired source: no single Handwired test. TensorDifferentialTests (spec item R2.4) on the GPU. The
+// seeded programs of RandomPrograms run through GpuEvaluator on each adapter, with both writers. Each
+// compared value equals the reference evaluator. The compile modes are the 5 modes of the phase 2
+// differential and one mode of question 6 of the phase 5 plan. That mode is "no gather lowering, every
+// wire as a root". The comparison rule is the rule of question 6. The f32 writer without gather lowering
+// uses Object.is. Gather lowering and the integer writer use sameNumericValue. On a device that
+// flushes subnormal values, the test does not compare an evaluation with a subnormal value, and counts it
+// (decision 4). The open-range variant (fix round 2 of the review of task 3) gives about 30% of the
+// source cells no range. It writes no subnormal source value. So NaN and the infinities reach more rows, and
 // the subnormal rule excludes fewer evaluations.
 
 using System.Diagnostics;
@@ -69,12 +69,12 @@ public sealed class GpuDifferentialTests(GpuFixture fixture, ITestOutputHelper o
             // The floors are half of the counts of the first run on the Apple M5 Pro (Metal), which
             // flushes subnormal values. Each writer gave comparedEvaluations 55,830, comparedValues
             // 4,950,124, gatherReads 896 and indexReads 1,244. After fix round 2 of the review of task 3,
-            // the integer writer wrote 22,578 i32 rows and 35,400 u32 rows (before the fix: 22,580 and
-            // 35,406). Each writer excluded 20,970 evaluations by the subnormal rule, because this test
-            // keeps the subnormal source values of RandomPrograms. Each mode must compare at least a
-            // quarter of its tables, so that the subnormal rule cannot exclude a full mode. One writer
-            // took 4.6 s to 54 s; the cause of the slow runs was not found. Each run is below the limit of
-            // 60 s of question 6.
+            // the integer writer wrote 22,578 i32 rows and 35,400 u32 rows. Before the fix, the counts
+            // were 22,580 and 35,406. Each writer excluded 20,970 evaluations by the subnormal rule,
+            // because this test keeps the subnormal source values of RandomPrograms. Each mode must
+            // compare at least a quarter of its tables, so that the subnormal rule cannot exclude a full
+            // mode. One writer took 4.6 s to 54 s; the cause of the slow runs is unknown. Each run is
+            // below the limit of 60 s of question 6.
             Assert.Equal(CircuitCount * Modes.Length, counts.Programs);
             Assert.True(counts.ComparedEvaluations >= 27_915, $"comparedEvaluations {counts.ComparedEvaluations}");
             Assert.True(counts.ComparedValues >= 2_475_062, $"comparedValues {counts.ComparedValues}");
@@ -107,9 +107,10 @@ public sealed class GpuDifferentialTests(GpuFixture fixture, ITestOutputHelper o
             // The floors are half of the counts of the first run on the Apple M5 Pro (Metal). Each writer
             // compared 30,720 evaluations of each seed, and the subnormal rule excluded none. Seed be7a:
             // 221 of 650 source cells with no range, comparedValues 2,899,584, gatherReads 295,
-            // indexReads 984, and 10 roots compared with TensorEvaluator by the gather rule of
-            // GpuChecks.Compare. Seed 51ce5: 161 of 596 cells, 2,989,952, 351, 740, and 0 roots. One
-            // writer took 2 s to 24 s for one seed, and at most 41 s for both seeds.
+            // indexReads 984, and 10 gather roots. A gather root is a root that the gather rule of
+            // GpuChecks.Compare compared with TensorEvaluator. Seed 51ce5: 161 of 596 cells, 2,989,952,
+            // 351, 740, and 0 roots. One writer took 2 s to 24 s for one seed, and at most 41 s for both
+            // seeds.
             Assert.Equal(OpenRangeCircuitCount * Modes.Length, counts.Programs);
             var floors = seed == 0x0be7a ? (Values: 1_449_792, Gathers: 147, Indices: 492) : (Values: 1_494_976, Gathers: 175, Indices: 370);
             Assert.True(counts.ComparedEvaluations >= 15_360, $"comparedEvaluations {counts.ComparedEvaluations}");

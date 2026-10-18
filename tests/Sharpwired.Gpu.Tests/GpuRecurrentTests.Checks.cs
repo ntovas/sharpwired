@@ -1,4 +1,4 @@
-// No Handwired source. The cell checks of the step kernel on each adapter: for each edge value of each
+// No Handwired source. The cell checks of the step kernel on each adapter. For each edge value of each
 // cell kind, the status of the first evaluation equals the result of the CellValidator of the step
 // table. The checks depend on is_finite and the bit tests on a computed value, which the WGSL
 // specification does not guarantee (section 15.7.2). So this test measures them on each adapter. Also
@@ -101,8 +101,8 @@ public sealed partial class GpuRecurrentTests
 internal static class SubnormalReplay
 {
     /// <summary>
-    /// True when the CPU run of the lane holds a nonzero value of magnitude below 2^-126 in a wire of
-    /// the prefix, of a step evaluation, or of the suffix.
+    /// True when the CPU run of the lane holds a nonzero value of magnitude below 2^-126. The value can
+    /// be in a wire of the prefix, of a step evaluation, or of the suffix.
     /// </summary>
     public static bool Holds(RecurrentFunction function, float[] arguments, int stepLimit)
     {

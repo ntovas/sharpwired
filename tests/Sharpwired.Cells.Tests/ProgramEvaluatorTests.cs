@@ -238,8 +238,8 @@ public class ProgramEvaluatorTests
     }
 
     // Sharpwired case with no Handwired test (phase 5, task 4). Create with a backend calls the backend
-    // one time, with the circuit of the table and the compiled program, and evaluates through the root
-    // evaluator that the backend returns. The results equal the results of Create without a backend.
+    // one time, with the circuit of the table and the compiled program. Then it evaluates through the
+    // root evaluator that the backend returns. The results equal the results of Create without a backend.
     [Fact]
     public void Create_with_a_backend_calls_the_backend_one_time_and_gives_the_results_of_Create_without_a_backend()
     {

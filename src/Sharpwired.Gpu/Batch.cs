@@ -1,5 +1,5 @@
-// No Handwired source. The batch contract of the evaluators: IBatchEvaluator, the CPU evaluator that
-// runs TensorEvaluator on parallel threads, and BatchEvaluators, which selects the GPU or the CPU path.
+// No Handwired source. The batch contract of the evaluators. IBatchEvaluator is the contract. The CPU
+// evaluator runs TensorEvaluator on parallel threads. BatchEvaluators selects the GPU or the CPU path.
 
 using Sharpwired.Core;
 

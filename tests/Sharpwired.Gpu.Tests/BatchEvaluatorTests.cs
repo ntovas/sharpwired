@@ -13,18 +13,19 @@ namespace Sharpwired.Gpu.Tests;
 internal static class GpuChecks
 {
     /// <summary>
-    /// Compare each root of each table with the reference evaluator. On a device that flushes subnormal
-    /// values, a table whose f32 evaluation holds a nonzero subnormal value is not compared (decision 4
-    /// of the phase 5 plan). Return the count of compared tables and the count of tables that were not
-    /// compared. A root that the program does not hold must give NaN, as TensorEvaluator gives.
+    /// Compare each root of each table with the reference evaluator. The method does not compare a table
+    /// whose f32 evaluation holds a nonzero subnormal value on a device that flushes subnormal values.
+    /// This is decision 4 of the phase 5 plan. Return the count of compared tables and the count of
+    /// tables that the method did not compare. A root that the program does not hold must give NaN, as
+    /// TensorEvaluator gives.
     /// </summary>
     /// <remarks>
-    /// With <paramref name="gatherNaN"/> not null (a program with gather lowering), a root whose
-    /// reference value is NaN and whose TensorEvaluator value is not NaN is compared with the
-    /// TensorEvaluator value, and counted in <paramref name="gatherNaN"/>. A gather reads only the
-    /// candidate of the bit that is 1, so it skips the product 0 × NaN of the dense sum of the
-    /// reference. This difference is a property of the gather lowering of Core, and the GPU must
-    /// give the value of the compiled program.
+    /// This rule applies to a root whose reference value is NaN and whose TensorEvaluator value is not
+    /// NaN. When <paramref name="gatherNaN"/> is not null (a program with gather lowering), the method
+    /// compares such a root with the TensorEvaluator value. It counts the root in
+    /// <paramref name="gatherNaN"/>. A gather reads only the candidate of the bit that is 1. So it skips
+    /// the product 0 × NaN of the dense sum of the reference. This difference is a property of the gather
+    /// lowering of Core, and the GPU must give the value of the compiled program.
     /// </remarks>
     public static (int Compared, int Excluded) Compare(
         GpuDevice? device, Circuit circuit, TensorProgram program, float[] sources, int tableCount, float[] outputs, bool sameNumericValue,
@@ -148,7 +149,7 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
 {
     public static TheoryData<GpuWriter> Writers => new() { GpuWriter.Float32, GpuWriter.Integer };
 
-    // A gather can change the sign of an exactly zero result (TensorDifferentialTests header), and an
+    // A gather can change the sign of an exactly zero result (TensorDifferentialTests header). Also, an
     // i32 has no -0 (question 3 of the phase 5 plan).
     private static bool SameNumericValue(GpuWriter writer, bool lowersGathers = false) => lowersGathers || writer == GpuWriter.Integer;
 
@@ -238,7 +239,7 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         });
     }
 
-    // The integer writer reads a cell on a grid of 1 as an i32, so the integer evaluator checks the
+    // The integer writer reads a cell on a grid of 1 as an i32. So the integer evaluator checks the
     // grid and the bit declarations of each table. The f32 evaluator checks the ranges only, as
     // TensorEvaluator does, and gives the reference value.
     [Fact]
@@ -295,11 +296,11 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         });
     }
 
-    // Each row form of the f32 writer on the device: index reads of each candidate form and each
-    // out-of-range rule, masked and unmasked gathers of computed values, a row of 33 terms, a ReGLU, a
-    // boolean atom and a bias of -0. A circuit of 32 source cells puts an index read at packed position
-    // 32, so its index value has the name x32 (the name i32 is a WGSL type). 24 seeded circuits of
-    // RandomPrograms add more forms.
+    // Each row form of the f32 writer on the device. The forms are index reads of each candidate form and
+    // each out-of-range rule, and masked and unmasked gathers of computed values. They also include a row
+    // of 33 terms, a ReGLU, a boolean atom and a bias of -0. A circuit of 32 source cells puts an index
+    // read at packed position 32. So its index value has the name x32 (the name i32 is a WGSL type). 24
+    // seeded circuits of RandomPrograms add more forms.
     [Theory]
     [MemberData(nameof(Writers))]
     public void Each_row_form_runs_on_the_device_and_equals_the_reference(GpuWriter writer)
@@ -396,7 +397,7 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
     }
 
     // A one-hot group of -0 bits and a row with the bias -0. The mass of a gather starts at +0, as the
-    // tensor evaluator starts it, so a group of -0 bits gives the mass +0, the masked product -0 for a
+    // tensor evaluator starts it. So a group of -0 bits gives the mass +0, the masked product -0 for a
     // negative candidate, and the row value -0 + -0 = -0. A mass that starts at the first bit gives -0,
     // the product +0, and the row value +0. The f32 writer must give the bits of the tensor evaluator,
     // and each writer must give the numeric value of the reference.

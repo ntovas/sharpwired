@@ -1,8 +1,8 @@
 // Handwired source: template/toggle.test.ts (scriptedTrace and its frame checks). The builder toggle
-// runs the scripted trace of ToggleTrace on the GPU, through ProgramEvaluator.Create with a GpuEvaluator
-// backend, and on the CPU, through ProgramEvaluator.Create without a backend (question 6 of the phase 5
-// plan). The two machines run the same circuit. So each frame gives the same outputs and the same
-// stored cells with Object.is, and the same state of the spring clock.
+// runs the scripted trace of ToggleTrace on the GPU and on the CPU (question 6 of the phase 5 plan). On
+// the GPU it runs through ProgramEvaluator.Create with a GpuEvaluator backend. On the CPU it runs through
+// ProgramEvaluator.Create without a backend. The two machines run the same circuit. So each frame gives
+// the same outputs and the same stored cells with Object.is, and the same state of the spring clock.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;
@@ -105,7 +105,7 @@ public sealed class GpuToggleTests(GpuFixture fixture, ITestOutputHelper output)
         && Js.ObjectIs(expected.Armed, actual.Armed)
         && Js.ObjectIs(expected.Active, actual.Active);
 
-    // A root evaluator that counts its calls, and on a device that flushes subnormal values records
+    // A root evaluator that counts its calls. On a device that flushes subnormal values, it records
     // whether an evaluation holds a subnormal value in the f32 form of the rows (RowInterpreter).
     private sealed class RecordingEvaluator(IRootEvaluator inner, bool recordsSubnormals) : IRootEvaluator
     {

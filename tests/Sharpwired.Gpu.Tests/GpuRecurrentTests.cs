@@ -1,11 +1,11 @@
 // No Handwired source. R5.4: the recurrent step on the GPU (phase 5 plan, task 5, and question 6,
-// "Recurrent tests" and "Wide-cell test"). Each test runs on each adapter with both writers, and compares
-// each lane with RecurrentRunner.Run on the CPU: the same steps, the same Completed, and outputs with
-// Js.ObjectIs (f32 writer) or Js.SameNumericValue (integer writer). The GPU and the CPU run the same
-// programs, so the f32 writer gives the same sign of zero.
+// "Recurrent tests" and "Wide-cell test"). Each test runs on each adapter with both writers. It compares
+// each lane with RecurrentRunner.Run on the CPU. The steps and Completed must be the same. The outputs
+// must agree by Js.ObjectIs (f32 writer) or Js.SameNumericValue (integer writer). The GPU and the CPU run
+// the same programs, so the f32 writer gives the same sign of zero.
 //
-// The subnormal rule (decision 4): on a device that flushes subnormal values, a lane that differs from
-// the CPU passes only when the CPU run of the lane holds a nonzero value of magnitude below 2^-126. The
+// The subnormal rule (decision 4) applies on a device that flushes subnormal values. There, a lane that
+// differs from the CPU passes only when its CPU run holds a nonzero value of magnitude below 2^-126. The
 // test writes the count of such lanes. A lane that equals the CPU needs no such check.
 
 using System.Diagnostics;
@@ -27,7 +27,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     private static readonly GpuWriter[] Writers = [GpuWriter.Float32, GpuWriter.Integer];
 
     // The methods of RecurrentInputs that RecurrentTests translates, with the edge values of
-    // RecurrentTests. Grow is refused by the translator.
+    // RecurrentTests. The translator refuses Grow.
     public static TheoryData<string, GpuWriter> Inputs()
     {
         var data = new TheoryData<string, GpuWriter>();
@@ -116,8 +116,8 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     }
 
     // The wide-cell test of the plan (the phase 4 carried item). x has the wide int range -2^23..2^23.
-    // For n = 30, the 24th doubling gives 2^24, and the cell check stops the lane. The GPU runner replays
-    // the lane on the CPU and throws its message. The other lanes are valid.
+    // For n = 30, x is 2^24 after it doubles 24 times, and the cell check stops the lane. The GPU runner
+    // replays the lane on the CPU and throws its message. The other lanes are valid.
     [Theory]
     [MemberData(nameof(WriterData))]
     public void A_wide_cell_past_its_range_throws_the_CPU_message_for_its_lane(GpuWriter writer)

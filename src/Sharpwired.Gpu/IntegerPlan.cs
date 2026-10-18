@@ -1,6 +1,7 @@
-// Handwired source: src/json-search/bit-emit.ts (the rules Sum, Gate, Comparison and Read, the functions
-// conjunction, zeroTest and neverBothOne's reading of a gate, and the writeRow switch), without the lanes
-// and the packed reads (decision 2 of the phase 5 plan). The gate rules of the integer writer: the form of
+// Handwired source: src/json-search/bit-emit.ts, without the lanes and the packed reads (decision 2 of
+// the phase 5 plan). The parts of the source are the rules Sum, Gate, Comparison and Read, and the
+// functions conjunction and zeroTest. They also include the gate read of neverBothOne and the writeRow
+// switch. The gate rules of the integer writer: the form of
 // each row, and the rows that the roots need. WgslIntegerWriter writes the forms as WGSL text, and the
 // RowInterpreter of the tests runs them in C# integer arithmetic.
 
@@ -145,13 +146,13 @@ internal sealed record IntegerPlan(ImmutableArray<WholeProof> Proofs, ImmutableA
     }
 
     /// <summary>
-    /// bit-emit.ts conjunction. The gate is max(0, bias + Σ weight × value), with the left form the
-    /// constant 1, whole weights, each value of positive weight a bit, and each value of negative
-    /// weight never negative. Its largest value is bias + Σ positive weights. When that is 1, the gate
-    /// is 1 exactly when each bit of positive weight is 1 and each value of negative weight is 0.
-    /// Otherwise one positive weight of at least 1 is missing, or one negative weight of at most -1
-    /// meets a value of at least 1, and the sum is 0 or less. A term of weight 0 adds nothing, so it
-    /// gets no test. Null when the row is not of this form.
+    /// bit-emit.ts conjunction. The gate is max(0, bias + Σ weight × value). Its left form is the
+    /// constant 1, and its weights are whole. Each value of positive weight is a bit, and each value of
+    /// negative weight is never negative. Its largest value is bias + Σ positive weights. When that is 1,
+    /// the gate is 1 exactly when each bit of positive weight is 1 and each value of negative weight is 0.
+    /// Otherwise the sum does not get one positive weight of at least 1, because its bit is 0. Or one
+    /// negative weight of at most -1 meets a value of at least 1. In both cases the sum is 0 or less. A
+    /// term of weight 0 adds nothing, so it gets no test. Null when the row is not of this form.
     /// </summary>
     internal static ConjunctionForm? Conjunction(RegluRow row, ProofResult proof, ShaderRow?[] rowAt)
     {

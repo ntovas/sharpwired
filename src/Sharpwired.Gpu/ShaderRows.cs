@@ -1,8 +1,8 @@
 // Handwired source: src/json-search/emit.ts (Row, flattenProgram, positionsOfWires). The rows of a
 // compiled program, one for each operation, in an order that gives the values of TensorExecution. emit.ts
-// refuses gathers and index reads of computed candidates. These rows hold both: a gather compute, the
-// gather reads of a row, and three candidate forms (evenly spaced source cells, a list of source cells,
-// and a list of computed values).
+// refuses gathers and index reads of computed candidates. These rows hold both. They have a gather
+// compute and the gather reads of a row. They have three candidate forms: evenly spaced source cells, a
+// list of source cells, and a list of computed values.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -96,7 +96,7 @@ internal static class ShaderRows
     /// <remarks>
     /// TensorExecution runs the sums, the gather reads, the index reads, the gates and the boolean
     /// atoms of a layer, in that order. The validator of a program makes each step write a different
-    /// projection row: a gather row has no weights and is not a gate or boolean row, an index row is
+    /// projection row. A gather row has no weights and is not a gate or boolean row. An index row is
     /// after the gate rows, and an index read row is not a gather row. A step reads only its own
     /// projection rows and the packed values of earlier layers. So one row for each output, with its
     /// steps in the TensorExecution order, gives the same values.

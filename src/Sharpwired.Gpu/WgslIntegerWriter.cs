@@ -1,8 +1,8 @@
-// Handwired source: src/json-search/bit-emit.ts (the rules Sum, Gate, Comparison and Read, the functions
-// conjunction, zeroTest, gateText, atMostZero, intSum and writeRow), without the loop parts and without the
-// lanes and the packed reads (decision 2 of the phase 5 plan). The integer writer: a proven bit is a u32
-// that holds 0 or 1, a proven whole number is an i32, and each other row is the statement of the f32
-// writer (question 3 of the phase 5 plan).
+// Handwired source: src/json-search/bit-emit.ts, without the loop parts, and without the lanes and the
+// packed reads (decision 2 of the phase 5 plan). The parts of the source are the rules Sum, Gate,
+// Comparison and Read, and the functions conjunction, zeroTest, gateText, atMostZero, intSum and writeRow.
+// The integer writer. A proven bit is a u32 that holds 0 or 1, and a proven whole number is an i32. Each
+// other row is the statement of the f32 writer (question 3 of the phase 5 plan).
 
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
@@ -76,8 +76,8 @@ internal sealed partial class IntegerBody
 
     /// <summary>
     /// The integer value of a row that the writer holds as an i32 or a u32 and computes in integer
-    /// arithmetic, or null for an f32 value, a source cell, or a row that the writer converts from an
-    /// f32 statement.
+    /// arithmetic. Null for an f32 value, a source cell, or a row that the writer converts from an f32
+    /// statement.
     /// </summary>
     public (WholeKind Kind, string Text)? IntegerValue(int position)
     {
@@ -129,8 +129,8 @@ internal sealed partial class IntegerBody
     };
 
     // The f32 text of a position that the writer holds as an integer, or null for the f32 name. The
-    // conversion is inside keep: the shader compiler can know the value of a constant integer row,
-    // and Metal fast math then regroups the f32 row that reads it.
+    // conversion is inside keep for this reason. The shader compiler can know the value of a constant
+    // integer row. Metal fast math then regroups the f32 row that reads it.
     private string? FloatNameOf(int position)
     {
         if (!Proofs[position].IsProven || (position >= sourceSize && hasFloatName[position])) return null;
@@ -218,8 +218,8 @@ internal sealed partial class IntegerBody
                     var position = IntegerPlan.PositionOf(floatForm.Row);
                     hasFloatName[position] = true;
                     body.Write(floatForm.Row);
-                    // A value that the circuit proves without the range arithmetic, for example the bit
-                    // of a sign cascade, or an index read of whole candidates with an f32 index.
+                    // A value that the circuit proves without the range arithmetic. Two examples are the
+                    // bit of a sign cascade and an index read of whole candidates with an f32 index.
                     var proof = Proofs[position];
                     if (proof.IsProven) body.AddStatement($"let {Typed(position)}: {TypeOf(proof.Kind)} = {TypeOf(proof.Kind)}(v{position});");
                     break;
@@ -278,8 +278,8 @@ internal sealed partial class IntegerBody
         Whole(row.Position, string.Join(" + ", parts));
     }
 
-    // bit-emit.ts gateText: the bits that must be 1, then the test of each value that must be 0: a
-    // comparison is u32(sum <= 0), another whole number is u32(w == 0i), and the bits are one
+    // bit-emit.ts gateText: the bits that must be 1, then the test of each value that must be 0. A
+    // comparison is u32(sum <= 0), and another whole number is u32(w == 0i). The bits are one
     // "none of these bits is 1".
     private string ConjunctionText(ConjunctionForm form)
     {

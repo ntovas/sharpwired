@@ -3,7 +3,7 @@
 // The inputs are at the rounding boundaries (question 6 of the phase 5 plan). The FMA program checks
 // that the writer blocks the contraction of a product and a sum. Each program compiles with every wire
 // as a root, so the test compares each live wire, and not only the last one. Each test runs with both
-// writers. The integer writer is compared with sameNumericValue, because an i32 has no -0.
+// writers. The test compares the integer writer with sameNumericValue, because an i32 has no -0.
 
 using Sharpwired.Core;
 using Xunit.Abstractions;

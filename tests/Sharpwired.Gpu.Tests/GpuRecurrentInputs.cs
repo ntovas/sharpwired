@@ -1,7 +1,8 @@
-// No Handwired source. The [Handwired] inputs of the GPU recurrent tests (phase 5 plan, task 5, and
-// question 6, "Recurrent tests" and "Wide-cell test"), in addition to the inputs of RecurrentInputs.
-// Each loop counts down from n. A loop "k < n" with a counter k from a constant has a declared maximum, and
-// the translator unrolls it (loop form 2), so it is not a step program (RecurrentInputs, ChainLag).
+// No Handwired source. The [Handwired] inputs of the GPU recurrent tests, in addition to the inputs of
+// RecurrentInputs. The plan items are the phase 5 plan, task 5, and question 6, "Recurrent tests" and
+// "Wide-cell test". Each loop counts down from n. A loop "k < n" with a counter k from a constant has a
+// declared maximum. So the translator unrolls it (loop form 2), and it is not a step program
+// (RecurrentInputs, ChainLag).
 
 using Sharpwired.Annotations;
 

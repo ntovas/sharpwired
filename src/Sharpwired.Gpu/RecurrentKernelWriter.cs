@@ -1,9 +1,9 @@
 // Handwired source: src/json-search/loop-emit.ts (the for loop of a loop program, with each register as a
-// var). The step kernel of a RecurrentStep (phase 5 plan, question 5): one invocation runs the step program
-// of one lane until done is 1, until the step limit, until a cell check fails, or until the evaluations of
-// one dispatch. The kernel checks each cell with the declarations of the CellValidator of the step table, so
-// that a value past a cell range stops the lane and is never a silent wrong value (the phase 4 carried
-// item).
+// var). The step kernel of a RecurrentStep (phase 5 plan, question 5). One invocation runs the step program
+// of one lane. It stops when done is 1, at the step limit, when a cell check fails, or at the end of the
+// evaluations of one dispatch. The kernel checks each cell with the declarations of the CellValidator of
+// the step table. So a value past a cell range stops the lane and is never a silent wrong value (the
+// phase 4 carried item).
 
 using System.Globalization;
 using System.Text;
@@ -43,24 +43,29 @@ internal sealed record RecurrentInitial(int Offset, int Stride, int OverflowCoun
 internal sealed record RecurrentKernel(string Code, int CellCount, RecurrentInitial Initial, int WorkgroupSize);
 
 /// <summary>
-/// The writer of the step kernel. Bindings: 0 <c>initial</c> (the prefix outputs), 1 <c>state</c> (the
-/// cells of each lane), 2 <c>params</c>, 3 <c>lanes</c> (three words for each lane: the status, the
-/// steps and the detail of a failed check), 4 <c>run</c> (the step limit and the evaluations of one
-/// dispatch).
+/// The writer of the step kernel. The bindings are:
+/// <list type="bullet">
+/// <item>0 <c>initial</c> (the prefix outputs).</item>
+/// <item>1 <c>state</c> (the cells of each lane).</item>
+/// <item>2 <c>params</c>.</item>
+/// <item>3 <c>lanes</c> (three words for each lane: the status, the steps and the detail of a failed
+/// check).</item>
+/// <item>4 <c>run</c> (the step limit and the evaluations of one dispatch).</item>
+/// </list>
 /// </summary>
 /// <remarks>
 /// <para>The kernel holds each state cell in a <c>var</c> and each invariant in a <c>let</c>. For each
 /// lane it repeats the order of <see cref="RecurrentRunner.Run"/>: at the first evaluation, it checks
-/// the prefix overflow bits and each cell. Then, for each evaluation: stop at the step limit, evaluate the
-/// rows, check each next value of a state cell, check that done is finite, stop when done is not 0, and
-/// copy the next values.</para>
-/// <para>The checks use the bits of the values: <c>is_finite</c>, the order key <c>ordered</c> for the
-/// range, <c>is_bit</c>, <c>on_grid</c> and <c>ones</c> for the one-hot and at-most-one rules. So a
-/// subnormal flush and the fast math of a backend do not change a comparison. The WGSL specification
-/// (section 15.7.2) does not guarantee <c>is_nan</c> and <c>is_finite</c> on a computed value, because
-/// an implementation can assume that no NaN and no infinity occur. The tests measure them on each
-/// adapter. Thus the GPU check only finds the lane: the CPU replay of <see cref="GpuRecurrentRunner"/> is
-/// the authority for the error message.</para>
+/// the prefix overflow bits and each cell. Then, for each evaluation, it stops at the step limit and
+/// evaluates the rows. It checks each next value of a state cell, and checks that done is finite. It
+/// stops when done is not 0, and copies the next values.</para>
+/// <para>The checks use the bits of the values. They use <c>is_finite</c>, <c>is_bit</c>,
+/// <c>on_grid</c>, and the order key <c>ordered</c> for the range. They use <c>ones</c> for the one-hot
+/// and at-most-one rules. So a subnormal flush and the fast math of a backend do not change a
+/// comparison. The WGSL specification (section 15.7.2) does not guarantee <c>is_nan</c> and
+/// <c>is_finite</c> on a computed value. The reason is that an implementation can assume that no NaN and
+/// no infinity occur. The tests measure them on each adapter. Thus the GPU check only finds the lane: the
+/// CPU replay of <see cref="GpuRecurrentRunner"/> is the authority for the error message.</para>
 /// </remarks>
 internal static class RecurrentKernelWriter
 {
@@ -158,7 +163,7 @@ internal static class RecurrentKernelWriter
     /// Write the step kernel. The roots of <paramref name="program"/> are the next value of each cell,
     /// in cell order, then done.
     /// </summary>
-    /// <exception cref="ArgumentException">The program is not a step program of the table, or a grid of a
+    /// <exception cref="ArgumentException">The program is not a step program of the table. Or a grid of a
     /// cell is not a form that the kernel can check exactly.</exception>
     public static RecurrentKernel Write(RecurrentStep step, TensorProgram program, RecurrentInitial initial, GpuWriter writer)
     {
@@ -385,7 +390,7 @@ internal static class RecurrentKernelWriter
 
     // The exponent e of a grid 2^e. Circuit.AssumeGrid accepts a power of two from 2^-149 to 2^127 only,
     // and SourceTable.CreateCircuit declares each cell grid with it. The validator divides in float64,
-    // which is exact for a power of two: value / 2^e is a whole number exactly when the lowest 1 bit
+    // which is exact for a power of two. So value / 2^e is a whole number exactly when the lowest 1 bit
     // of the value is at 2^e or above.
     private static int GridExponent(double grid, string name)
     {
