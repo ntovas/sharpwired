@@ -815,3 +815,15 @@ The manual check, after task 8:
 5. The document texts. I did not make the C# texts equal to the Handwired texts byte for byte (question 1, item 7). The tests pin a hash of the C# texts. Recommendation: accept equal structure and pin the C# hash. Do you accept?
 6. The display kinds on the GPU. This plan keeps one 32-bit value for each position, 205 MB for 100,000 documents, as Handwired does. Four kinds in one word would use 51 MB and need a pack and an unpack statement in each kernel. Recommendation: one value for each position. Do you agree?
 7. The spec text of R6.2 says "as in Handwired `src/json-search`". The values and the stages are as in Handwired. The operation counts can stay above the Handwired counts after the task 1 rules. Recommendation: read R6.2 as equal values and equal stages, and pin the measured counts next to the Handwired counts. Do you accept?
+
+## Decisions
+
+The controller decided the open questions on 2026-10-18. Each follows the recommendation of the plan.
+
+1. Step methods plus `LoopProgram`. The highlighter and the search are plain `[Handwired]` step methods over one position, and `LoopProgram` runs them over the document. A full unroll over 512 positions takes seconds to compile (probe), and form 3 cannot give one output for each position. Task 9 changes the Layer 4 text of docs/design.md to match.
+2. The four recognized forms of task 1 and `Hw.ReadOrZero` are accepted. Without them the search steps have 2.4 to 3.8 times the Handwired operations, and the packed reads do not apply.
+3. `CompiledStage` is the default CPU backend. `TensorEvaluator` stays a test option. Task 2 measures the speed ratio.
+4. The window uses a macOS system font with a fallback. Task 8 checks that the font has each code point that the generator writes, and draws a replacement glyph for a missing one.
+5. The document texts have the Handwired structure, and a hash of the C# output is pinned. Byte identity with the Handwired texts is not required.
+6. The display kinds stay on the GPU as one 32-bit value for each position.
+7. R6.2 means equal values and equal stages. The measured operation counts are pinned next to the Handwired counts.
