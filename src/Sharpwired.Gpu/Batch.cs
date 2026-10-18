@@ -93,9 +93,9 @@ public static class BatchEvaluators
 {
     /// <summary>
     /// Return a <see cref="GpuEvaluator"/> on the device, or a <see cref="CpuBatchEvaluator"/> when
-    /// <paramref name="device"/> is null.
+    /// <paramref name="device"/> is null. The CPU evaluator does not use the writer.
     /// </summary>
-    public static IBatchEvaluator Create(Circuit circuit, TensorProgram program, GpuDevice? device, GpuWriter writer = GpuWriter.Float32) =>
+    public static IBatchEvaluator Create(Circuit circuit, TensorProgram program, GpuDevice? device, GpuWriter writer = GpuWriter.Integer) =>
         device is null ? new CpuBatchEvaluator(circuit, program) : GpuEvaluator.Create(device, circuit, program, writer);
 }
 

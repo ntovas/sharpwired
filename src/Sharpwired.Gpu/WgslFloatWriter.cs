@@ -17,11 +17,20 @@ public enum GpuWriter
 {
     /// <summary>Each operation is an f32 statement with keep (<see cref="WgslFloatWriter"/>).</summary>
     Float32,
+
+    /// <summary>
+    /// Each proven whole wire is an i32, each proven bit a u32, and each other operation an f32
+    /// statement with keep (<see cref="WgslIntegerWriter"/>).
+    /// </summary>
+    Integer,
 }
 
 /// <summary>
 /// The counts of a written shader. <see cref="Statements"/> counts the statements of the source
-/// cells, the rows and the roots. <see cref="Keeps"/> counts the calls of the keep function k.
+/// cells, the rows and the roots. <see cref="Keeps"/> counts the calls of the keep function k. The
+/// row counts give the written rows by the type that holds the value: f32, i32 or u32. The f32 writer
+/// writes f32 rows only. A row that the integer writer converts from an f32 statement counts as i32
+/// or u32.
 /// </summary>
 public sealed record WgslStatistics(int Statements, int FloatRows, int WholeRows, int BitRows, int Keeps);
 
@@ -60,8 +69,9 @@ public static class WgslFloatWriter
     }
 }
 
-// The statements of the main function of an f32 shader.
-internal sealed partial class FloatBody(int sourceSize)
+// The statements of the main function of an f32 shader. The integer writer passes floatName, which gives the
+// f32 text of a position that it holds as an integer, for example f32(w3), and null for an f32 position.
+internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floatName = null)
 {
     // A sum of more terms continues in a new statement (emit.ts termsPerStatement).
     private const int TermsPerStatement = 32;
@@ -70,6 +80,7 @@ internal sealed partial class FloatBody(int sourceSize)
 
     private readonly List<string> statements = [];
     private readonly SortedSet<int> usedSources = [];
+    private readonly SortedDictionary<int, string> integerSourceReads = [];
     private readonly Dictionary<UnsignedIndices, string> tableNames = new(ReferenceEqualityComparer.Instance);
     private readonly List<string> tables = [];
 
@@ -86,7 +97,13 @@ internal sealed partial class FloatBody(int sourceSize)
         }
     }
 
-    public WgslModule Finish(int[] rootPositions, int floatRows)
+    /// <summary>Add one statement after the statements so far.</summary>
+    public void AddStatement(string statement) => statements.Add(statement);
+
+    /// <summary>Add the read of a source cell that the integer writer holds as an integer.</summary>
+    public void AddSourceRead(int cell, string statement) => integerSourceReads.TryAdd(cell, statement);
+
+    public WgslModule Finish(int[] rootPositions, int floatRows, int wholeRows = 0, int bitRows = 0)
     {
         var stores = new List<string>(rootPositions.Length);
         for (var root = 0; root < rootPositions.Length; root++)
@@ -94,7 +111,12 @@ internal sealed partial class FloatBody(int sourceSize)
             var value = rootPositions[root] < 0 ? NaN : Name(rootPositions[root]);
             stores.Add($"outputs[o + {WgslText.Uint(root)}] = {value};");
         }
-        var sourceReads = usedSources.Select(cell => $"let s{cell}: f32 = sources[base + {WgslText.Uint(cell)}];").ToList();
+        var sourceReads = usedSources
+            .Select(cell => (Cell: cell, Statement: $"let s{cell}: f32 = sources[base + {WgslText.Uint(cell)}];"))
+            .Concat(integerSourceReads.Select(pair => (Cell: pair.Key, Statement: pair.Value)))
+            .OrderBy(read => read.Cell)
+            .Select(read => read.Statement)
+            .ToList();
 
         var code = new StringBuilder();
         code.Append("@group(0) @binding(0) var<storage, read> sources: array<f32>;\n");
@@ -115,7 +137,7 @@ internal sealed partial class FloatBody(int sourceSize)
             keeps += KeepCall().Count(statement);
         }
         code.Append("}\n");
-        var statistics = new WgslStatistics(sourceReads.Count + statements.Count + stores.Count, floatRows, 0, 0, keeps);
+        var statistics = new WgslStatistics(sourceReads.Count + statements.Count + stores.Count, floatRows, wholeRows, bitRows, keeps);
         return new WgslModule(code.ToString(), sourceSize, rootPositions.Length, WgslFloatWriter.WorkgroupSize, statistics);
     }
 
@@ -126,9 +148,10 @@ internal sealed partial class FloatBody(int sourceSize)
 
     private static string Literal(float value) => K(WgslText.Float(value));
 
-    // s<cell> for a source cell, v<position> for a computed value.
-    private string Name(int position)
+    // s<cell> for a source cell, v<position> for a computed value, or the text of floatName.
+    public string Name(int position)
     {
+        if (floatName?.Invoke(position) is { } name) return name;
         if (position >= sourceSize) return $"v{position}";
         usedSources.Add(position);
         return $"s{position}";
@@ -187,7 +210,7 @@ internal sealed partial class FloatBody(int sourceSize)
         }
     }
 
-    private string TableName(ShaderCandidates candidates)
+    public string TableName(ShaderCandidates candidates)
     {
         var table = candidates.Table ?? UnsignedIndices.From([.. candidates.Positions]);
         if (tableNames.TryGetValue(table, out var name)) return name;

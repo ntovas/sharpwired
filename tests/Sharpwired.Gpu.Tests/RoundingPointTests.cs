@@ -2,7 +2,8 @@
 // chain and a sign cascade run on each WebGPU adapter, and each value equals the reference evaluator.
 // The inputs are at the rounding boundaries (question 6 of the phase 5 plan). The FMA program checks
 // that the writer blocks the contraction of a product and a sum. Each program compiles with every wire
-// as a root, so the test compares each live wire, and not only the last one.
+// as a root, so the test compares each live wire, and not only the last one. Each test runs with both
+// writers. The integer writer is compared with sameNumericValue, because an i32 has no -0.
 
 using Sharpwired.Core;
 using Xunit.Abstractions;
@@ -14,8 +15,11 @@ public sealed class RoundingPointTests(GpuFixture fixture, ITestOutputHelper out
 {
     private const int SeededCount = 256;
 
-    [Fact]
-    public void The_boolean_atom_equals_the_reference_at_the_rounding_boundary()
+    public static TheoryData<GpuWriter> Writers => new() { GpuWriter.Float32, GpuWriter.Integer };
+
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void The_boolean_atom_equals_the_reference_at_the_rounding_boundary(GpuWriter writer)
     {
         var circuit = new Circuit(2);
         var (x, u) = (circuit.Source(0), circuit.Source(1));
@@ -37,11 +41,12 @@ public sealed class RoundingPointTests(GpuFixture fixture, ITestOutputHelper out
             if (index < 32) nearHalf = MathF.BitIncrement(nearHalf);
             tables.Add([xValue, score]);
         }
-        Check(circuit, tables);
+        Check(circuit, tables, writer);
     }
 
-    [Fact]
-    public void The_round_chain_equals_the_reference_at_the_ties()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void The_round_chain_equals_the_reference_at_the_ties(GpuWriter writer)
     {
         var circuit = new Circuit(1);
         var x = circuit.Source(0);
@@ -65,11 +70,12 @@ public sealed class RoundingPointTests(GpuFixture fixture, ITestOutputHelper out
             // Half of the values get a fraction, so the chain rounds them.
             values.Add((float)(index % 2 == 0 ? whole + random() : whole));
         }
-        Check(circuit, [.. values.Select(value => new[] { value })]);
+        Check(circuit, [.. values.Select(value => new[] { value })], writer);
     }
 
-    [Fact]
-    public void The_sign_cascade_equals_the_reference_for_near_and_equal_operands()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void The_sign_cascade_equals_the_reference_for_near_and_equal_operands(GpuWriter writer)
     {
         var circuit = new Circuit(2);
         var (a, b) = (circuit.Source(0), circuit.Source(1));
@@ -99,7 +105,7 @@ public sealed class RoundingPointTests(GpuFixture fixture, ITestOutputHelper out
             var right = random() < 0.25 ? left : random() < 0.5 ? MathF.BitIncrement(left) : (float)((random() - 0.5) * 2e6);
             pairs.Add([left, right]);
         }
-        Check(circuit, pairs);
+        Check(circuit, pairs, writer);
 
         // A difference of 2^-140 is a subnormal value. A device that flushes it gives the bits of equal
         // operands (execution-model.md, "Rounding points"). Another device gives the reference.
@@ -107,41 +113,51 @@ public sealed class RoundingPointTests(GpuFixture fixture, ITestOutputHelper out
         var program = circuit.CompileTensorProgram([greater, equal]);
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
             float[][] tinyPairs = [[tiny, 0f], [0f, tiny]];
             foreach (var pair in tinyPairs)
             {
                 var actual = evaluator.Evaluate(pair, 1);
                 var expected = device.FlushesSubnormals ? circuit.EvaluateReference([0f, 0f]) : circuit.EvaluateReference(pair);
                 output.WriteLine($"a = {pair[0]:R}, b = {pair[1]:R}: greater {actual[0]:R}, equal {actual[1]:R}");
-                Js.Is(expected[greater.Position], actual[0]);
-                Js.Is(expected[equal.Position], actual[1]);
+                Agrees(writer, expected[greater.Position], actual[0]);
+                Agrees(writer, expected[equal.Position], actual[1]);
             }
         });
     }
 
     // x × 1.0000001 - 1.0000002 over the 64 FP32 values around 1. A fused multiply-add gives other bits.
-    [Fact]
-    public void The_affine_row_is_not_contracted_to_a_fused_multiply_add()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void The_affine_row_is_not_contracted_to_a_fused_multiply_add(GpuWriter writer)
     {
         var circuit = new Circuit(1);
         var x = circuit.Source(0);
         circuit.AssumeRange(x, 0.5, 2);
         circuit.RoundAffine([(x, 1.0000001)], -1.0000002);
-        Check(circuit, [.. WgslFormTests.NearOne().Select(value => new[] { value })]);
+        Check(circuit, [.. WgslFormTests.NearOne().Select(value => new[] { value })], writer);
+    }
+
+    // Object.is for the f32 writer, sameNumericValue for the integer writer (question 3 of the plan).
+    private static void Agrees(GpuWriter writer, float expected, float actual)
+    {
+        if (writer == GpuWriter.Float32) Js.Is(expected, actual);
+        else Assert.True(Js.SameNumericValue(expected, actual), $"got {actual:R}, reference {expected:R}");
     }
 
     // Run the program of every wire on each device, and compare each live wire with the reference.
-    private void Check(Circuit circuit, IReadOnlyList<float[]> tables)
+    private void Check(Circuit circuit, IReadOnlyList<float[]> tables, GpuWriter writer)
     {
         var program = circuit.CompileTensorProgram();
         var sources = tables.SelectMany(table => table).ToArray();
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
             var outputs = evaluator.Evaluate(sources, tables.Count);
-            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, tables.Count, outputs, sameNumericValue: false);
-            output.WriteLine($"[rounding] {compared} evaluations compared, {excluded} with a subnormal value not compared");
+            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, tables.Count, outputs, sameNumericValue: writer == GpuWriter.Integer);
+            var statistics = evaluator.Module.Statistics;
+            output.WriteLine($"[rounding] {writer}: {compared} evaluations compared, {excluded} with a subnormal value not compared; "
+                + $"rows: {statistics.FloatRows} f32, {statistics.WholeRows} i32, {statistics.BitRows} u32");
             Assert.True(compared > 0);
         });
     }

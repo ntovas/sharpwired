@@ -1,5 +1,6 @@
-// No Handwired source. The tests of the batch evaluators: GpuEvaluator on each adapter, and
-// CpuBatchEvaluator with no adapter. Each test compares the outputs with the reference evaluator.
+// No Handwired source. The tests of the batch evaluators: GpuEvaluator on each adapter, with both
+// writers, and CpuBatchEvaluator with no adapter. Each test compares the outputs with the reference
+// evaluator: Object.is for the f32 writer, sameNumericValue for the integer writer, which has no -0.
 // GpuChecks holds the comparison and the subnormal rule of decision 4 of the phase 5 plan.
 
 using System.Diagnostics;
@@ -125,48 +126,59 @@ internal static class BatchPrograms
 [Collection(GpuCollection.Name)]
 public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper output)
 {
-    [Fact]
-    public void Evaluate_over_100000_tables_equals_the_reference_on_each_table()
+    public static TheoryData<GpuWriter> Writers => new() { GpuWriter.Float32, GpuWriter.Integer };
+
+    // A gather can change the sign of an exactly zero result (TensorDifferentialTests header), and an
+    // i32 has no -0 (question 3 of the phase 5 plan).
+    private static bool SameNumericValue(GpuWriter writer, bool lowersGathers = false) => lowersGathers || writer == GpuWriter.Integer;
+
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void Evaluate_over_100000_tables_equals_the_reference_on_each_table(GpuWriter writer)
     {
         const int TableCount = 100_000;
         var (circuit, program) = BatchPrograms.Create();
         var sources = BatchPrograms.Tables(TableCount, 0x100000);
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
             // The first call creates the buffers. The second call is the measured one.
             evaluator.Evaluate(sources, TableCount);
             var watch = Stopwatch.StartNew();
             var outputs = evaluator.Evaluate(sources, TableCount);
             watch.Stop();
-            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, TableCount, outputs, sameNumericValue: false);
-            output.WriteLine($"[batch] {TableCount} tables on the GPU in {watch.Elapsed.TotalMilliseconds:F1} ms; "
-                + $"{compared} compared, {excluded} with a subnormal value not compared");
+            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, TableCount, outputs, SameNumericValue(writer));
+            var statistics = evaluator.Module.Statistics;
+            output.WriteLine($"[batch] {writer}: {TableCount} tables on the GPU in {watch.Elapsed.TotalMilliseconds:F1} ms; "
+                + $"{compared} compared, {excluded} with a subnormal value not compared; "
+                + $"rows: {statistics.FloatRows} f32, {statistics.WholeRows} i32, {statistics.BitRows} u32; {statistics.Keeps} keeps");
             Assert.True(compared > TableCount * 0.5, $"compared {compared}");
         });
     }
 
-    [Fact]
-    public void A_chunk_limit_of_1000_tables_gives_the_reference_for_2500_tables()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void A_chunk_limit_of_1000_tables_gives_the_reference_for_2500_tables(GpuWriter writer)
     {
         const int TableCount = 2_500;
         var (circuit, program) = BatchPrograms.Create();
         var sources = BatchPrograms.Tables(TableCount, 0x2500);
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32, maxTablesPerChunk: 1_000);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer, maxTablesPerChunk: 1_000);
             Assert.Equal(1_000, evaluator.TablesPerChunk);
             var outputs = new float[TableCount * evaluator.RootCount];
             // NaN in each output shows a chunk that the evaluator did not write.
             Array.Fill(outputs, float.NaN);
             evaluator.Evaluate(sources, TableCount, outputs);
-            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, TableCount, outputs, sameNumericValue: false);
-            output.WriteLine($"[chunks] {compared} compared, {excluded} with a subnormal value not compared");
+            var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, TableCount, outputs, SameNumericValue(writer));
+            output.WriteLine($"[chunks] {writer}: {compared} compared, {excluded} with a subnormal value not compared");
         });
     }
 
-    [Fact]
-    public void A_root_that_the_program_does_not_hold_gives_NaN()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void A_root_that_the_program_does_not_hold_gives_NaN(GpuWriter writer)
     {
         var circuit = new Circuit(2);
         circuit.AssumeRange(circuit.Source(0), -10, 10);
@@ -176,14 +188,15 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         var program = circuit.CompileTensorProgram([sum]) with { Roots = UnsignedIndices.From([sum.Position, unused.Position]) };
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
             var outputs = evaluator.Evaluate([2f, 3f, -1f, 0.5f], 2);
             Js.AllIs([5, double.NaN, -0.5, double.NaN], outputs.Select(value => (double)value));
         });
     }
 
-    [Fact]
-    public void Bad_arguments_throw_ArgumentException_and_a_bad_source_table_throws_the_TensorEvaluator_exception()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void Bad_arguments_throw_ArgumentException_and_a_bad_source_table_throws_the_TensorEvaluator_exception(GpuWriter writer)
     {
         var (circuit, program) = BatchPrograms.Create();
         var sources = BatchPrograms.Tables(3, 7);
@@ -193,7 +206,7 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         var expected = Assert.Throws<ArgumentException>(() => circuit.CreateTensorProgramEvaluator(program).Evaluate(bad.AsSpan(6, 6)));
         fixture.ForEachDevice(output, device =>
         {
-            using var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
             var rootCount = evaluator.RootCount;
             Assert.Throws<ArgumentException>(() => evaluator.Evaluate(sources.AsSpan(0, 17), 3, new float[3 * rootCount]));
             Assert.ThrowsAny<ArgumentException>(() => evaluator.Evaluate(sources, -1, new float[3 * rootCount]));
@@ -203,8 +216,38 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         });
     }
 
+    // The integer writer reads a cell on a grid of 1 as an i32, so the integer evaluator checks the
+    // grid and the bit declarations of each table. The f32 evaluator checks the ranges only, as
+    // TensorEvaluator does, and gives the reference value.
     [Fact]
-    public void Two_evaluators_on_one_device_run_on_two_threads()
+    public void The_integer_evaluator_refuses_a_source_table_that_breaks_a_grid_or_a_bit_declaration()
+    {
+        var (circuit, program) = BatchPrograms.Create();
+        var sources = BatchPrograms.Tables(3, 11);
+        var offGrid = (float[])sources.Clone();
+        // Table 2, cell 3 (n, on a grid of 1) holds 0.5.
+        offGrid[12 + 3] = 0.5f;
+        var bitCircuit = new Circuit(1);
+        bitCircuit.AssumeBit(bitCircuit.Source(0));
+        var bitProgram = bitCircuit.CompileTensorProgram([bitCircuit.RoundAffine([(bitCircuit.Source(0), 3)], 1)]);
+        fixture.ForEachDevice(output, device =>
+        {
+            using var integer = GpuEvaluator.Create(device, circuit, program, GpuWriter.Integer);
+            var exception = Assert.Throws<ArgumentException>(() => integer.Evaluate(offGrid, 3));
+            Assert.Equal("source wire 3 is declared on the grid 1 and must be a multiple of it, got 0.5", exception.Message);
+            using var f32 = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
+            GpuChecks.Compare(device, circuit, program, offGrid, 3, f32.Evaluate(offGrid, 3), sameNumericValue: false);
+
+            using var bits = GpuEvaluator.Create(device, bitCircuit, bitProgram, GpuWriter.Integer);
+            Assert.Equal("source wire 0 is declared a bit and must be 0 or 1, got 0.5", Assert.Throws<ArgumentException>(() => bits.Evaluate([0.5f], 1)).Message);
+            Assert.True(Js.SameNumericValue(1, bits.Evaluate([-0f], 1)[0]));
+            Assert.True(Js.SameNumericValue(4, bits.Evaluate([1f], 1)[0]));
+        });
+    }
+
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void Two_evaluators_on_one_device_run_on_two_threads(GpuWriter writer)
     {
         const int TableCount = 5_000;
         const int Rounds = 20;
@@ -218,15 +261,15 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         var otherSources = Enumerable.Range(0, TableCount).Select(_ => (float)((random() - 0.5) * 200)).ToArray();
         fixture.ForEachDevice(output, device =>
         {
-            using var first = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
-            using var second = GpuEvaluator.Create(device, other, otherProgram, GpuWriter.Float32);
+            using var first = GpuEvaluator.Create(device, circuit, program, writer);
+            using var second = GpuEvaluator.Create(device, other, otherProgram, writer);
             var results = new float[2][];
             // LongRunning gives each task its own thread.
             Task.WaitAll(
                 Task.Factory.StartNew(() => { for (var round = 0; round < Rounds; round++) results[0] = first.Evaluate(sources, TableCount); }, TaskCreationOptions.LongRunning),
                 Task.Factory.StartNew(() => { for (var round = 0; round < Rounds; round++) results[1] = second.Evaluate(otherSources, TableCount); }, TaskCreationOptions.LongRunning));
-            GpuChecks.Compare(device, circuit, program, sources, TableCount, results[0], sameNumericValue: false);
-            GpuChecks.Compare(device, other, otherProgram, otherSources, TableCount, results[1], sameNumericValue: false);
+            GpuChecks.Compare(device, circuit, program, sources, TableCount, results[0], SameNumericValue(writer));
+            GpuChecks.Compare(device, other, otherProgram, otherSources, TableCount, results[1], SameNumericValue(writer));
         });
     }
 
@@ -235,8 +278,9 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
     // boolean atom and a bias of -0. A circuit of 32 source cells puts an index read at packed position
     // 32, so its index value has the name x32 (the name i32 is a WGSL type). 24 seeded circuits of
     // RandomPrograms add more forms.
-    [Fact]
-    public void Each_row_form_runs_on_the_device_and_equals_the_reference()
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void Each_row_form_runs_on_the_device_and_equals_the_reference(GpuWriter writer)
     {
         var circuit = new Circuit(8);
         var cells = Enumerable.Range(0, 8).Select(circuit.Source).ToArray();
@@ -301,23 +345,28 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         {
             var compared = 0;
             var excluded = 0;
-            void Run(Circuit target, TensorProgram program, float[] tables, int count, bool sameNumericValue)
+            var (floatRows, wholeRows, bitRows) = (0, 0, 0);
+            void Run(Circuit target, TensorProgram program, float[] tables, int count, bool lowersGathers)
             {
-                using var evaluator = GpuEvaluator.Create(device, target, program, GpuWriter.Float32);
-                var (c, e) = GpuChecks.Compare(device, target, program, tables, count, evaluator.Evaluate(tables, count), sameNumericValue);
+                using var evaluator = GpuEvaluator.Create(device, target, program, writer);
+                var (c, e) = GpuChecks.Compare(device, target, program, tables, count, evaluator.Evaluate(tables, count), SameNumericValue(writer, lowersGathers));
                 compared += c;
                 excluded += e;
+                floatRows += evaluator.Module.Statistics.FloatRows;
+                wholeRows += evaluator.Module.Statistics.WholeRows;
+                bitRows += evaluator.Module.Statistics.BitRows;
             }
-            // A gather can change the sign of an exactly zero result (TensorDifferentialTests header).
-            Run(circuit, lowered, sources, TableCount, sameNumericValue: true);
-            Run(circuit, plain, sources, TableCount, sameNumericValue: false);
-            Run(wide, wideProgram, wideSources, TableCount, sameNumericValue: false);
+            Run(circuit, lowered, sources, TableCount, lowersGathers: true);
+            Run(circuit, plain, sources, TableCount, lowersGathers: false);
+            Run(wide, wideProgram, wideSources, TableCount, lowersGathers: false);
             foreach (var (randomCircuit, tables) in seeded)
             {
-                Run(randomCircuit, randomCircuit.CompileTensorProgram(), tables, 64, sameNumericValue: true);
-                Run(randomCircuit, randomCircuit.CompileTensorProgram(lowerGathers: false), tables, 64, sameNumericValue: false);
+                Run(randomCircuit, randomCircuit.CompileTensorProgram(), tables, 64, lowersGathers: true);
+                Run(randomCircuit, randomCircuit.CompileTensorProgram(lowerGathers: false), tables, 64, lowersGathers: false);
             }
-            output.WriteLine($"[forms] {compared} evaluations compared, {excluded} with a subnormal value not compared");
+            output.WriteLine($"[forms] {writer}: {compared} evaluations compared, {excluded} with a subnormal value not compared; "
+                + $"rows: {floatRows} f32, {wholeRows} i32, {bitRows} u32");
+            if (writer == GpuWriter.Integer) Assert.True(wholeRows > 0 && bitRows > 0, "the integer writer wrote no integer row");
         });
     }
 
@@ -330,13 +379,21 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
         {
             var evaluator = GpuEvaluator.Create(device, circuit, program, GpuWriter.Float32);
             evaluator.Dispose();
+            // The default writer is the integer writer (decision 5 of the phase 5 plan).
+            using (var integer = GpuEvaluator.Create(device, circuit, program))
+            {
+                Assert.True(integer.Module.Statistics.BitRows > 0, "the default writer wrote no u32 row");
+                Assert.Equal(WgslIntegerWriter.Write(circuit, program).Code, integer.Module.Code);
+            }
             evaluator.Dispose();
             Assert.Throws<ObjectDisposedException>(() => evaluator.Evaluate(BatchPrograms.Tables(1, 1), 1));
             // A program of another circuit with other source cells throws.
             Assert.Throws<ArgumentException>(() => GpuEvaluator.Create(device, smaller, program, GpuWriter.Float32));
-            // BatchEvaluators gives the GPU evaluator for a device.
+            // BatchEvaluators gives the GPU evaluator for a device, with the integer writer by default.
             using var batch = BatchEvaluators.Create(circuit, program, device, GpuWriter.Float32);
             Assert.IsType<GpuEvaluator>(batch);
+            using var defaultBatch = BatchEvaluators.Create(circuit, program, device);
+            Assert.Equal(WgslIntegerWriter.Write(circuit, program).Code, Assert.IsType<GpuEvaluator>(defaultBatch).Module.Code);
         });
     }
 }

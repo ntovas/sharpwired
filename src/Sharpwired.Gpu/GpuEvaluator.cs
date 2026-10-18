@@ -15,7 +15,10 @@ namespace Sharpwired.Gpu;
 /// The evaluator uses the lock of its device for the full call, so two threads can call evaluators of
 /// one device. Dispose the evaluators before their device. With <see cref="GpuWriter.Float32"/> the
 /// values are the reference values bit for bit, except on a device that flushes subnormal values
-/// (<see cref="GpuDevice.FlushesSubnormals"/>), for an evaluation that holds a subnormal value.
+/// (<see cref="GpuDevice.FlushesSubnormals"/>), for an evaluation that holds a subnormal value in an
+/// f32 row. With <see cref="GpuWriter.Integer"/>, the default, the same holds, except that a zero can
+/// have the other sign. The integer evaluator also checks the grid and the bit declarations of the
+/// source cells, because the integer writer reads such a cell as an integer.
 /// </remarks>
 public sealed class GpuEvaluator : IBatchEvaluator
 {
@@ -29,12 +32,14 @@ public sealed class GpuEvaluator : IBatchEvaluator
     private readonly GpuDevice device;
     private readonly Circuit circuit;
     private readonly ComputeKernel kernel;
+    private readonly bool checksDeclarations;
     private bool disposed;
 
-    private GpuEvaluator(GpuDevice device, Circuit circuit, TensorProgram program, WgslModule module, int tablesPerChunk)
+    private GpuEvaluator(GpuDevice device, Circuit circuit, TensorProgram program, WgslModule module, int tablesPerChunk, bool checksDeclarations)
     {
         this.device = device;
         this.circuit = circuit;
+        this.checksDeclarations = checksDeclarations;
         Program = program;
         Module = module;
         TablesPerChunk = tablesPerChunk;
@@ -56,7 +61,7 @@ public sealed class GpuEvaluator : IBatchEvaluator
     /// <exception cref="ArgumentException">The program is not a valid program of the circuit.</exception>
     /// <exception cref="InvalidOperationException">The device is lost, or the shader or the pipeline
     /// failed (the message holds the wgpu message).</exception>
-    public static GpuEvaluator Create(GpuDevice device, Circuit circuit, TensorProgram program, GpuWriter writer = GpuWriter.Float32) =>
+    public static GpuEvaluator Create(GpuDevice device, Circuit circuit, TensorProgram program, GpuWriter writer = GpuWriter.Integer) =>
         Create(device, circuit, program, writer, null);
 
     /// <summary>
@@ -72,10 +77,11 @@ public sealed class GpuEvaluator : IBatchEvaluator
         var module = writer switch
         {
             GpuWriter.Float32 => WgslFloatWriter.Write(circuit, program),
+            GpuWriter.Integer => WgslIntegerWriter.Write(circuit, program),
             _ => throw new ArgumentOutOfRangeException(nameof(writer), writer, "unknown writer"),
         };
         var tablesPerChunk = Math.Min(ChunkLimit(device, module), maxTablesPerChunk ?? int.MaxValue);
-        return new GpuEvaluator(device, circuit, program, module, tablesPerChunk);
+        return new GpuEvaluator(device, circuit, program, module, tablesPerChunk, writer == GpuWriter.Integer);
     }
 
     /// <summary>Evaluate the tables and return a new array of <c>tableCount * RootCount</c> outputs.</summary>
@@ -94,8 +100,12 @@ public sealed class GpuEvaluator : IBatchEvaluator
             ObjectDisposedException.ThrowIf(disposed, this);
             device.ThrowIfUnusable();
             BatchArguments.Check(circuit, Program, sources, tableCount, outputs.Length);
-            if (RootCount == 0) return;
             var sourceSize = Module.SourceSize;
+            if (checksDeclarations)
+            {
+                for (var table = 0; table < tableCount; table++) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(table * sourceSize, sourceSize));
+            }
+            if (RootCount == 0) return;
             for (var first = 0; first < tableCount; first += TablesPerChunk)
             {
                 var count = Math.Min(TablesPerChunk, tableCount - first);

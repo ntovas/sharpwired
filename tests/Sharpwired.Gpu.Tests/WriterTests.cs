@@ -7,7 +7,7 @@ using Sharpwired.Core;
 
 namespace Sharpwired.Gpu.Tests;
 
-public sealed class WriterTests
+public sealed partial class WriterTests
 {
     private const string NaNBits = "bitcast<f32>(0x7fc00000u)";
 
