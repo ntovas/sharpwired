@@ -43,7 +43,14 @@ internal sealed partial class OperationLowering
         if (unsigned && UnsignedZeroTest(left, right, relation) is { } notZero)
         {
             // Roslyn writes the int test x != 0 as cgt.un against 0 (final fix wave, item D). For
-            // an int, x >u 0 is x != 0, and x <=u 0 is x == 0.
+            // an int, x >u 0 is x != 0, and x <=u 0 is x == 0. Release writes b ? 1 : 0 as cgt.un of
+            // the bool b against 0 (phase 4 carried item b). For a bit, b >u 0 is b, and b <=u 0 is
+            // NOT b. So a bit gives no operation.
+            if (notZero.Value.Kind == ScalarKind.Bit)
+            {
+                return notZero.IsNotEqual ? notZero.Value : Gates.Not(notZero.Value);
+            }
+
             var equal = CompareValues(notZero.Value, new ConstantValue(0, ScalarKind.Int), Relation.Equal, offset);
             return notZero.IsNotEqual ? Gates.Not(equal) : equal;
         }
@@ -67,15 +74,16 @@ internal sealed partial class OperationLowering
         return CompareValues(left, right, relation, offset);
     }
 
-    // An unsigned comparison of an int with the constant 0 that is an equality test. The tests x >u 0
-    // and 0 <u x are x != 0. The tests x <=u 0 and 0 >=u x are x == 0. Null for each other comparison.
+    // An unsigned comparison of an int or a bit with the constant 0 that is an equality test. The
+    // tests x >u 0 and 0 <u x are x != 0. The tests x <=u 0 and 0 >=u x are x == 0. Null for each
+    // other comparison.
     private static (ScalarValue Value, bool IsNotEqual)? UnsignedZeroTest(ScalarValue left, ScalarValue right, Relation relation) =>
         (left, right, relation) switch
         {
-            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.Greater) => (left, true),
-            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.LessOrEqual) => (left, false),
-            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.Less) => (right, true),
-            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.GreaterOrEqual) => (right, false),
+            ({ Kind: ScalarKind.Int or ScalarKind.Bit }, ConstantValue { Number: 0 }, Relation.Greater) => (left, true),
+            ({ Kind: ScalarKind.Int or ScalarKind.Bit }, ConstantValue { Number: 0 }, Relation.LessOrEqual) => (left, false),
+            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int or ScalarKind.Bit }, Relation.Less) => (right, true),
+            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int or ScalarKind.Bit }, Relation.GreaterOrEqual) => (right, false),
             _ => null,
         };
 

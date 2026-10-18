@@ -152,6 +152,56 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     /// <summary>
+    /// Emits a bit that the program reads as a number, for example b ? 1 : 0 in an int sum (phase 6
+    /// plan, task 1, rule 1). The bit wire is the number, with no operation. A bit is 0 or 1, so the
+    /// emitter declares the grid 1 on its wire. An affine reader composes a small affine producer
+    /// into its own form (Circuit.Affine), so the emitter also declares the grid 1 on each wire that
+    /// a reader reads in place of the bit. The value is 0 or 1, so the emitter also declares the bit
+    /// fact (AssumeBit). The bit forms of the translator compose only into wires
+    /// that hold 0 or 1: NOT (1 - b) into the bit b, OR (1 - none) into none = relu(1 - Σ literals),
+    /// XOR into relu(a - b) and relu(b - a), and a gate of two bits into on × relu(c) and
+    /// off × relu(1 - c). A composed wire with a range outside 0..1 gets no grid, and then an int
+    /// form that reads it is refused (plan, "Emission rules", step 5).
+    /// </summary>
+    public Wire BitAsNumber(ScalarValue bit)
+    {
+        var wire = Emit(bit);
+        if (Circuit.Constants[wire.Position] is null)
+        {
+            // The inferred range of a bit form can be wider than 0..1, for example 0..2 for XOR.
+            Circuit.AssumeBit(wire, allowExistingReaders: true);
+        }
+
+        DeclareUnitGrid(wire);
+        return wire;
+    }
+
+    private void DeclareUnitGrid(Wire wire)
+    {
+        var range = Circuit.Ranges[wire.Position];
+        if (!(range.Minimum >= 0 && range.Maximum <= 1))
+        {
+            return;
+        }
+
+        if (Circuit.Grids[wire.Position] is null)
+        {
+            Circuit.AssumeGrid(wire, 1, allowExistingReaders: true);
+        }
+
+        var (terms, _) = Circuit.PreviewAffine([new Term(wire, 2)], 0);
+        if (terms is [var only] && only.Wire == wire)
+        {
+            return;
+        }
+
+        foreach (var term in terms)
+        {
+            DeclareUnitGrid(term.Wire);
+        }
+    }
+
+    /// <summary>
     /// True when the affine form is exact. Then each coefficient of the stored form and its bias are
     /// FP32 values, and the stored form has a grid. So each partial sum in any order is an exact FP32
     /// value. Each intermediate value of the C# expression is also exact (plan, "Emission rules", step 2).
@@ -281,7 +331,8 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
         if (gate.Kind != ScalarKind.Bit && gate.On is ConstantValue on && gate.Off is ConstantValue off)
         {
             // Rule 5: ITE(c, k1, k0) = [(c, k1 - k0)] + k0 when k1 - k0 is an FP32 value and f(k0 + (k1 - k0)) == k1.
-            var condition = Emit(gate.Condition);
+            // In an int gate the bit c gets the grid 1, so that an int form that reads the gate is exact.
+            var condition = gate.Kind == ScalarKind.Int ? BitAsNumber(gate.Condition) : Emit(gate.Condition);
             var step = on.Number - off.Number;
             if ((double)(float)step == step && (float)(off.Number + step) == (float)on.Number)
             {
@@ -298,18 +349,22 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
         {
             // Rule 6: ITE(c, x, 0) = Multiply(c, x), the Handwired form of "condition ? value : 0".
             var condition = Emit(gate.Condition);
-            var onWire = Side(Emit(gate.On), gate);
+            var onWire = Side(SideWire(gate.On), gate);
             var width = Circuit.Width;
             return Gate(Chosen(gate, Circuit.Multiply(condition, onWire), width, ChosenSide(null), ChosenSide(onWire)));
         }
 
         // Rule 7: Select(c, off, on).
         var gateWire = Emit(gate.Condition);
-        var offValue = Side(Emit(gate.Off), gate);
-        var onValue = Side(Emit(gate.On), gate);
+        var offValue = Side(gate.Kind == ScalarKind.Bit ? Emit(gate.Off) : SideWire(gate.Off), gate);
+        var onValue = Side(gate.Kind == ScalarKind.Bit ? Emit(gate.On) : SideWire(gate.On), gate);
         var start = Circuit.Width;
         return Gate(Chosen(gate, Circuit.Select(gateWire, offValue, onValue), start, ChosenSide(offValue), ChosenSide(onValue)));
     }
+
+    // A side of a gate of numbers. A bit side is a number on the grid 1 (rule 1 of the phase 6 plan,
+    // task 1), so the gate gets the grid 1 when its other side has it (phase 4 carried item a).
+    private Wire SideWire(ScalarValue side) => side.Kind == ScalarKind.Bit ? BitAsNumber(side) : Emit(side);
 
     // The range and the grid of a gate side. Null is the constant 0 of rule 6: range 0..0 and no
     // grid limit. A constant wire has the grid of its value, and 0 has no grid limit.
@@ -338,7 +393,9 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
         var maximum = Math.Max(off.Range.Maximum, on.Range.Maximum);
         if (gate.Kind == ScalarKind.Bit && gate.On.Kind == ScalarKind.Bit && gate.Off.Kind == ScalarKind.Bit && minimum >= 0 && maximum <= 1)
         {
+            // A gate of two bits is a bit: 0 or 1, so also on the grid 1 (phase 4 carried item a).
             Circuit.AssumeBit(result, existing);
+            Circuit.AssumeGrid(result, 1, existing);
             return result;
         }
 

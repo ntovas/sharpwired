@@ -73,4 +73,23 @@ public static class GateRangeInputs
         for (int i = 0; i < n; i++) s = c[i] ? y : z;
         return s - 1;
     }
+
+    // Phase 4 carried item d: a gate with a constant side. The constant 0.75 has the grid 0.25, so the
+    // gate has the grid 0.25 also when x has the grid 1.
+    [Handwired]
+    public static float ConstantSide(bool c, [Range(-8, 8), Grid(1)] float x) => c ? x : 0.75f;
+
+    [Handwired]
+    public static float ConstantSideQuarter(bool c, [Range(-8, 8), Grid(0.25)] float x) => c ? x : 0.75f;
+
+    // With a wrong grid 1 on the gate, Compare reads 0.75 as an integer and gives no bit.
+    [Handwired]
+    public static bool ConstantSideAtLeastOne(bool c, [Range(-8, 8), Grid(1)] float x) => (c ? x : 0.75f) >= 1f;
+
+    // Phase 4 carried item d: a float gate in 0..1 is no bit. A gate of two bits is a bit.
+    [Handwired]
+    public static float FloatUnitGate(bool c, [Range(0, 1)] float u, [Range(0, 1)] float v) => c ? u : v;
+
+    [Handwired]
+    public static bool BitGate(bool c, bool u, bool v) => c ? u : v;
 }

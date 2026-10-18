@@ -412,11 +412,19 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
     };
 
     // brtrue and brfalse read a bit: a bool value, a comparison or the constant 0 or 1. On an int
-    // they read x != 0, as Roslyn writes the branch form of x != 0 (final fix wave, item D).
+    // they read x != 0, as Roslyn writes the branch form of x != 0 (final fix wave, item D). An int
+    // constant k gives the constant bit k != 0. Release writes "if (Mode != 0)" with a constant Mode
+    // as "ldc.i4 Mode; brtrue", and Debug writes "s == 0 ? a : b" in a constant loop as "brfalse" on
+    // the constant s (phase 4 carried item c).
     private ScalarValue Bit(SsaValue operand, int offset)
     {
         var value = lowering.Scalar(operand, offset);
-        if (value.Kind == ScalarKind.Int && value is not ConstantValue)
+        if (value is ConstantValue { Kind: ScalarKind.Int, Number: var number })
+        {
+            return new ConstantValue(number != 0 ? 1 : 0, ScalarKind.Bit);
+        }
+
+        if (value.Kind == ScalarKind.Int)
         {
             return Not(lowering.CompareValues(value, new ConstantValue(0, ScalarKind.Int), Relation.Equal, offset));
         }

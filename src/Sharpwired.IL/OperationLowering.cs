@@ -424,10 +424,12 @@ internal sealed partial class OperationLowering
         return form;
     }
 
+    // A bit operand is the bit wire on the grid 1 (phase 6 plan, task 1, rule 1).
     private (ImmutableArray<Term> Terms, double Bias) FormOf(ScalarValue value, int offset) => value switch
     {
         ConstantValue constant => ([], constant.Number),
         AffineValue { Wire: null } open => (open.Terms, open.Bias),
+        { Kind: ScalarKind.Bit } => ([new Term(Emitter.BitAsNumber(value), 1)], 0),
         _ => ([new Term(Emit(value, offset), 1)], 0),
     };
 
@@ -488,6 +490,7 @@ internal sealed partial class OperationLowering
         _ when value.Kind == ScalarKind.Float => value,
         ConstantValue constant => new ConstantValue((float)constant.Number, ScalarKind.Float),
         AffineValue { Wire: null } open => new AffineValue(ScalarKind.Float, AffineOp.Convert, open, null, 1, open.Terms, open.Bias, offset),
+        { Kind: ScalarKind.Bit } => new WireValue(Emitter.BitAsNumber(value), ScalarKind.Float),
         _ => new WireValue(Emit(value, offset), ScalarKind.Float),
     };
 
