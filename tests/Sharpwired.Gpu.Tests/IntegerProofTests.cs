@@ -240,6 +240,39 @@ public sealed class IntegerProofTests
         IsFloat(ProofOf(circuit, first));
     }
 
+    // The rules that convert an f32 value need a cone with no infinite wire. Here p is within 0..1 by
+    // range inference, but p is NaN for s0 = s1 = +Infinity, because the cells have no range.
+    [Fact]
+    public void A_converted_value_whose_cone_can_be_infinite_stays_f32()
+    {
+        var circuit = new Circuit(5);
+        var (s0, s1, u, c0, c1) = (circuit.Source(0), circuit.Source(1), circuit.Source(2), circuit.Source(3), circuit.Source(4));
+        circuit.AssumeRange(u, 0, 1);
+        Whole(circuit, 3, -10, 10);
+        Whole(circuit, 4, -10, 10);
+        var ramp = circuit.Reglu([], 1, [(circuit.Affine([(s0, 1), (s1, -1)]), 1)], 0);
+        var p = circuit.Reglu([(u, 1)], 0, [(circuit.Affine([(ramp, -1)], 1), 1)], 0);
+        var atom = circuit.Boolean(p);
+        var bit = circuit.Compare(p, Relation.Greater, circuit.Constant(0.5));
+        var read = circuit.IndexRead(p, [c0, c1]);
+        IsFloat(ProofOf(circuit, atom));
+        IsFloat(ProofOf(circuit, bit));
+        IsFloat(ProofOf(circuit, read));
+
+        // The same program over cells with finite ranges proves each value.
+        var bounded = new Circuit(5);
+        bounded.AssumeRange(bounded.Source(0), -100, 100);
+        bounded.AssumeRange(bounded.Source(1), -100, 100);
+        bounded.AssumeRange(bounded.Source(2), 0, 1);
+        Whole(bounded, 3, -10, 10);
+        Whole(bounded, 4, -10, 10);
+        var boundedRamp = bounded.Reglu([], 1, [(bounded.Affine([(bounded.Source(0), 1), (bounded.Source(1), -1)]), 1)], 0);
+        var q = bounded.Reglu([(bounded.Source(2), 1)], 0, [(bounded.Affine([(boundedRamp, -1)], 1), 1)], 0);
+        IsBit(ProofOf(bounded, bounded.Boolean(q)));
+        IsBit(ProofOf(bounded, bounded.Compare(q, Relation.Greater, bounded.Constant(0.5))));
+        IsWhole(ProofOf(bounded, bounded.IndexRead(q, [bounded.Source(3), bounded.Source(4)])), -10, 10);
+    }
+
     // A grid or a bit that the caller declares on an operation is not a proof: the evaluators do not
     // check it. Here 0.5 × a holds 0.5 for a = 1, against the declared grid of 1.
     [Fact]

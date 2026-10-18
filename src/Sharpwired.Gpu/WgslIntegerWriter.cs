@@ -13,8 +13,8 @@ namespace Sharpwired.Gpu;
 /// <summary>
 /// The integer writer. It holds each wire that <see cref="IntegerProof"/> proves as an i32 or a u32,
 /// and writes its row with integer operations, which need no keep. It writes each other row as
-/// <see cref="WgslFloatWriter"/> does. An f32 statement reads a whole value as <c>f32(w)</c>, which is
-/// exact.
+/// <see cref="WgslFloatWriter"/> does. An f32 statement reads a whole value as <c>k(f32(w))</c>, which
+/// is exact.
 /// </summary>
 /// <remarks>
 /// <para>A whole value can be +0 where the reference value is -0, because i32 has no -0. Compare the
@@ -104,11 +104,13 @@ internal sealed partial class IntegerBody
         _ => "0.0f",
     };
 
-    // The f32 text of a position that the writer holds as an integer, or null for the f32 name.
+    // The f32 text of a position that the writer holds as an integer, or null for the f32 name. The
+    // conversion is inside keep: the shader compiler can know the value of a constant integer row,
+    // and Metal fast math then regroups the f32 row that reads it.
     private string? FloatNameOf(int position)
     {
         if (!Proofs[position].IsProven || (position >= sourceSize && hasFloatName[position])) return null;
-        return $"f32({Typed(position)})";
+        return $"k(f32({Typed(position)}))";
     }
 
     // The integer name of a proven position. The first use of a source cell adds its read.

@@ -51,10 +51,10 @@ public sealed partial class WriterTests
         Line(module, "let b0: u32 = select(0u, 1u, sources[base + 0u] > 0.5f);");
         Line(module, "let w1: i32 = i32(sources[base + 1u]);");
         Line(module, "let s2: f32 = sources[base + 2u];");
-        Line(module, $"let {V(program, sum)}: f32 = k(k(k(k(0.0f) + f32(b0)) + f32(w1)) + s2);");
+        Line(module, $"let {V(program, sum)}: f32 = k(k(k(k(0.0f) + k(f32(b0))) + k(f32(w1))) + s2);");
         Line(module, $"outputs[o + 0u] = {V(program, sum)};");
         // A whole root converts to f32 at the store.
-        Line(module, $"outputs[o + 1u] = f32({W(program, doubled)});");
+        Line(module, $"outputs[o + 1u] = k(f32({W(program, doubled)}));");
         Assert.Equal(1, module.Statistics.FloatRows);
         Assert.Equal(1, module.Statistics.WholeRows);
     }
@@ -77,10 +77,10 @@ public sealed partial class WriterTests
         Line(module, $"let {B(program, copy)}: u32 = b2;");
         Line(module, $"let {W(program, bits)}: i32 = i32(b2) + i32({B(program, negated)});");
         Line(module, $"let {W(program, negative)}: i32 = (-1i) - 2i * w0 + w1;");
-        // A weight of 0.5 is not a whole number: the row is an f32 row that reads f32(w0).
-        Line(module, $"let {V(program, half)}: f32 = k(k(0.0f) + k(k(0x1.000000p-1f) * f32(w0)));");
+        // A weight of 0.5 is not a whole number: the row is an f32 row that reads k(f32(w0)).
+        Line(module, $"let {V(program, half)}: f32 = k(k(0.0f) + k(k(0x1.000000p-1f) * k(f32(w0))));");
         var root = program.Roots.ToList().IndexOf(sum.Position);
-        Line(module, $"outputs[o + {root}u] = f32({W(program, sum)});");
+        Line(module, $"outputs[o + {root}u] = k(f32({W(program, sum)}));");
         Assert.Equal(3, module.Statistics.WholeRows);
         Assert.Equal(2, module.Statistics.BitRows);
         Assert.Equal(1, module.Statistics.FloatRows);
@@ -179,7 +179,8 @@ public sealed partial class WriterTests
         Assert.Equal(4, module.Statistics.Statements);
         Assert.Equal(1, module.Statistics.BitRows);
         Assert.Equal(0, module.Statistics.FloatRows + module.Statistics.WholeRows);
-        Assert.Equal(0, module.Statistics.Keeps);
+        // The one keep is the conversion of the bit at the store of the root.
+        Assert.Equal(1, module.Statistics.Keeps);
     }
 
     // The near miss of the comparison rule: with no grid, Compare builds a sign cascade of f32 rows. The

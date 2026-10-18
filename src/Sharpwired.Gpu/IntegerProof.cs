@@ -41,9 +41,11 @@ public readonly record struct WholeProof(WholeKind Kind, long Minimum, long Maxi
 
 /// <summary>
 /// The proof of the whole wires and the bits of a program. A proven wire holds a whole number within
-/// ±2^24 for each source table that passes the checks of the evaluators, and each FP32 product and
-/// partial sum that computes it is a whole number within ±2^24 too. FP32 computes such a number with
-/// no rounding, in any order, so an i32 statement gives the value of the f32 statement.
+/// ±2^24 for each source table that passes the checks of the integer evaluator (the ranges, the grids
+/// and the exact bits of the source cells), when the ranges that the circuit keeps for its operations
+/// hold, and when the declarations that Compare used hold. A row with an integer statement computes
+/// each product and each partial sum as a whole number within ±2^24. FP32 computes such a number with
+/// no rounding, in any order, so the i32 statement gives the value of the f32 statement.
 /// </summary>
 /// <remarks>
 /// <para>The rules, in the order of the rows:</para>
@@ -61,8 +63,15 @@ public readonly record struct WholeProof(WholeKind Kind, long Minimum, long Maxi
 /// <item>An index read is whole when each candidate that its index range can reach is whole. With an
 /// index form that is not whole, the read can reach each candidate. A side that reads zero adds 0.</item>
 /// <item>The bit that Compare returns (<see cref="Operation.ComparisonBit"/>) is a bit. Compare proves
-/// it for each pair of operand values within their ranges and grids.</item>
+/// it for each pair of operand values within their ranges and grids. This rule trusts the ranges and
+/// the grids that Compare used, also the range or the grid of an operand that is an operation.</item>
 /// </list>
+/// <para>Three rules prove a row that the writer computes in f32 and then converts to an integer: a
+/// boolean atom of an f32 score, an index read with an f32 index, and the Compare bit. Range inference
+/// does not follow NaN, so such a value can be NaN, for example after Infinity - Infinity, and NaN has
+/// no integer. Each of these rules applies only when each wire in the cone of the row has a finite
+/// magnitude bound: the bound of its source range, or of its products and partial sums, or of its
+/// circuit range. Then no wire of the cone is infinite, so no NaN occurs.</para>
 /// <para>A grid or a bit that the caller declares on an operation is not a proof, because no evaluator
 /// checks it. A whole value can be +0 where the reference value is -0, because i32 has no -0. The sign
 /// of a zero never changes a nonzero value of the four instructions.</para>
@@ -93,9 +102,17 @@ public static class IntegerProof
     {
         var proofs = new WholeProof[program.ValueCount];
         var exact = new bool[program.ValueCount];
-        for (var cell = 0; cell < program.SourceSize; cell++) proofs[cell] = SourceProof(circuit, cell);
+        var magnitudes = new double[program.ValueCount];
+        var finite = new bool[program.ValueCount];
+        for (var cell = 0; cell < program.SourceSize; cell++)
+        {
+            proofs[cell] = SourceProof(circuit, cell);
+            magnitudes[cell] = Magnitude(circuit.Ranges[cell]);
+            finite[cell] = double.IsFinite(magnitudes[cell]);
+        }
         foreach (var row in rows)
         {
+            if (row is not GatherComputeRow) Bound(row);
             switch (row)
             {
                 case AffineRow affine:
@@ -136,14 +153,79 @@ public static class IntegerProof
             var wire = program.WireOrder[position];
             var operation = circuit.Operations[wire - circuit.SourceSize];
             // Compare proves its bit also where the range arithmetic does not reach, for example
-            // after a sign cascade.
+            // after a sign cascade. The rule trusts the declarations that Compare used.
             var proof = !inferred.IsProven && operation.ComparisonBit ? WholeProof.Of(0, 1) : inferred;
+            // A proven value that the writer converts from an f32 statement needs a cone with no
+            // infinite wire, because NaN has no integer.
+            if (proof.IsProven && !(rowExact && inferred.IsProven) && !finite[position]) proof = WholeProof.Float;
             proofs[position] = proof;
             // A row whose own sums are whole but whose value has no proof is an f32 row. An index read
             // keeps its integer index when the value that it reads is not whole.
             exact[position] = rowExact && (inferred.IsProven || operation.Kind == OperationKind.Index);
         }
+
+        // The magnitude bound of a row, and whether its cone is finite: each operand has a finite cone,
+        // and twice the bound of each product and partial sum is at most the largest FP32 value. The
+        // factor 2 covers the FP32 rounding of each step. The bound of the value is also at most the
+        // magnitude of the circuit range of the wire.
+        void Bound(ShaderRow row)
+        {
+            var position = IntegerPlan.PositionOf(row);
+            var ok = true;
+            double Sum(float bias, ImmutableArray<ShaderTerm> terms)
+            {
+                double bound = MathF.Abs(bias);
+                foreach (var term in terms)
+                {
+                    ok &= finite[term.Position];
+                    bound += MathF.Abs(term.Weight) * magnitudes[term.Position];
+                }
+                ok &= Fits(bound);
+                return bound;
+            }
+            double Candidates(ShaderCandidates candidates)
+            {
+                double bound = 0;
+                for (var candidate = 0; candidate < candidates.Count; candidate++)
+                {
+                    var at = candidates.PositionAt(candidate);
+                    ok &= finite[at];
+                    bound = Math.Max(bound, magnitudes[at]);
+                }
+                return bound;
+            }
+            double value;
+            switch (row)
+            {
+                case AffineRow affine:
+                    value = Sum(affine.Bias, affine.Terms);
+                    // The mass of a gather slot is 0 or 1, so a gather read adds at most its candidate.
+                    foreach (var gather in affine.Gathers) value += Candidates(gather.Candidates);
+                    ok &= Fits(value);
+                    break;
+                case RegluRow reglu:
+                    value = Sum(reglu.Bias, reglu.Terms) * Sum(reglu.GateBias, reglu.GateTerms);
+                    ok &= Fits(value);
+                    break;
+                case BooleanRow boolean:
+                    value = Sum(boolean.Bias, boolean.Terms) + 1;
+                    break;
+                case IndexRow read:
+                    Sum(read.IndexBias, read.IndexTerms);
+                    value = Candidates(read.Candidates);
+                    break;
+                default:
+                    throw new InvalidOperationException($"unknown row {row.GetType().Name}");
+            }
+            magnitudes[position] = Math.Min(value, Magnitude(circuit.Ranges[program.WireOrder[position]]));
+            finite[position] = ok && double.IsFinite(magnitudes[position]);
+        }
     }
+
+    private static double Magnitude(NumericRange range) => Math.Max(Math.Abs(range.Minimum), Math.Abs(range.Maximum));
+
+    // Twice the bound is a finite FP32 value, so the rounded step cannot overflow.
+    private static bool Fits(double bound) => 2 * bound <= float.MaxValue;
 
     /// <summary>
     /// Check the grid and the bit declarations of the source cells: a cell on a grid holds a finite
