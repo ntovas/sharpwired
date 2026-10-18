@@ -293,7 +293,7 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
     }
 
     // 64 consecutive FP32 values around 1, where a fused multiply-add gives a different result.
-    private static float[] NearOne()
+    internal static float[] NearOne()
     {
         var values = new float[Lanes];
         var value = 1f;
