@@ -1,6 +1,7 @@
 // Handwired source: tests/json-search/edge-cases.ts (handWrittenDocuments). The documents at the limits of the
 // programs: each length around the capacity, nesting around the maximum depth, texts whose matches touch the
-// first and the last position, and characters past U+FFFF. Task 5 adds the edge patterns and the searches.
+// first and the last position, and characters past U+FFFF. Also the patterns at the limits of the search
+// programs (edgePatterns) and the searches of each capacity (edgeSearches).
 
 using System.Globalization;
 using JsonSearch;
@@ -8,6 +9,9 @@ using JsonSearch;
 namespace JsonSearch.Tests;
 
 internal sealed record EdgeDocument(string Name, string Text);
+
+/// <summary>A search at the limits: a pattern, and the display kinds that the search reads, with a name.</summary>
+internal sealed record EdgeSearch(string Pattern, string ScopeName, IReadOnlyCollection<DisplayKind> Kinds);
 
 internal static class EdgeCases
 {
@@ -112,5 +116,49 @@ internal static class EdgeCases
         Add("a raw line feed in a string", "[\"the tide\nan owl\", \"the pier\"]");
         Add("every code point at a class boundary", string.Concat(IsolatedLetters.Select(letter => $"{(char)(letter[0] - 1)}{letter}{(char)(letter[0] + 1)}")));
         return documents;
+    }
+
+    // Atom k holds the isolated letters whose number, from 1, has bit k set.
+    private static string LettersOfBit(int bit) => string.Concat(IsolatedLetters.Where((_, index) => (((index + 1) >> bit) & 1) == 1));
+
+    // One more state that reads any of the 16 letters, which adds no class and no boundary.
+    private static string AnyIsolatedLetter => "[" + string.Concat(IsolatedLetters) + "]";
+
+    /// <summary>A pattern that tells the 16 isolated letters apart: 16 classes and 32 class boundaries, the capacities.</summary>
+    public static string FullClassesPattern =>
+        $"([{LettersOfBit(0)}]|[{LettersOfBit(1)}]|[{LettersOfBit(2)}]|[{LettersOfBit(3)}]|[{LettersOfBit(4)}]|a|c)+";
+
+    /// <summary>
+    /// Patterns at the limits of each capacity: as many states, classes and class boundaries as a program holds,
+    /// patterns that match nothing, each code point or the whole text, and patterns that can match the empty text,
+    /// which the search never reports.
+    /// </summary>
+    public static IReadOnlyList<string> EdgePatterns(int states) => states switch
+    {
+        8 => ["a", "abcdefg", "(the|an?) [a-z]+", FullClassesPattern, "[]", "[^]", "[^]+", ".+", "", "a*", "(a|ab)(c|bcd)", "\"[a-z ]+\"", "\\d+", "😀+", "[^a]+", "tide", "\"", "\\d\\d\\d\\d-"],
+        16 => [new string('a', 15), "(the|an?|some) [a-z]+(ing)?s?", "\\d\\d\\d\\d-\\d\\d-\\d\\d", "the tide", FullClassesPattern + Repeat(AnyIsolatedLetter, 8)],
+        32 => [new string('a', 31), "(the|an?|some|this|that|these) [a-z]+(ing|ed|s)? ", "connection reset", FullClassesPattern + Repeat(AnyIsolatedLetter, 24)],
+        _ => throw new ArgumentException($"no search program has {states} states", nameof(states)),
+    };
+
+    /// <summary>
+    /// Each pattern with all kinds, and then the other scopes in turn, so that each scope meets some patterns. The
+    /// last two scopes are lists of kinds: numbers and literals, and no kind, which finds nothing.
+    /// </summary>
+    public static IReadOnlyList<EdgeSearch> EdgeSearches(int states)
+    {
+        (string Name, DisplayKind[] Kinds)[] others =
+        [
+            ("strings", [DisplayKind.String]),
+            ("keys", [DisplayKind.Key]),
+            ("strings and keys", [DisplayKind.String, DisplayKind.Key]),
+            ("numbers and literals", [DisplayKind.Number, DisplayKind.Literal]),
+            ("no kind", []),
+        ];
+        return [.. EdgePatterns(states).SelectMany((pattern, index) => new[]
+        {
+            new EdgeSearch(pattern, "everything", Enum.GetValues<DisplayKind>()),
+            new EdgeSearch(pattern, others[index % others.Length].Name, others[index % others.Length].Kinds),
+        })];
     }
 }
