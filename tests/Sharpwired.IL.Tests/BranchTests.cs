@@ -31,6 +31,39 @@ public class BranchTests
         AssertMatchesPlain(translated, 701, ZeroSign.MayDiffer);
     }
 
+    // int != 0 in value form: cgt.un against 0 gives Not(Compare(x, Equal, 0)) (final fix wave,
+    // item D).
+    [Theory]
+    [InlineData(nameof(BranchInputs.IntNotZero))]
+    [InlineData(nameof(BranchInputs.ZeroNotInt))]
+    public void An_int_not_equal_to_zero_gives_not_of_an_equal_compare(string name)
+    {
+        var expected = new ExpectedProgram(Cell.Input(new NumericRange(-5, 5), grid: 1));
+        var circuit = expected.Circuit;
+        var equal = circuit.Compare(expected.Cells[0], Relation.Equal, circuit.Constant(0));
+        circuit.Affine([(equal, -1)], 1);
+        var translated = Translate(name);
+        expected.AssertSameOperations(translated);
+        AssertMatchesPlain(translated, 708, ZeroSign.Exact);
+    }
+
+    // A branch on an int (brtrue or brfalse) reads int != 0. The gate then gives Select.
+    [Theory]
+    [InlineData(nameof(BranchInputs.ChooseOnIntNotZero))]
+    [InlineData(nameof(BranchInputs.IfIntNotZero))]
+    [InlineData(nameof(BranchInputs.IfIntIsZero))]
+    public void A_branch_on_an_int_compared_with_zero_gives_the_plain_values(string name)
+    {
+        var translated = Translate(name);
+        AssertMatchesPlain(translated, 709, ZeroSign.MayDiffer);
+        var source = SeededSources.Create(translated.Table, 1, 710)[0];
+        foreach (var x in new float[] { -5, -1, 0, 1, 5 })
+        {
+            source[0] = x;
+            AssertMatchesPlainAt(translated, source, ZeroSign.MayDiffer);
+        }
+    }
+
     [Theory]
     [InlineData(nameof(BranchInputs.ChooseConstants), 20, 0)]
     [InlineData(nameof(BranchInputs.ChooseOffsetConstants), 1.5, 1.5)]

@@ -406,10 +406,16 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         _ => type.ClrType,
     };
 
-    // brtrue and brfalse read a bit: a bool value, a comparison or the constant 0 or 1.
+    // brtrue and brfalse read a bit: a bool value, a comparison or the constant 0 or 1. On an int
+    // they read x != 0, as Roslyn writes the branch form of x != 0 (final fix wave, item D).
     private ScalarValue Bit(SsaValue operand, int offset)
     {
         var value = lowering.Scalar(operand, offset);
+        if (value.Kind == ScalarKind.Int && value is not ConstantValue)
+        {
+            return Not(lowering.CompareValues(value, new ConstantValue(0, ScalarKind.Int), Relation.Equal, offset));
+        }
+
         return value.Kind == ScalarKind.Bit || value is ConstantValue { Number: 0 or 1 }
             ? value
             : throw lowering.Refuse(offset, "a branch on a number", "the program branches on a bool value or on a comparison; compare the number with a value");

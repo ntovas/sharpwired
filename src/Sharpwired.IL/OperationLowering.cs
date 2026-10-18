@@ -402,6 +402,13 @@ internal sealed partial class OperationLowering
             _ => (leftTerms, leftBias),
         };
         var form = new AffineValue(kind, op, left, right, factor, [.. terms], bias, operation.IlOffset);
+        if (kind == ScalarKind.Int && Circuit.PreviewAffine(form.Terms, form.Bias) is { Terms.IsEmpty: true, Bias: var constant })
+        {
+            // The terms cancel, for example i0 - i0. C# int arithmetic is exact, so the form is the
+            // constant (final fix wave, item C).
+            return Fold(ILOpCode.Add, constant, 0, kind, operation.IlOffset);
+        }
+
         if (kind == ScalarKind.Int && !Emitter.IsExact(form.Terms, form.Bias))
         {
             throw Refuse(operation.IlOffset, "an int value with a range past 2^24", "C# int arithmetic is exact up to 2^31, and FP32 only up to 2^24");
@@ -502,6 +509,14 @@ internal sealed partial class OperationLowering
     {
         var left = Scalar(leftValue, offset);
         var right = Scalar(rightValue, offset);
+        if (unsigned && UnsignedZeroTest(left, right, relation) is { } notZero)
+        {
+            // Roslyn writes the int test x != 0 as cgt.un against 0 (final fix wave, item D). For
+            // an int, x >u 0 is x != 0, and x <=u 0 is x == 0.
+            var equal = CompareValues(notZero.Value, new ConstantValue(0, ScalarKind.Int), Relation.Equal, offset);
+            return notZero.IsNotEqual ? Gates.Not(equal) : equal;
+        }
+
         if (unsigned && (left.Kind == ScalarKind.Int || right.Kind == ScalarKind.Int))
         {
             throw Refuse(offset, "an unsigned comparison", "the program has no unsigned int values");
@@ -520,6 +535,18 @@ internal sealed partial class OperationLowering
 
         return CompareValues(left, right, relation, offset);
     }
+
+    // An unsigned comparison of an int with the constant 0 that is an equality test: x >u 0 and
+    // 0 <u x are x != 0; x <=u 0 and 0 >=u x are x == 0. Null for each other comparison.
+    private static (ScalarValue Value, bool IsNotEqual)? UnsignedZeroTest(ScalarValue left, ScalarValue right, Relation relation) =>
+        (left, right, relation) switch
+        {
+            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.Greater) => (left, true),
+            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.LessOrEqual) => (left, false),
+            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.Less) => (right, true),
+            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.GreaterOrEqual) => (right, false),
+            _ => null,
+        };
 
     /// <summary>The comparison of two values at the instruction: a constant for two constants, otherwise the Compare macro.</summary>
     public ScalarValue CompareValues(ScalarValue left, ScalarValue right, Relation relation, int offset)

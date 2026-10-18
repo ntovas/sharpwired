@@ -120,6 +120,39 @@ public static class BranchInputs
         done: return x;
     }
 
+    // int != 0 (final fix wave, item D). Roslyn writes the value form as cgt.un against 0, and the
+    // branch form as brtrue or brfalse on the int.
+    [Handwired]
+    public static bool IntNotZero([Range(-5, 5)] int x) => x != 0;
+
+    [Handwired]
+    public static bool ZeroNotInt([Range(-5, 5)] int x) => 0 != x;
+
+    [Handwired]
+    public static float ChooseOnIntNotZero([Range(-5, 5)] int x, [Range(-100, 100)] float a, [Range(-100, 100)] float b) => x != 0 ? a : b;
+
+    [Handwired]
+    public static float IfIntNotZero([Range(-5, 5)] int x, [Range(-100, 100)] float a, [Range(-100, 100)] float b)
+    {
+        if (x != 0)
+        {
+            return a;
+        }
+
+        return b;
+    }
+
+    [Handwired]
+    public static float IfIntIsZero([Range(-5, 5)] int x, [Range(-100, 100)] float a, [Range(-100, 100)] float b)
+    {
+        if (x == 0)
+        {
+            return a;
+        }
+
+        return b;
+    }
+
     // A choice between two local arrays, and a store through the chosen array (review of task 4,
     // finding 2).
     [Handwired]

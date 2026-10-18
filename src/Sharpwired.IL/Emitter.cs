@@ -275,21 +275,67 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
                 return Circuit.Affine([(condition, step)], off.Number);
             }
 
+            var width = Circuit.Width;
             var offWire = Circuit.Constant(off.Number);
-            return Circuit.Select(condition, offWire, Circuit.Constant(on.Number));
+            var onWire = Circuit.Constant(on.Number);
+            return Chosen(gate, Circuit.Select(condition, offWire, onWire), width, ChosenSide(offWire), ChosenSide(onWire));
         }
 
         if (gate.Kind != ScalarKind.Bit && gate.Off is ConstantValue { Number: 0 })
         {
             // Rule 6: ITE(c, x, 0) = Multiply(c, x), the Handwired form of "condition ? value : 0".
             var condition = Emit(gate.Condition);
-            return Gate(Circuit.Multiply(condition, Side(Emit(gate.On))));
+            var onWire = Side(Emit(gate.On));
+            var width = Circuit.Width;
+            return Gate(Chosen(gate, Circuit.Multiply(condition, onWire), width, ChosenSide(null), ChosenSide(onWire)));
         }
 
         // Rule 7: Select(c, off, on).
         var gateWire = Emit(gate.Condition);
         var offValue = Side(Emit(gate.Off));
-        return Gate(Circuit.Select(gateWire, offValue, Side(Emit(gate.On))));
+        var onValue = Side(Emit(gate.On));
+        var start = Circuit.Width;
+        return Gate(Chosen(gate, Circuit.Select(gateWire, offValue, onValue), start, ChosenSide(offValue), ChosenSide(onValue)));
+    }
+
+    // The range and the grid of a gate side. Null is the constant 0 of rule 6: range 0..0 and no
+    // grid limit.
+    private (NumericRange Range, double Grid) ChosenSide(Wire? side) => side is { } wire
+        ? (Circuit.Ranges[wire.Position], Circuit.Grids[wire.Position] ?? double.NaN)
+        : (new NumericRange(0, 0), double.PositiveInfinity);
+
+    // Declares the range, the grid and the bit fact of a gate result (final fix wave, items B and C).
+    // The gate returns exactly one side, up to the sign of zero (execution-model.md, "Macro
+    // contracts": Select "Returns exactly one operand"). So its range is the union of the side ranges,
+    // and its grid is the finer side grid. The inferred range of Select is the sum of two product
+    // ranges. In a loop that range grows in each copy, so without the declaration a gate in a long
+    // loop passes the FP32 range. A new result (a wire at or after start) has no readers. The
+    // circuit can give back an existing wire for the same operation. That wire already has the same
+    // declaration, or it is a product of the same bit and the same side, so the declaration is true
+    // for its readers too.
+    private Wire Chosen(GateValue gate, Wire result, int start, (NumericRange Range, double Grid) off, (NumericRange Range, double Grid) on)
+    {
+        var existing = result.Position < start;
+        var minimum = Math.Min(off.Range.Minimum, on.Range.Minimum);
+        var maximum = Math.Max(off.Range.Maximum, on.Range.Maximum);
+        if (gate.Kind == ScalarKind.Bit && gate.On.Kind == ScalarKind.Bit && gate.Off.Kind == ScalarKind.Bit && minimum >= 0 && maximum <= 1)
+        {
+            Circuit.AssumeBit(result, existing);
+            return result;
+        }
+
+        if (double.IsFinite(minimum) && double.IsFinite(maximum))
+        {
+            Circuit.AssumeRange(result, minimum, maximum, existing);
+        }
+
+        var grid = Math.Min(off.Grid, on.Grid);
+        if (Fp32.IsPowerOfTwoGrid(grid))
+        {
+            Circuit.AssumeGrid(result, grid, existing);
+        }
+
+        return result;
     }
 
     // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.
