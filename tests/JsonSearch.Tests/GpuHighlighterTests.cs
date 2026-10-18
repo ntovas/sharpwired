@@ -102,6 +102,8 @@ public sealed class GpuHighlighterTests(GpuFixture fixture, ITestOutputHelper ou
             output.WriteLine(
                 $"[gpu highlighter] {writer}: {module.Statistics.Statements} statements, create {createMs:F0} ms; {documents.Length} documents in {times.TotalMs:F1} ms "
                 + $"(write {times.WriteMs:F1}, submit {times.SubmitMs:F1}, wait {times.WaitMs:F1}, read {times.ReadMs:F1}); corpus {corpus.Length} texts in {actualCorpus.Run.Times.TotalMs:F1} ms");
+            // A document that failed a kernel check and passed on the CPU gets the CPU values. No value is subnormal, so there must be none.
+            Assert.Equal(0, gpu.ReplayPasses);
         });
     }
 }

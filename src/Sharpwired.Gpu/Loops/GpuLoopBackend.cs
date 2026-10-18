@@ -44,6 +44,17 @@ public sealed class GpuLoopBackend : ILoopBackend
 
     public GpuLoopOptions Options { get; }
 
+    private int replayPasses;
+
+    /// <summary>
+    /// The number of documents that a kernel of this backend marked failed and whose CPU replay found no fault, for
+    /// tests. Such a document gets the CPU values, so a kernel check that fails falsely is visible only here. A test
+    /// expects 0, apart from the documents that the subnormal rule excludes.
+    /// </summary>
+    internal int ReplayPasses => Volatile.Read(ref replayPasses);
+
+    internal void CountReplayPass() => Interlocked.Increment(ref replayPasses);
+
     /// <summary>The largest number of documents of one dispatch, lower than the device limit, for a test of the chunks.</summary>
     internal int? MaxDocumentsPerChunk { get; set; }
 
@@ -331,7 +342,7 @@ internal sealed class GpuLoopRunner : ILoopRunner
         }
 
         var results = new RunResults(this, request, targets, documentValuesOut, windowValues);
-        for (var document = done; document < count; document++) results.Write(document, null, null);
+        results.WriteNaN(done, count - done);
         var faults = Replay(inputs, results, Enumerable.Range(0, done).Where(document => lanes[document] != 0).ToList());
         if (done > 0) progress?.Report(done);
         var readMs = total.Elapsed.TotalMilliseconds - writeMs - submitMs - waitMs;
@@ -397,6 +408,8 @@ internal sealed class GpuLoopRunner : ILoopRunner
             {
                 throw new ArgumentException($"position target {index} must hold {count} documents of {Program.Positions} cells and must not be an input", nameof(request));
             }
+            var earlier = Array.IndexOf(targets, owned);
+            if (earlier >= 0) throw new ArgumentException($"position target {index} is also position target {earlier}", nameof(request));
             targets[index] = owned;
         }
         return (inputs, targets);
@@ -435,6 +448,7 @@ internal sealed class GpuLoopRunner : ILoopRunner
                     continue;
                 }
                 results.Write(documents[index], run, index);
+                Backend.CountReplayPass();
             }
             return faults.ToImmutable();
         }
@@ -448,6 +462,36 @@ internal sealed class GpuLoopRunner : ILoopRunner
     // one document of a CPU run.
     private sealed class RunResults(GpuLoopRunner runner, LoopRequest request, GpuDocumentBuffer?[] targets, float[] documentValues, float[] windowValues)
     {
+        // Write NaN for the documents first..first + count - 1, which the run did not reach. Each output and each
+        // target gets one fill for the whole range, with no array for each document.
+        public void WriteNaN(int first, int count)
+        {
+            if (count <= 0) return;
+            var program = runner.Program;
+            var positions = program.Positions;
+            var windowFirst = Math.Max(first, request.WindowFirst);
+            var windowEnd = Math.Min(first + count, request.WindowFirst + request.WindowCount);
+            int documentStart = 0, positionGroup = 0;
+            foreach (var group in program.OutputGroups)
+            {
+                if (group.Kind == OutputGroupKind.Document)
+                {
+                    documentValues.AsSpan((documentStart * request.DocumentCount) + (first * group.ValuesPerDocument), count * group.ValuesPerDocument).Fill(float.NaN);
+                    documentStart += group.ValuesPerDocument;
+                    continue;
+                }
+                if (windowEnd > windowFirst)
+                {
+                    windowValues.AsSpan(((positionGroup * request.WindowCount) + windowFirst - request.WindowFirst) * positions, (windowEnd - windowFirst) * positions).Fill(float.NaN);
+                }
+                if (targets[positionGroup] is { } target)
+                {
+                    GpuLoopBackend.Fill(target.Storage, (long)first * positions * sizeof(float), (long)count * positions * sizeof(float), float.NaN);
+                }
+                positionGroup++;
+            }
+        }
+
         public void Write(int document, LoopRun? cpu, int? cpuDocument)
         {
             var program = runner.Program;

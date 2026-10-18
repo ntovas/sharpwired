@@ -226,12 +226,42 @@ public sealed class CpuLoopRunnerTests
         Js.Throws(() => runner.Run(new LoopRequest([input], 10, [], 8, 3)), "the window 8..10 must lie inside the 10 documents");
         Js.Throws(() => runner.Run(new LoopRequest([input], 10, [null, null], 0, 0)), "the request has 2 position targets, and the program has 1 position groups");
         Js.Throws(() => runner.Run(new LoopRequest([input], 10, [input], 0, 0)), "position target 0");
+        // One buffer as the target of two position groups.
+        using (var leadersRunner = backend.CreateRunner(Leaders(Positions)))
+        using (var target = backend.Allocate(10, Positions, 0))
+        {
+            Js.Throws(() => leadersRunner.Run(new LoopRequest([input], 10, [target, target], 0, 0)), "position target 1 is also position target 0");
+        }
         Js.Throws(() => backend.Upload(cells, 10, Positions), "cells holds");
         Js.Throws(() => backend.Read(input, 5, 6), "documents 5..10");
         Assert.Equal(cells.AsSpan(2 * (Positions + 1), 3 * (Positions + 1)).ToArray(), backend.Read(input, 2, 3));
         Assert.All(backend.Read(backend.Allocate(2, 3, 7.5f), 0, 2), value => Assert.Equal(7.5f, value));
         Assert.Throws<ArgumentOutOfRangeException>(() => new CpuLoopBackend(new CpuLoopOptions(BlockSize: 0)));
         Assert.Throws<ArgumentOutOfRangeException>(() => new CpuLoopBackend(new CpuLoopOptions(MaxDegreeOfParallelism: 0)));
+    }
+
+    // The Tensor stage backend checks the source table against the ranges of the circuit. A check that fails there
+    // gives a LaneFault for its document, as a check of the runner does, and the run goes on. The test narrows
+    // the circuit range of the item cell to 0..10 on a new translation, so the cell checks of the runner pass.
+    [Fact]
+    public void A_failed_range_check_of_the_Tensor_backend_gives_a_LaneFault()
+    {
+        var function = Sharpwired.IL.HandwiredTranslator.TranslateFunction(typeof(LoopInputs).GetMethod(nameof(LoopInputs.SumStep))!);
+        var item = function.Inputs.Single(input => input.Path == "item").Wire;
+        function.Table.Circuit.AssumeRange(item, 0, 10, allowExistingReaders: true);
+        var stage = SumStage() with { Function = function };
+        var program = LoopProgram.Create(Positions, [Documents(Positions)], [new LoopRegister("total", 0)], [],
+            [new LoopOutputGroup("total", OutputGroupKind.Document, 1, 0)], [stage, SumTotalStage()], 0);
+        var cells = CreateDocuments(20, Positions, 0x7e45);
+        using var backend = new CpuLoopBackend(new CpuLoopOptions(CpuStageBackend.Tensor, BlockSize: 4));
+        using var runner = backend.CreateRunner(program);
+        runner.WriteShared([]);
+        using var input = backend.Upload(cells, 20, Positions + 1);
+        var run = runner.Run(new LoopRequest([input], 20, [], 0, 0));
+        Assert.Equal(20, run.DocumentsDone);
+        Assert.NotEmpty(run.Faults);
+        Assert.All(run.Faults, fault => Assert.Contains("source wire", fault.Message, StringComparison.Ordinal));
+        Assert.All(run.Faults, fault => Assert.True(float.IsNaN(run.DocumentValues[fault.Document])));
     }
 
     [Fact]

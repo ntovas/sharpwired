@@ -179,10 +179,14 @@ public sealed class CompiledStageTests(ITestOutputHelper output)
             var rounds = Math.Max(200, 400_000 / program.ValueCount);
             var compiledTime = Time(rounds, sources, source => stage.Evaluate(source, roots));
             var tensorTime = Time(rounds, sources, source => reference.Evaluate(source));
+            // CompiledStage does not check the source ranges, and TensorEvaluator does. So the ratio uses the
+            // time of TensorEvaluator less the time of its range check.
+            var checkTime = Time(rounds, sources, source => circuit.ValidateSourceRanges(source));
+            var tensorRowsTime = Math.Max(tensorTime - checkTime, 0.001);
             output.WriteLine(
                 $"[speed] {name}: {program.ValueCount - program.SourceSize} rows, {program.Layers.Length} layers, {stage.ChunkCount} chunks, "
-                + $"compile {compileWatch.Elapsed.TotalMilliseconds:F1} ms; CompiledStage {compiledTime:F3} us, TensorEvaluator {tensorTime:F3} us, "
-                + $"ratio {tensorTime / compiledTime:F1}");
+                + $"compile {compileWatch.Elapsed.TotalMilliseconds:F1} ms; CompiledStage {compiledTime:F3} us, TensorEvaluator {tensorTime:F3} us "
+                + $"(range check {checkTime:F3} us, rows {tensorRowsTime:F3} us), ratio without the range check {tensorRowsTime / compiledTime:F1}");
         }
     }
 

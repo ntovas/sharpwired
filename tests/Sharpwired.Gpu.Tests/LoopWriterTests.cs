@@ -7,6 +7,7 @@
 // These tests need no adapter.
 
 using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using Sharpwired.Core;
 using Xunit.Abstractions;
 using static Sharpwired.Gpu.Tests.LoopInputPrograms;
@@ -19,7 +20,7 @@ internal static class LoopCases
     public const int Positions = 32;
 
     public static readonly string[] Names =
-        ["Sum", "Leaders", "LeadersBits", "Lookup", "LookupFaults", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Fma", "Search8", "Delay", "DelayInt", "Mul", "SignField", "OneHot"];
+        ["Sum", "Leaders", "LeadersBits", "Lookup", "LookupFaults", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Fma", "Search8", "Delay", "DelayInt", "DelayBits", "Mul", "SignField", "OneHot"];
 
     public static (LoopProgram Program, float[] Shared, float[] Documents) Case(string name, int count, int seed) => name switch
     {
@@ -42,6 +43,7 @@ internal static class LoopCases
         "Search8" => LoopWriterPrograms.Search8(),
         "Delay" => LoopWriterPrograms.Delay(whole: false),
         "DelayInt" => LoopWriterPrograms.Delay(whole: true),
+        "DelayBits" => LoopWriterPrograms.DelayBits(),
         "Mul" => LoopWriterPrograms.Mul(),
         "SignField" => LoopWriterPrograms.SignField(),
         "OneHot" => LoopWriterPrograms.OneHot(),
@@ -236,6 +238,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         "Delay Integer: 24 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
         "DelayInt Float32: 20 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
         "DelayInt Integer: 22 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "DelayBits Float32: 31 statements, rows 6/0/0, packed 0, lanes 0, tables 0",
+        "DelayBits Integer: 27 statements, rows 0/0/4, packed 0, lanes 0, tables 0",
         "Mul Float32: 20 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
         "Mul Integer: 20 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
         "SignField Float32: 26 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
@@ -350,6 +354,22 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
             "if (!(r6 >= 0i && r6 <= 64i)) {",
             "if (!(is_finite(d0_32) && ordered(d0_32) >= (-1i) && ordered(d0_32) <= 1233125376i && on_grid(d0_32, 0i))) {",
         ], checks);
+    }
+
+    // DelayBits: the word of b0 and b1 gets the old word of a0 and a1. So the writer copies the old word into a let
+    // before the first register write, and the write of the b word reads the let (the rw branch of WriteOutputs).
+    [Fact]
+    public void A_word_of_registers_that_gets_the_old_value_of_another_word_reads_a_let()
+    {
+        var module = LoopIntegerWriter.Write(LoopWriterPrograms.DelayBits());
+        var lines = Lines(module);
+        var copy = Assert.Single(lines, line => Regex.IsMatch(line, @"^let o\d+: u32 = .*\brw\d+\b"));
+        var name = copy["let ".Length..copy.IndexOf(':', StringComparison.Ordinal)];
+        var source = Regex.Match(copy, @"\brw\d+\b").Value;
+        var target = Assert.Single(lines, line => Regex.IsMatch(line, $@"^rw\d+ = {name};$"));
+        Assert.NotEqual(source, target[..target.IndexOf(' ', StringComparison.Ordinal)]);
+        var sourceWrite = Array.FindIndex(lines, line => line.StartsWith($"{source} = ", StringComparison.Ordinal));
+        Assert.True(Array.IndexOf(lines, copy) < sourceWrite, "the let comes before the write of the source word");
     }
 
     private static string[] Lines(LoopWgslModule module) =>

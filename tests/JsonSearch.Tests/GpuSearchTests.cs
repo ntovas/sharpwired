@@ -143,6 +143,8 @@ public sealed class GpuSearchTests(GpuFixture fixture, ITestOutputHelper output)
                     + $"{runMs.Min():F1} to {runMs.Max():F1} ms each (median {runMs.Order().ElementAt(runMs.Count / 2):F1} ms)");
             }
             Assert.True(marked > 10_000, $"{marked} marked positions in the windows");
+            // A document that failed a kernel check and passed on the CPU gets the CPU values. No value is subnormal, so there must be none.
+            Assert.Equal(0, gpu.ReplayPasses);
         });
     }
 
@@ -190,6 +192,7 @@ public sealed class GpuSearchTests(GpuFixture fixture, ITestOutputHelper output)
                     $"[gpu search] {writer}, {capacity.States} states, {Pattern} in Keys: {Count} documents in {times.TotalMs:F1} ms "
                     + $"(write {times.WriteMs:F1}, submit {times.SubmitMs:F1}, wait {times.WaitMs:F1}, read {times.ReadMs:F1}); highlighter {highlighted.Times.TotalMs:F1} ms");
             }
+            Assert.Equal(0, gpu.ReplayPasses);
         });
     }
 }

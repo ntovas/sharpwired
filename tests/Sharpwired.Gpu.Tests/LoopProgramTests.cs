@@ -48,6 +48,7 @@ public sealed class LoopProgramTests
         { "group index", "stage Total: the output (return value) writes group 3, and the program has 3 output groups" },
         { "document column write", "stage Total: the output (return value) writes column 1 of group count, which holds 1 values for each document" },
         { "two writes", "stage Backward: the outputs item1 and item2 write the same register largest" },
+        { "part of a field of bits", "stage Backward: the stage writes 2 of the 3 components of the field of bits flags; a stage that writes a field of bits writes each component of it" },
         { "length cell", "the length cell reads column 17 of buffer 0, which holds 17 cells for each document" },
     };
 
@@ -161,6 +162,8 @@ public sealed class LoopProgramTests
             "group index" => LeadersWith(LeadersBackwardStage(), LeadersForwardStage(), Writes(LeadersTotalStage(), "", new StageWrite.Document(3, 0))),
             "document column write" => LeadersWith(LeadersBackwardStage(), LeadersForwardStage(), Writes(LeadersTotalStage(), "", new StageWrite.Document(0, 1))),
             "two writes" => LeadersWith(Writes(LeadersBackwardStage(), "item2", new StageWrite.Register(0))),
+            "part of a field of bits" => LoopProgram.Create(Positions, [documents], LeadersRegisters(), [new LoopField("largest", 1, false), new LoopField("flags", 3, true)],
+                LeadersGroups(Positions), [LeadersBackwardStage(), LeadersForwardStage()], 0),
             "length cell" => LoopProgram.Create(Positions, [documents], total, [], totalGroup, [SumStage(), once], 0, new LengthCell(0, Positions + 1)),
             _ => throw new ArgumentOutOfRangeException(nameof(label), label, "no such case"),
         };

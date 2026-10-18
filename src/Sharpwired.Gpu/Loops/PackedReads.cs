@@ -142,7 +142,7 @@ internal sealed class StageRules
         return proven;
     }
 
-    /// <summary>The Packed reads rule's reading of one index read, or null when the read is not a gated read of bits.</summary>
+    /// <summary>The result of the Packed reads rule for one index read, or null when the read is not a gated read of bits.</summary>
     public GatedRead? Gated(IndexRow row)
     {
         if (gated.TryGetValue(row.Position, out var known)) return known;

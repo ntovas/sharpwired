@@ -179,8 +179,8 @@ public sealed class PackedWordTests
         return (float)Value(row.Candidates.PositionAt((int)Math.Clamp(index, 0, last)));
     }
 
-    // p && !q and p && q are never both 1, which the proof finds by taking both as 1. p and q can both be 1, and
-    // the proof does not claim otherwise. The reference evaluator agrees on each of the four inputs.
+    // p && !q and p && q are never both 1. The proof finds this when it sets both to 1. p and q can both be 1, and
+    // the proof does not claim a different result. The reference evaluator agrees on each of the four inputs.
     [Fact]
     public void Two_bits_that_are_never_both_one_are_proven_and_two_free_bits_are_not()
     {

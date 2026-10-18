@@ -351,7 +351,9 @@ internal sealed class CpuLoopRunner : ILoopRunner
 
         public float[] Outputs { get; }
 
-        public void Evaluate()
+        // Evaluate the stage. Returns null, or the message of the range check of TensorEvaluator, which checks
+        // the source table against the ranges of the circuit. The runner gives that message as a LaneFault.
+        public string? Evaluate()
         {
             if (compiled is not null)
             {
@@ -362,10 +364,19 @@ internal sealed class CpuLoopRunner : ILoopRunner
                     var position = positions[outputRoots[output]];
                     Outputs[output] = position >= 0 ? Source[position] : float.NaN;
                 }
-                return;
+                return null;
             }
-            var roots = tensor!.Evaluate(Source.AsSpan(0, tensor.Program.SourceSize));
+            float[] roots;
+            try
+            {
+                roots = tensor!.Evaluate(Source.AsSpan(0, tensor.Program.SourceSize));
+            }
+            catch (ArgumentException error)
+            {
+                return error.Message;
+            }
             for (var output = 0; output < Outputs.Length; output++) Outputs[output] = roots[outputRoots[output]];
+            return null;
         }
     }
 
@@ -440,6 +451,8 @@ internal sealed class CpuLoopRunner : ILoopRunner
                     throw new ArgumentException(
                         $"position target {index} must hold {documentCount} documents of {program.Positions} cells and must not be an input", nameof(request));
                 }
+                var earlier = Array.IndexOf(targets, owned.Cells);
+                if (earlier >= 0) throw new ArgumentException($"position target {index} is also position target {earlier}", nameof(request));
                 targets[index] = owned.Cells;
             }
 
@@ -530,7 +543,7 @@ internal sealed class CpuLoopRunner : ILoopRunner
                         }
                     }
                     if (runner.checks[stage].CheckBound(source) is { } fault) return LoopProgram.FaultPrefix(plan.Stage, position) + fault;
-                    stageWorker.Evaluate();
+                    if (stageWorker.Evaluate() is { } evaluationFault) return LoopProgram.FaultPrefix(plan.Stage, position) + evaluationFault;
                     var outputs = stageWorker.Outputs;
                     for (var output = 0; output < outputs.Length; output++)
                     {

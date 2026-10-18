@@ -4,6 +4,7 @@
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using Sharpwired.Cells;
 using Sharpwired.IL;
 
 namespace Sharpwired.Gpu;
@@ -47,6 +48,10 @@ public sealed record RecurrentBatch(
     /// <see cref="InvalidOperationException"/> with "lane n: " and the message of the lane. A batch with
     /// no invalid lane does nothing.
     /// </summary>
+    /// <remarks>
+    /// The batch is a record of values, and it holds the message of each lane, not the exception of the CPU
+    /// runner. So the exception has no inner exception.
+    /// </remarks>
     public void ThrowIfInvalid()
     {
         var lane = Status.IndexOf(RecurrentLaneStatus.Invalid);
@@ -127,7 +132,7 @@ public sealed class CpuRecurrentRunner : IRecurrentBatchRunner
                 for (var lane = block * BlockSize; lane < end; lane++)
                 {
                     var laneArguments = table.AsSpan(lane * argumentCount, argumentCount);
-                    if (RecurrentBatches.RunLane(runner, laneArguments, stepLimit, out var message) is { } result)
+                    if (RecurrentBatches.RunLane(runner, laneArguments, argumentCount, stepLimit, out var message) is { } result)
                     {
                         result.Outputs.AsSpan().CopyTo(outputs.AsSpan(lane * outputCount, outputCount));
                         steps[lane] = result.Steps;
@@ -190,14 +195,24 @@ internal static class RecurrentBatches
     /// Run one lane on the CPU. A check of the runner that fails gives null and the message of the
     /// runner. The arguments passed the validator of the prefix before this call.
     /// </summary>
-    public static RecurrentResult? RunLane(RecurrentRunner runner, ReadOnlySpan<float> arguments, int stepLimit, out string? message)
+    /// <remarks>
+    /// A failed check is an <see cref="InvalidOperationException"/>, a <see cref="CellValueException"/>, or the
+    /// plain <see cref="ArgumentException"/> of a one-hot or at-most-one rule of the cell validator (it has no
+    /// type of its own). The method checks the step limit and the argument count first, so these argument
+    /// errors throw. Each other subtype of <see cref="ArgumentException"/> also throws.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The step limit is negative.</exception>
+    /// <exception cref="ArgumentException">The lane has other than argumentCount arguments.</exception>
+    public static RecurrentResult? RunLane(RecurrentRunner runner, ReadOnlySpan<float> arguments, int argumentCount, int stepLimit, out string? message)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(stepLimit);
+        if (arguments.Length != argumentCount) throw new ArgumentException($"the lane holds {arguments.Length} arguments, and the function has {argumentCount}", nameof(arguments));
         try
         {
             message = null;
             return runner.Run(arguments, stepLimit);
         }
-        catch (Exception error) when (error is InvalidOperationException or ArgumentException)
+        catch (Exception error) when (error is InvalidOperationException or CellValueException || error.GetType() == typeof(ArgumentException))
         {
             message = error.Message;
             return null;

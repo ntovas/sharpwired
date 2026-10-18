@@ -23,7 +23,7 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
 
     // The GPU run of a program over the documents, with each document in the window and a target for each
     // position group. The targets come back to the host.
-    private static (LoopRun Run, float[][] Targets, LoopWgslModule Module) RunGpu(
+    private static (LoopRun Run, float[][] Targets, LoopWgslModule Module, int ReplayPasses) RunGpu(
         GpuDevice device, GpuWriter writer, LoopProgram program, float[] shared, float[] documents, int count, int? chunk = null)
     {
         using var backend = new GpuLoopBackend(device, new GpuLoopOptions(writer)) { MaxDocumentsPerChunk = chunk };
@@ -36,12 +36,15 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         var values = targets.Select(target => backend.Read(target, 0, count)).ToArray();
         var module = backend.Module(runner);
         foreach (var buffer in inputs.Concat(targets)) buffer.Dispose();
-        return (run, values, module);
+        return (run, values, module, backend.ReplayPasses);
     }
 
     // Compare a GPU run with a CPU run: the faults, then each value of each valid document. Return the count of
-    // documents that the subnormal rule excludes.
-    private static int Compare(GpuDevice device, GpuWriter writer, LoopProgram program, float[] documents, int count, LoopRun expected, float[][] expectedTargets, LoopRun actual, float[][] actualTargets)
+    // documents that the subnormal rule excludes. A document that the kernel marked failed and whose CPU replay
+    // passed gets the CPU values, so the compare cannot see a false kernel check. The replay passes must be 0,
+    // apart from the documents that the subnormal rule excludes.
+    private static int Compare(
+        GpuDevice device, GpuWriter writer, LoopProgram program, float[] documents, int count, LoopRun expected, float[][] expectedTargets, LoopRun actual, float[][] actualTargets, int replayPasses)
     {
         Assert.Equal(expected.Faults.ToArray(), actual.Faults.ToArray());
         Assert.Equal(count, actual.DocumentsDone);
@@ -74,6 +77,7 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
                 }
             }
         }
+        Assert.True(replayPasses <= excluded, $"{replayPasses} documents failed a kernel check and passed on the CPU, and the subnormal rule excludes {excluded}");
         return excluded;
     }
 
@@ -96,8 +100,8 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         var (expected, expectedTargets) = LoopCases.RunCpu(program, shared, documents, Count);
         fixture.ForEachDevice(output, device =>
         {
-            var (actual, actualTargets, module) = RunGpu(device, writer, program, shared, documents, Count);
-            var excluded = Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets);
+            var (actual, actualTargets, module, replayPasses) = RunGpu(device, writer, program, shared, documents, Count);
+            var excluded = Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets, replayPasses);
             output.WriteLine($"[gpu loop] {name} {writer}: {Count} documents, {actual.Faults.Length} faults, {excluded} with a subnormal value not compared; {module.Statistics.Statements} statements; run {actual.Times.TotalMs:F1} ms");
         });
     }
@@ -133,6 +137,7 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
             using var gpu = new GpuLoopBackend(device, new GpuLoopOptions(writer));
             var actual = Chain(gpu);
             Assert.Empty(actual.Faults);
+            Assert.Equal(0, gpu.ReplayPasses);
             for (var document = 0; document < Count; document++) Same(writer, false, expected.DocumentValues[document], actual.DocumentValues[document], $"document {document}");
             Assert.Contains(actual.DocumentValues, value => value > 0);
         });
@@ -147,8 +152,8 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         var (expected, expectedTargets) = LoopCases.RunCpu(program, shared, documents, Count);
         fixture.ForEachDevice(output, device =>
         {
-            var (actual, actualTargets, _) = RunGpu(device, writer, program, shared, documents, Count, chunk: 1_000);
-            Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets);
+            var (actual, actualTargets, _, replayPasses) = RunGpu(device, writer, program, shared, documents, Count, chunk: 1_000);
+            Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets, replayPasses);
         });
     }
 
@@ -169,8 +174,8 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         else Assert.True(expected.Faults.Length > Count / 8, $"{expected.Faults.Length} faults");
         fixture.ForEachDevice(output, device =>
         {
-            var (actual, actualTargets, _) = RunGpu(device, writer, program, shared, documents, Count);
-            Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets);
+            var (actual, actualTargets, _, replayPasses) = RunGpu(device, writer, program, shared, documents, Count);
+            Compare(device, writer, program, documents, Count, expected, expectedTargets, actual, actualTargets, replayPasses);
             output.WriteLine($"[gpu loop] {name} {writer}: {actual.Faults.Length} faults replayed on the CPU in {actual.Times.ReadMs:F1} ms");
         });
     }
@@ -198,8 +203,40 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
                 var run = runner.Run(request);
                 var module = backend.Module(runner);
                 output.WriteLine($"[gpu loop time] {name} {writer}: create {create:F1} ms ({module.Statistics.Statements} statements); "
-                    + $"{Count} documents in {run.Times.TotalMs:F1} ms (write {run.Times.WriteMs:F1}, submit {run.Times.SubmitMs:F1}, wait {run.Times.WaitMs:F1}, read {run.Times.ReadMs:F1}); {run.Faults.Length} faults");
+                    + $"{Count} documents in {run.Times.TotalMs:F1} ms (write {run.Times.WriteMs:F1}, submit {run.Times.SubmitMs:F1}, wait {run.Times.WaitMs:F1}, read {run.Times.ReadMs:F1}); {run.Faults.Length} faults, {backend.ReplayPasses} replay passes");
+                Assert.Equal(0, backend.ReplayPasses);
             }
+        });
+    }
+
+    // A cancelled run reaches no document. Each output and each position target holds NaN, and the run writes the
+    // NaN values without an array for each document: 20,000 documents of 512 positions would need 41 MB.
+    [Fact]
+    public void A_cancelled_run_gives_NaN_for_each_document_without_an_array_for_each_document()
+    {
+        const int Count = 20_000;
+        const int Positions = 512;
+        var program = Leaders(Positions);
+        var documents = CreateDocuments(Count, Positions, 0xca9c);
+        fixture.ForEachDevice(output, device =>
+        {
+            using var backend = new GpuLoopBackend(device);
+            using var runner = backend.CreateRunner(program);
+            using var input = backend.Upload(documents, Count, Positions + 1);
+            using var leaders = backend.Allocate(Count, Positions, 7);
+            using var cancel = new CancellationTokenSource();
+            cancel.Cancel();
+            var request = new LoopRequest([input], Count, [leaders, null], 0, 100);
+            runner.Run(request, null, cancel.Token);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var run = runner.Run(request, null, cancel.Token);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            output.WriteLine($"cancelled run of {Count} documents: {allocated} bytes allocated");
+            Assert.Equal(0, run.DocumentsDone);
+            Assert.All(run.DocumentValues, value => Assert.True(float.IsNaN(value)));
+            Assert.All(run.WindowPositionValues, value => Assert.True(float.IsNaN(value)));
+            Assert.All(backend.Read(leaders, 0, Count), value => Assert.True(float.IsNaN(value)));
+            Assert.True(allocated < 12_000_000, $"{allocated} bytes allocated");
         });
     }
 
@@ -224,6 +261,12 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
             Js.Throws(() => runner.Run(new LoopRequest([foreign], 10, [], 0, 0)), "another backend");
             Js.Throws(() => runner.Run(new LoopRequest([input], 11, [], 0, 0)), "holds 10 documents, and the request runs 11");
             Js.Throws(() => runner.Run(new LoopRequest([input], 10, [], 8, 3)), "the window 8..10 must lie inside the 10 documents");
+            // One buffer as the target of two position groups.
+            using (var leadersRunner = backend.CreateRunner(Leaders(LoopCases.Positions)))
+            using (var target = backend.Allocate(10, LoopCases.Positions, 0))
+            {
+                Js.Throws(() => leadersRunner.Run(new LoopRequest([input], 10, [target, target], 0, 0)), "position target 1 is also position target 0");
+            }
             Assert.Equal(cells.AsSpan(2 * (LoopCases.Positions + 1), 3 * (LoopCases.Positions + 1)).ToArray(), backend.Read(input, 2, 3));
             using (var filled = backend.Allocate(2, 3, 7.5f)) Assert.All(backend.Read(filled, 0, 2), value => Assert.Equal(7.5f, value));
             Assert.Equal(LoopIntegerWriter.Write(program).Code, backend.Module(runner).Code);

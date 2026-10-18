@@ -177,8 +177,9 @@ public sealed class LoopProgram
     /// that no stage writes before or in the stage that reads it, a field component that no earlier stage
     /// writes, an index, a column or an offset outside its part, an item or a field that a stage that runs
     /// once reads, a field or a position output that a stage that runs once writes, a document output that
-    /// a looped stage writes, two outputs of one stage that write the same place, two stages with the same
-    /// name, a step method with a loop overflow bit, or a size mismatch.
+    /// a looped stage writes, two outputs of one stage that write the same place, a stage that writes some
+    /// but not all components of a field of bits, two stages with the same name, a step method with a
+    /// loop overflow bit, or a size mismatch.
     /// </summary>
     public static LoopProgram Create(
         int positions, IReadOnlyList<LoopBuffer> buffers, IReadOnlyList<LoopRegister> registers,
@@ -400,6 +401,16 @@ public sealed class LoopProgram
             {
                 if (write is StageWrite.Register register) registerWritten[register.Index] = true;
                 if (write is StageWrite.Field field) fieldWritten[field.Index][field.Component] = true;
+            }
+            // The integer writer keeps a field of bits as one word for each position, and a stage writes the whole word.
+            foreach (var group in writes.OfType<StageWrite.Field>().GroupBy(field => field.Index))
+            {
+                var field = shape.Fields[group.Key];
+                var count = group.Select(write => write.Component).Distinct().Count();
+                if (field.Bits && count < field.Width)
+                {
+                    throw Error($"the stage writes {Text(count)} of the {Text(field.Width)} components of the field of bits {field.Name}; a stage that writes a field of bits writes each component of it");
+                }
             }
             foreach (var input in function.Inputs)
             {

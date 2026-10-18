@@ -15,6 +15,8 @@
 // - Search8: the Reverse8 and Forward8 steps of LoopInputs as a search of two passes, with a field of 8 bits.
 // - Delay and DelayInt: (x, a, b) with a and b registers, so that one register gets the old value of another
 //   register (review of task 3: the kernel read the new value).
+// - DelayBits: the same delay with four registers of bits in one word, so that the new word reads the old word
+//   (the copy of a word of registers into a let).
 // - Mul: x * y + 1.37, a ReGLU product that an affine row reads (the keep of the f32 writer).
 // - SignField: a field of bits that holds -0, 0 and 1, read back as an output (the word of the signs).
 // - OneHot: three registers in a one-hot group, which the item 77 breaks (the one-hot check of the kernel).
@@ -93,6 +95,10 @@ public static class LoopWriterInputs
 
     [Handwired]
     public static (int X, int A, int B) DelayInt([Range(-1, 1000)] int x, [Range(-1, 1000)] int a, [Range(-1, 1000)] int b) => (x, a, b);
+
+    [Handwired]
+    public static (bool A0, bool A1, bool B0, bool B1, bool Out) DelayBits([Range(-1, 1000)] int item, bool a0, bool a1, bool b0, bool b1) =>
+        (item > 500, item < 100, a0, a1, b0 || b1);
 
     [Handwired]
     public static float Mul([Range(-10, 10)] float x, [Range(0, 10)] float y) => (x * y) + 1.37f;
@@ -220,6 +226,22 @@ internal static class LoopWriterPrograms
             Stage("Delay", StageRepeat.Forward, Function(whole ? nameof(LoopWriterInputs.DelayInt) : nameof(LoopWriterInputs.Delay)),
                 [("x", new CellSource.Item(0)), ("a", new CellSource.Register(0)), ("b", new CellSource.Register(1))],
                 [("item1", new StageWrite.Register(0)), ("item2", new StageWrite.Register(1)), ("item3", new StageWrite.Position(0))]),
+        ],
+        0);
+
+    // a0, a1, b0 and b1 are registers of bits that one stage writes, so they are the lanes of one word. The stage
+    // writes two comparisons to a0 and a1 and the old a0 and a1 to b0 and b1, and the old b0 || b1 goes out. The new
+    // word reads the old word.
+    public static LoopProgram DelayBits() => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [new LoopRegister("a0", 0), new LoopRegister("a1", 0), new LoopRegister("b0", 0), new LoopRegister("b1", 0)],
+        [],
+        [new LoopOutputGroup("delayed", OutputGroupKind.Position, Positions, 0)],
+        [
+            Stage("Delay", StageRepeat.Forward, Function(nameof(LoopWriterInputs.DelayBits)),
+                [("item", new CellSource.Item(0)), ("a0", new CellSource.Register(0)), ("a1", new CellSource.Register(1)), ("b0", new CellSource.Register(2)), ("b1", new CellSource.Register(3))],
+                [("item1", new StageWrite.Register(0)), ("item2", new StageWrite.Register(1)), ("item3", new StageWrite.Register(2)), ("item4", new StageWrite.Register(3)), ("item5", new StageWrite.Position(0))]),
         ],
         0);
 

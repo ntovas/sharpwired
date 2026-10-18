@@ -148,6 +148,13 @@ public sealed class GpuRecurrentRunner : IRecurrentBatchRunner
     internal int SuffixDispatches { get; private set; }
 
     /// <summary>
+    /// The number of lanes that the kernel marked failed and whose CPU replay passed, for tests. Such a lane gets the
+    /// CPU result, so a kernel check that fails falsely is visible only here. A test expects 0, apart from the lanes
+    /// that the subnormal rule excludes.
+    /// </summary>
+    internal int ReplayPasses { get; private set; }
+
+    /// <summary>
     /// Write the step kernel, the prefix shader and the suffix shader of the function, and create their
     /// pipelines on the device.
     /// </summary>
@@ -330,11 +337,12 @@ public sealed class GpuRecurrentRunner : IRecurrentBatchRunner
     private void Replay(int lane, ReadOnlySpan<float> laneArguments, int stepLimit, BatchArrays result)
     {
         replayRunner ??= new RecurrentRunner(function);
-        if (RecurrentBatches.RunLane(replayRunner, laneArguments, stepLimit, out var message) is { } cpu)
+        if (RecurrentBatches.RunLane(replayRunner, laneArguments, argumentCount, stepLimit, out var message) is { } cpu)
         {
             cpu.Outputs.AsSpan().CopyTo(result.Outputs.AsSpan(lane * outputCount, outputCount));
             result.Steps[lane] = cpu.Steps;
             result.Status[lane] = cpu.Completed ? RecurrentLaneStatus.Completed : RecurrentLaneStatus.Limit;
+            ReplayPasses++;
             return;
         }
         result.Outputs.AsSpan(lane * outputCount, outputCount).Fill(float.NaN);

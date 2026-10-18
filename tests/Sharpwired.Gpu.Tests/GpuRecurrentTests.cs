@@ -133,6 +133,9 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
             var batch = runner.Run(Flatten(lanes), lanes.Count, StepLimit);
             Assert.Equal(RecurrentLaneStatus.Invalid, batch.Status[5]);
             Assert.Equal(expected.Message, batch.Messages[5]);
+            // An invalid lane has NaN outputs and 0 steps.
+            Assert.All(batch.Outputs.AsSpan(5 * batch.OutputCount, batch.OutputCount).ToArray(), value => Assert.True(float.IsNaN(value), $"output {value:R}"));
+            Assert.Equal(0, batch.Steps[5]);
             Assert.Equal(1, batch.Status.Count(status => status == RecurrentLaneStatus.Invalid));
             var error = Assert.Throws<InvalidOperationException>(batch.ThrowIfInvalid);
             output.WriteLine($"{runner.GetType().Name}: {error.Message}");
@@ -180,6 +183,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
 
             var empty = runner.Run([], 0, StepLimit);
             Assert.Empty(empty.Steps);
+            Assert.Equal(0, runner.ReplayPasses);
         });
     }
 
@@ -227,6 +231,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
             using var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: writer), maxLanesPerChunk: 64);
             Assert.Equal(64, runner.LanesPerChunk);
             AssertLanesEqualCpu(device, function, writer, lanes, runner.Run(Flatten(lanes), lanes.Count, StepLimit), StepLimit);
+            AssertNoReplayPass(runner, device);
         });
     }
 
@@ -244,9 +249,26 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
 
         fixture.ForEachDevice(output, device =>
         {
-            using IRecurrentBatchRunner runner = GpuRecurrentRunner.Create(device, function, (options ?? new GpuRecurrentOptions()) with { Writer = writer });
+            using var runner = GpuRecurrentRunner.Create(device, function, (options ?? new GpuRecurrentOptions()) with { Writer = writer });
             test(runner, device);
+            AssertNoReplayPass(runner, device);
         });
+    }
+
+    // The lanes of the last GPU compare, for AssertNoReplayPass.
+    private (RecurrentFunction Function, IReadOnlyList<float[]> Lanes, int StepLimit)? lastCompare;
+
+    // A lane that the kernel marked failed and whose CPU replay passed gets the CPU result, so the compare of
+    // the lanes cannot see a false kernel check. The replay passes of the runner must be 0, apart from the lanes
+    // of the last compare that the subnormal rule excludes.
+    private void AssertNoReplayPass(GpuRecurrentRunner runner, GpuDevice device)
+    {
+        output.WriteLine($"replay passes: {runner.ReplayPasses}");
+        if (runner.ReplayPasses == 0) return;
+        Assert.True(device.FlushesSubnormals && lastCompare is not null, $"{runner.ReplayPasses} lanes failed a kernel check and passed on the CPU");
+        var (function, lanes, stepLimit) = lastCompare!.Value;
+        var subnormal = lanes.Count(lane => SubnormalReplay.Holds(function, lane, stepLimit));
+        Assert.True(runner.ReplayPasses <= subnormal, $"{runner.ReplayPasses} lanes failed a kernel check and passed on the CPU, and the subnormal rule excludes {subnormal}");
     }
 
     // The CPU runner equals RecurrentRunner.Run exactly. A GPU lane equals it with the rules of the writer
@@ -260,6 +282,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
             return;
         }
 
+        lastCompare = (function, lanes, stepLimit);
         Assert.Equal(lanes.Count, batch.Steps.Length);
         Assert.Equal(lanes.Count, batch.Status.Length);
         Assert.Equal(lanes.Count * function.Suffix.Outputs.Length, batch.Outputs.Length);

@@ -127,6 +127,21 @@ public sealed class CpuRecurrentRunnerTests
         Assert.Throws<ObjectDisposedException>(() => runner.Run([8f], 1, StepLimit));
     }
 
+    // A check of the runner that fails gives null and the message. An argument error of the caller is no check of a
+    // lane: it throws, and the lane does not become Invalid.
+    [Fact]
+    public void RunLane_gives_null_for_a_failed_check_and_throws_for_an_argument_error()
+    {
+        var doubling = RecurrentKernelWriterTests.Translate(typeof(GpuRecurrentInputs), nameof(GpuRecurrentInputs.DoubleUntil));
+        var runner = new RecurrentRunner(doubling);
+        Assert.Null(RecurrentBatches.RunLane(runner, [30f], 1, StepLimit, out var message));
+        Assert.Equal(Assert.Throws<InvalidOperationException>(() => runner.Run([30f], StepLimit)).Message, message);
+        Assert.NotNull(RecurrentBatches.RunLane(runner, [3f], 1, StepLimit, out var none));
+        Assert.Null(none);
+        Assert.Throws<ArgumentOutOfRangeException>(() => RecurrentBatches.RunLane(runner, [3f], 1, -1, out _));
+        Assert.Throws<ArgumentException>(() => RecurrentBatches.RunLane(runner, [3f, 4f], 1, StepLimit, out _));
+    }
+
     [Fact]
     public void RecurrentRunners_Create_with_no_device_gives_the_CPU_runner()
     {

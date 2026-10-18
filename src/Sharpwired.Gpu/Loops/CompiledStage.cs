@@ -24,8 +24,9 @@ using Sharpwired.Core;
 namespace Sharpwired.Gpu;
 
 /// <summary>
-/// The compiled delegate of one stage, from the rows of its program. Exact FP32: each value has the bits
-/// of <see cref="TensorEvaluator"/>, also the sign of zero and NaN.
+/// The compiled delegate of one stage, from the rows of its program. Exact FP32: each value is equal to the
+/// value of <see cref="TensorEvaluator"/> by Object.is, so it has the same bits, also the sign of zero. A NaN
+/// stays a NaN, but its sign and payload bits can differ.
 /// </summary>
 /// <remarks>
 /// <para>

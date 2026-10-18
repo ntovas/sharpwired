@@ -34,6 +34,8 @@ public sealed partial class GpuRecurrentTests
                     output.WriteLine($"StepsPerDispatch {steps}: {runner.StepDispatches} step dispatches, {runner.SuffixDispatches} suffix dispatches, at most {batch.Steps.Max()} steps");
                     Assert.True(runner.StepDispatches >= ((batch.Steps.Max() + steps) / steps), $"{runner.StepDispatches} step dispatches");
                     batches.Add(batch);
+                    lastCompare = (function, lanes, StepLimit);
+                    AssertNoReplayPass(runner, device);
                 }
 
                 AssertLanesEqualCpu(device, function, writer, lanes, batches[^1], StepLimit);
@@ -63,6 +65,7 @@ public sealed partial class GpuRecurrentTests
                 Assert.Equal(3, runner.StepDispatches);
                 Assert.Equal(1, runner.SuffixDispatches);
                 AssertLanesEqualCpu(device, function, writer, lanes, batch, limit);
+                AssertNoReplayPass(runner, device);
             }
 
             using (var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: writer), maxLanesPerChunk: 1000))
@@ -72,12 +75,13 @@ public sealed partial class GpuRecurrentTests
                 Assert.Equal(1 + 2 + 3, runner.StepDispatches);
                 Assert.Equal(3, runner.SuffixDispatches);
                 AssertLanesEqualCpu(device, function, writer, lanes, batch, limit);
+                AssertNoReplayPass(runner, device);
             }
         });
     }
 
     // The step kernel with 600 state cells: the struct of WideStateInputs.Rotate600. Each lane equals the
-    // CPU runner.
+    // CPU runner, with 1,024 and with 7 evaluations in one dispatch.
     [Theory]
     [MemberData(nameof(WriterData))]
     public void A_step_of_600_state_cells_equals_the_CPU_runner(GpuWriter writer)
@@ -94,14 +98,20 @@ public sealed partial class GpuRecurrentTests
         AssertLanesEqualCpu(null, function, writer, lanes, expected, StepLimit);
         fixture.ForEachDevice(output, device =>
         {
-            var create = Stopwatch.StartNew();
-            using var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: writer));
-            create.Stop();
-            var watch = Stopwatch.StartNew();
-            var batch = runner.Run(Flatten(lanes), lanes.Count, StepLimit);
-            watch.Stop();
-            output.WriteLine($"Rotate600, {writer}: {function.Step.Table.Circuit.SourceSize} cells, create {create.Elapsed.TotalMilliseconds:F1} ms, {lanes.Count} lanes, at most {batch.Steps.Max()} steps, run {watch.Elapsed.TotalMilliseconds:F1} ms");
-            AssertLanesEqualCpu(device, function, writer, lanes, batch, StepLimit);
+            // With 7 evaluations in one dispatch, the 600 cells go back to the buffer and come in again many times.
+            foreach (var steps in new[] { 1024, 7 })
+            {
+                var create = Stopwatch.StartNew();
+                using var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(steps, writer));
+                create.Stop();
+                var watch = Stopwatch.StartNew();
+                var batch = runner.Run(Flatten(lanes), lanes.Count, StepLimit);
+                watch.Stop();
+                output.WriteLine($"Rotate600, {writer}, StepsPerDispatch {steps}: {function.Step.Table.Circuit.SourceSize} cells, create {create.Elapsed.TotalMilliseconds:F1} ms, {lanes.Count} lanes, at most {batch.Steps.Max()} steps, {runner.StepDispatches} step dispatches, run {watch.Elapsed.TotalMilliseconds:F1} ms");
+                if (steps == 7) Assert.True(runner.StepDispatches > batch.Steps.Max() / 7, $"{runner.StepDispatches} step dispatches");
+                AssertLanesEqualCpu(device, function, writer, lanes, batch, StepLimit);
+                AssertNoReplayPass(runner, device);
+            }
         });
     }
 
