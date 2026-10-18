@@ -1,11 +1,11 @@
-// No Handwired source. Handwired has no translator. The control-flow graph of the plan, section
-// "Decisions", question 3: a block starts at offset 0, at each branch target, and after each branch,
-// ret and switch; the edges come from the branches, the fall-through and the switch targets. The
-// dominators use the iterative algorithm of Cooper, Harvey and Kennedy, "A Simple, Fast Dominance
-// Algorithm" (2001). A natural loop (question 5) has a back edge: an edge whose target dominates
-// its source. A backward branch outside a natural loop is refused (section "Emission rules"). The
-// loop lowering (LoopForms.cs) reads the loop of a header, the outermost loop of a block and the
-// back edges.
+// No Handwired source. Handwired has no translator. This file holds the control-flow graph of the
+// plan, section "Decisions", question 3. A block starts at offset 0, at each branch target, and after
+// each branch, ret and switch. The edges come from the branches, the fall-through and the switch
+// targets. The dominators use the iterative algorithm of Cooper, Harvey and Kennedy, "A Simple, Fast
+// Dominance Algorithm" (2001). A natural loop (question 5) has a back edge: an edge whose target
+// dominates its source. A backward branch outside a natural loop is refused (section "Emission
+// rules"). The loop lowering (LoopForms.cs) reads the loop of a header, the outermost loop of a block
+// and the back edges.
 
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
@@ -101,7 +101,7 @@ internal sealed class ControlFlowGraph
 
     /// <summary>
     /// The outermost natural loop that holds the block, inside the enclosing loop (null: the whole
-    /// method), with a header other than the header of the enclosing loop. Natural loops with
+    /// method). Its header is not the header of the enclosing loop. Natural loops with
     /// different headers are nested or disjoint, so the outermost one has the largest body.
     /// </summary>
     public NaturalLoop? OutermostLoopIn(int block, NaturalLoop? enclosing)

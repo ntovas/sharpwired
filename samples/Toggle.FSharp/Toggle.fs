@@ -1,9 +1,9 @@
 // Handwired source: template/toggle.ts, lines 9-84 (layout, matrixBound, coordinate, toggleCells and
 // buildToggle with its local function insideTrack).
 //
-// The toggle switch as a plain F# function. ToggleStep.step runs as a normal .NET method, and the IL
+// The toggle switch as a plain F# function. ToggleStep.step runs as a normal .NET method. The IL
 // translator (Sharpwired.IL) translates it into the program of the builder toggle
-// (Toggle.Builder.ToggleProgram), operation for operation, as it does for the plain C# toggle
+// (Toggle.Builder.ToggleProgram), operation for operation. It does the same for the plain C# toggle
 // (Toggle.CSharp.ToggleStep.Step). The records declare the 20 cells: their fields give the cell
 // names, and the attributes give the ranges, grids and initial values of toggleCells. step has one
 // binding for each step of ToggleProgram.Build, in the same order. Hw.AnimatedObject replaces the
@@ -79,8 +79,8 @@ type ToggleOutput =
 
 /// Handwired buildToggle as a plain F# function.
 module ToggleStep =
-    /// Handwired insideTrack. NoInlining keeps the call in Release, so that the translator inlines it
-    /// at the call and its AND gives one wire, as the builder local function does.
+    /// Handwired insideTrack. NoInlining keeps the call in Release. Thus the translator inlines it at
+    /// the call, and its AND gives one wire, as the builder local function does.
     [<Handwired; MethodImpl(MethodImplOptions.NoInlining)>]
     let insideTrack (point: Pointer) (trackLeft: float32) (trackTop: float32) =
         point.X >= trackLeft && point.X < trackLeft + TrackWidth && point.Y >= trackTop && point.Y < trackTop + TrackHeight

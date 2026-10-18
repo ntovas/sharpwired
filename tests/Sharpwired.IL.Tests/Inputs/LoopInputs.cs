@@ -1,6 +1,6 @@
 // No Handwired source. C# inputs for the loop tests of the translator (plan, task 5, and section
-// "Decisions", question 5): loop form 1 (a constant trip count), loop form 2 (a runtime trip count
-// with a maximum from [Range] or [MaxIterations]), and the loops that the translator refuses. Each
+// "Decisions", question 5). They are loops of form 1 (a constant trip count) and form 2 (a runtime
+// trip count with a maximum from [Range] or [MaxIterations]). Other inputs are refused loops. Each
 // refused loop is on the line of its marker comment ("marker: <name>").
 
 using Sharpwired.Annotations;
@@ -110,7 +110,7 @@ public static class LoopInputs
         return s;
     }
 
-    // The kept state of an inactive copy reads s + x, which can be Infinity when x has no range,
+    // The kept state of an inactive copy reads s + x. This sum can be Infinity when x has no range,
     // while C# does not compute it (review of task 5, round 2, finding A).
     [Handwired]
     public static float CountedSumOpen([Range(0, 8)] int n, float x)
@@ -219,8 +219,8 @@ public static class LoopInputs
     }
 
     // A state that grows in each copy (review of task 5, finding 1). With n up to 200 the range of
-    // the state passes FP32. With n up to 60 (30 for the product, because the inferred range of a
-    // product of two signed values grows faster than its value) the range stays finite.
+    // the state passes FP32. With n up to 60 the range stays finite. For the product, n goes up to 30,
+    // because the inferred range of a product of two signed values grows faster than its value.
     [Handwired]
     public static float Doubling([Range(0, 200)] int n, [Range(-1, 1)] float s)
     {
@@ -265,7 +265,7 @@ public static class LoopInputs
         return s;
     }
 
-    // The counter i changes in each second copy, so the continue bit of some copies is the
+    // The counter i changes in each second copy. Thus the continue bit of some copies is the
     // constant 1 while the active bit is a runtime bit (review of task 5, finding 2).
     [Handwired, MaxIterations(10)]
     public static int TwoStepCount([Range(0, 4)] int n)
@@ -424,7 +424,7 @@ public static class LoopInputs
         return t;
     }
 
-    // A break after a change of a value that the code after the loop reads: the exit edges give
+    // A break after a change of a value that the code after the loop reads. The exit edges give
     // different values to the exit block (final fix wave, item J).
     [Handwired]
     public static float BreakAfterChange([Range(0, 8)] int n, [Range(-100, 100)] float x)

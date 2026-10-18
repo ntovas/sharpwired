@@ -1,17 +1,18 @@
-// No Handwired source for the walk. Handwired has no translator. Branch to select of the plan,
-// section "Decisions", question 4: the literal of each branch edge, the gate of each phi, and the
-// gate rules 1 to 4 (the emit applies the rules 5 to 7, Emitter.cs). The gate forms follow
-// $REF/docs/expressions.md, rows "condition ? on : off" and "NOT, AND and OR".
+// No Handwired source for the walk. Handwired has no translator. This file holds the branch to select
+// of the plan, section "Decisions", question 4. It computes the literal of each branch edge and the
+// gate of each phi. It also holds the gate rules 1 to 4 (the emit applies the rules 5 to 7,
+// Emitter.cs). The gate forms follow $REF/docs/expressions.md, rows "condition ? on : off" and "NOT,
+// AND and OR".
 //
-// The gate of a phi at the merge block M is value(D), with D the immediate dominator of M.
-// value(B) for a block B in the region from D to M is the phi operand when B jumps to M, and
-// ITE(c, value(T), value(F)) when B branches on the literal c to T and F. An edge to a block that
+// The gate of a phi at the merge block M is value(D), with D the immediate dominator of M. Let B be
+// a block in the region from D to M. When B jumps to M, value(B) is the phi operand. When B branches
+// on the literal c to T and F, value(B) is ITE(c, value(T), value(F)). An edge to a block that
 // does not reach M gives no value, because the phi never reads it: ITE(c, x, none) = x. The return
 // value of a method with two or more ret instructions is the gate of a merge after the ret blocks.
 //
 // Loops (plan, question 5, and LoopForms.cs): a region does not follow a back edge, so each region
-// is acyclic. A region that enters a loop at its header continues at the exit edge of the loop,
-// because the unrolled loop always leaves through that edge. A constant literal follows only its
+// is acyclic. A region that enters a loop at its header continues at the exit edge of the loop. The
+// reason: the unrolled loop always leaves through that edge. A constant literal follows only its
 // edge, so a region does not read the values of a block that a constant branch skips.
 
 using System.Collections.Immutable;
@@ -38,7 +39,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
         _ => new NotValue(value),
     };
 
-    /// <summary>The literals of a value in an AND (T is AndValue) or an OR (T is OrValue): an AND with no wire gives its literals in order (gate rule 4).</summary>
+    /// <summary>The literals of a value in an AND (T is AndValue) or an OR (T is OrValue). An AND with no wire gives its literals in order (gate rule 4).</summary>
     public static ImmutableArray<ScalarValue> Literals<T>(ScalarValue value)
         where T : ScalarValue => value switch
         {
@@ -222,7 +223,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
 
             case (ArrayValue x, ArrayValue y) when x.IsLocal || y.IsLocal:
                 // The lowering changes a local array in place. A gate of two arrays is a new array
-                // value, so a later store through the chosen variable or through the first array
+                // value. So a later store through the chosen variable or through the first array
                 // does not reach the other one (review of task 4, finding 2).
                 throw lowering.Refuse(ilOffset, "a choice between two arrays", "the program changes an array in place, so a branch must not choose between two arrays");
             case (ArrayValue x, ArrayValue y) when x.ElementType == y.ElementType && x.Elements.Length == y.Elements.Length:
@@ -426,7 +427,7 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
     }
 
     // The relation map of question 4. The .un forms on float give the other relation, with NOT on
-    // the jump edge, because the declared ranges are finite and no operand is NaN.
+    // the jump edge. The reason: the declared ranges are finite and no operand is NaN.
     private ScalarValue BranchLiteral(ILOpCode op, SsaValue left, SsaValue right, int offset)
     {
         var (relation, jumpReadsBit, unsigned) = op switch

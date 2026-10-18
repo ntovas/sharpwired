@@ -68,8 +68,9 @@ public sealed class MaxIterationsAttribute(int count) : Attribute
 /// <summary>
 /// Marks a static [Handwired] method of two parameters as an associative combine: Combine(Combine(a,
 /// b), c) gives the same value as Combine(a, Combine(b, c)) for each value in the declared ranges. The
-/// translator then lowers a running total of the combine in a loop to a prefix network, which groups
-/// the combines in another order (plan, task 6b). The translator does not check the claim.
+/// translator then lowers a running total of the combine in a loop to a prefix network. The prefix
+/// network groups the combines in another order (plan, task 6b). The translator does not check the
+/// claim.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class AssociativeAttribute : Attribute;

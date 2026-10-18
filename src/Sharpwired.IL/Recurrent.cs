@@ -5,20 +5,21 @@
 //
 // TranslateRecurrent splits the method into three programs (RecurrentLowering.cs gives each part):
 // - The prefix reads the parameters. Its outputs are the initial loop state, then the invariants.
-// - The step has one state cell for each leaf of the loop state and one input cell for each leaf of
-//   an invariant, in the order of the prefix outputs. Its next values are Select(c, state, back),
-//   and its output is done = NOT c. The step is a plain Circuit and a FinishedTable, so a GPU runner
-//   (phase 5, R5.4) can read the same table.
+// - The step has one state cell for each leaf of the loop state and one input cell for each leaf of an
+//   invariant. The cells are in the order of the prefix outputs. Its next values are Select(c, state,
+//   back), and its output is done = NOT c. The step is a plain Circuit and a FinishedTable, so a GPU
+//   runner (phase 5, R5.4) can read the same table.
 // - The suffix has the same cells as the step, as input cells. Its outputs are the return leaves.
 //
-// The range of a state cell is the least fixed point of: the range of the initial value, joined with
-// the range of the back-edge value, with the state ranges refined by c. The translator tries at most
-// 8 rounds. A cell whose range still changes in round 8 gets a wide range: -2^23..2^23 with grid 1 for
+// The range of a state cell is a least fixed point. It is the range of the initial value, joined with
+// the range of the back-edge value, with the state ranges refined by c. The translator tries at most 8
+// rounds. A cell whose range still changes in round 8 gets a wide range: -2^23..2^23 with grid 1 for
 // an int, -float.MaxValue..float.MaxValue for a float. The int range is 2^23, so that a body step such
-// as count + 1 stays exact within 2^24. After the widening, more rounds run: a cell that is not wide
-// and whose range changes also gets the wide range, until a round changes no range. That last round
-// is the fixed-point check: the next-state range of each cell that is not wide lies inside its cell
-// range. The cell validator checks a next value of a wide cell. RecurrentRunner is the CPU runner.
+// as count + 1 stays exact within 2^24. After the widening, more rounds run until a round changes no
+// range. In these rounds, a cell that is not wide and whose range changes also gets the wide range.
+// The round that changes no range is the fixed-point check: the next-state range of each cell that is
+// not wide lies inside its cell range. The cell validator checks a next value of a wide cell.
+// RecurrentRunner is the CPU runner.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -30,9 +31,9 @@ namespace Sharpwired.IL;
 
 /// <summary>
 /// The step program of a loop with no maximum. State holds one cell for each leaf of the loop
-/// variables, and Invariants holds one input cell for each leaf of a value of the code before the
-/// loop that the loop or the code after it reads. Done is 1 when the loop ended. A lane that is done
-/// keeps its state.
+/// variables. Invariants holds one input cell for each leaf of an invariant. An invariant is a value
+/// of the code before the loop that the loop or the code after it reads. Done is 1 when the loop
+/// ended. A lane that is done keeps its state.
 /// </summary>
 public sealed record RecurrentStep(FinishedTable Table, ImmutableArray<NamedWire> State, ImmutableArray<NamedWire> Invariants, Wire Done);
 
@@ -77,7 +78,7 @@ public sealed class RecurrentFunction
 
 /// <summary>
 /// The result of <see cref="RecurrentRunner.Run"/>: the return leaves, the count of step evaluations
-/// with done 0, and Completed, which is false when the step limit stopped the loop.
+/// with done 0, and Completed. Completed is false when the step limit stopped the loop.
 /// </summary>
 public sealed record RecurrentResult(ImmutableArray<float> Outputs, int Steps, bool Completed);
 
@@ -206,11 +207,11 @@ internal sealed class RecurrentTranslator
         return new TranslatedFunction(null, null, finished, inputs, outputs, null, [.. emitter.Overflows]);
     }
 
-    // The least fixed point of the state ranges in at most 8 rounds. Else each cell whose range
-    // changed in round 8 gets the wide range, and more rounds run (review of task 6, round 1): a cell
-    // that is not wide and whose range changes also gets the wide range. Each such round widens at
-    // least one cell, so the rounds end after one round for each cell. The round that changes no range
-    // is the fixed-point check.
+    // The least fixed point of the state ranges in at most 8 rounds. Else each cell whose range changed
+    // in round 8 gets the wide range. Then more rounds run (review of task 6, round 1). In these
+    // rounds, a cell that is not wide and whose range changes also gets the wide range. Each such round
+    // widens at least one cell, so the rounds end after one round for each cell. The round that changes
+    // no range is the fixed-point check.
     private void FixStateRanges()
     {
         var changed = new bool[statePlans.Length];
@@ -241,7 +242,7 @@ internal sealed class RecurrentTranslator
         }
 
         // Each round before this point widened at least one cell, and the last round found no cell to
-        // widen, so this point cannot run (final fix wave, item K).
+        // widen. So this point cannot run (final fix wave, item K).
         throw new InvalidOperationException("the state ranges of the step program do not reach a fixed point after each cell is wide");
     }
 
@@ -391,7 +392,7 @@ internal sealed class RecurrentTranslator
 
     private static string Text(int number) => number.ToString(CultureInfo.InvariantCulture);
 
-    // A state cell: an int has the grid 1, and a float has no grid, because the back-edge values can
+    // A state cell: an int has the grid 1. A float has no grid, because the back-edge values can
     // leave the grid of the initial value. An invariant keeps the range and the grid of its wire.
     private static CellPlan Plan((string Path, ScalarValue Value) leaf, Circuit circuit, Wire wire, bool state) =>
         new(leaf.Path, leaf.Value.Kind, circuit.Ranges[wire.Position],
@@ -470,7 +471,7 @@ internal sealed class RecurrentTranslator
         DataTypes.InstanceFields(aggregate.Type).Where(field => aggregate.Fields.ContainsKey(field.Name));
 
     // The path part of a field: the property name of a C# backing field (<Level>k__BackingField) or
-    // of an F# field (Level@), with the first letter in lower case.
+    // of an F# field (Level@). The first letter of the path part is in lower case.
     private static string FieldPath(FieldInfo field)
     {
         var name = field.Name;

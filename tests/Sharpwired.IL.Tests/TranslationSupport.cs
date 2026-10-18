@@ -1,6 +1,7 @@
-// No Handwired source. Helpers for the translator tests of tasks 3 and 4: the input methods, the path of an
-// input file, the value comparison of a translated program with its plain method over seeded source
-// tables, and the check of a refusal message with the file and line of a marker comment.
+// No Handwired source. Helpers for the translator tests of tasks 3 and 4. They give the input methods
+// and the path of an input file. They give the value comparison of a translated program with its
+// plain method over seeded source tables. They also give the check of a refusal message with the file
+// and line of a marker comment.
 
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -17,7 +18,7 @@ internal enum ZeroSign
     Exact,
 
     /// <summary>
-    /// The operator ==: +0 equals -0. An affine operation adds its terms to f(bias), so a sum with the
+    /// The operator ==: +0 equals -0. An affine operation adds its terms to f(bias). Thus a sum with the
     /// bias 0 starts at +0 and gives +0 where C# gives -0 (Circuit.EvaluateTerms). Select,
     /// MinimumExact, MaximumExact and Multiply also allow a different sign of zero (execution-model.md,
     /// "Macro contracts"). Plan decision 7.
@@ -40,8 +41,8 @@ internal static class TranslationSupport
     /// <summary>
     /// Compares the program evaluator with the plain method over the seeded source tables, for each
     /// output leaf. When the plain method gives a value that is not finite (an input near
-    /// float.MaxValue overflows in C# too), the evaluator must refuse the table, because NaN and
-    /// infinity are not part of the contract (plan, "Behavior with no direct form").
+    /// float.MaxValue overflows in C# too), the evaluator must refuse the table. This is because NaN
+    /// and infinity are not part of the contract (plan, "Behavior with no direct form").
     /// </summary>
     public static void AssertMatchesPlain(TranslatedFunction translated, int seed, ZeroSign zeroSign)
     {

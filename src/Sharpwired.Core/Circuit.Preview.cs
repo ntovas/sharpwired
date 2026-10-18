@@ -9,10 +9,10 @@ namespace Sharpwired.Core;
 public sealed partial class Circuit
 {
     /// <summary>
-    /// The form that Affine(terms, bias) stores: the terms sorted, merged and without zero
-    /// coefficients, the constant wires folded into the bias, and the small affine producers
-    /// composed. PreviewAffine appends nothing. For an identity, the form is the single term with
-    /// the coefficient 1 and the bias 0, and Affine returns the wire of that term.
+    /// The form that Affine(terms, bias) stores. In this form, the terms are sorted, merged and
+    /// without zero coefficients. The constant wires are folded into the bias, and the small affine
+    /// producers are composed. PreviewAffine appends nothing. For an identity, the form is the single
+    /// term with the coefficient 1 and the bias 0, and Affine returns the wire of that term.
     /// </summary>
     public (ImmutableArray<Term> Terms, double Bias) PreviewAffine(IReadOnlyList<Term> terms, double bias)
     {
@@ -27,8 +27,9 @@ public sealed partial class Circuit
 
     /// <summary>
     /// The grid of an affine form evaluated in FP32, or null when it is not known. The grid is
-    /// known when each term reads a wire with a grid, and the declared ranges keep each product and
-    /// each partial sum within 2^24 grid steps, in any term order. For the form of PreviewAffine,
+    /// known when each term reads a wire with a grid and the declared ranges keep the values small.
+    /// The declared ranges must keep each product and each partial sum within 2^24 grid steps, in
+    /// any term order. For the form of PreviewAffine,
     /// this is the grid of the operation that Affine stores.
     /// </summary>
     public double? FormGrid(IReadOnlyList<Term> terms, double bias)

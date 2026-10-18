@@ -1,8 +1,8 @@
-// No Handwired source. Handwired has no translator. The value kinds of the plan, section "Files"
-// (Values.cs): a wire, a constant, an affine form, NOT, AND, OR and XOR of bits, a gate, an aggregate
-// and an array. A symbolic value (an affine form, NOT, AND, OR, XOR, a gate) has no wire until the emit
-// (Emitter.cs). DataTypes reads the backing field of a property and the field stores of a data
-// constructor from their IL.
+// No Handwired source. Handwired has no translator. This file holds the value kinds of the plan,
+// section "Files" (Values.cs). The kinds are a wire, a constant, an affine form, NOT, AND, OR and XOR
+// of bits, a gate, an aggregate and an array. A symbolic value (an affine form, NOT, AND, OR, XOR, a
+// gate) has no wire until the emit (Emitter.cs). DataTypes reads the backing field of a property and
+// the field stores of a data constructor from their IL.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -185,8 +185,8 @@ internal static class DataTypes
         type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
     /// <summary>
-    /// The field that the getter of the property returns, when the getter body only reads one field
-    /// of this (an auto-property, a record property, or "get => field"). Otherwise null.
+    /// The field that the getter of the property returns. The getter body must only read one field of
+    /// this (an auto-property, a record property, or "get => field"). Otherwise null.
     /// </summary>
     public static FieldInfo? BackingField(PropertyInfo property)
     {

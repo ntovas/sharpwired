@@ -1,6 +1,6 @@
 // Handwired source: $REF/lab/ui-exploration/guide/sections/loops.md, section 3 ("Prefix sums three
 // ways") and section "The shapes of cost", and $REF/docs/expressions.md, line 48. The tests of plan
-// task 6b for running totals: a loop of form 1 or 2 whose accumulator takes an associative combine
+// task 6b for running totals. A loop of form 1 or 2 whose accumulator takes an associative combine
 // in each step lowers to PrefixNetworks.Sklansky. Each test translates the input two times: with the
 // pattern recognition (the default) and with TranslationOptions.RecognizePatterns false (the normal
 // form). The prefix network counts follow PrefixNetworkTests: k items take (k / 2) × log2(k) combines

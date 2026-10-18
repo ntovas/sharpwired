@@ -1,7 +1,7 @@
 // No Handwired source. Handwired has no translator. The model of the SSA form of the plan, section
 // "Decisions", question 3: variables, values, phis, blocks, and the value types. Bit comes from a
-// bool field, local, parameter or return type, from a comparison, from and, or, xor of bits, and
-// from a phi whose inputs are bits or the constants 0 and 1. SsaBuilder.cs builds the form.
+// bool field, local, parameter or return type, from a comparison, and from and, or, xor of bits. Bit
+// also comes from a phi whose inputs are bits or the constants 0 and 1. SsaBuilder.cs builds the form.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -63,16 +63,16 @@ internal enum SsaValueKind
 }
 
 /// <summary>
-/// The location of an address: a variable (Root) or a value (Base, for a field of an object or an
-/// array element), and the fields that follow.
+/// The location of an address. It starts at a variable (Root) or at a value (Base, for a field of an
+/// object or an array element). The fields that follow come after it.
 /// </summary>
 internal sealed record SsaAddress(SsaVariable? Root, SsaValue? Base, ImmutableArray<FieldInfo> Fields);
 
 /// <summary>
 /// One SSA value. An operation has the opcode of its IL instruction (Op), the resolved member
-/// (Member) and its operands. A field read through an address gives an ldfld operation; a field
+/// (Member) and its operands. A field read through an address gives an ldfld operation. A field
 /// store through an address of a variable gives an stfld operation with the new value of the
-/// variable (Member is the field path); a constructor call on an address gives a newobj operation.
+/// variable (Member is the field path). A constructor call on an address gives a newobj operation.
 /// A phi has one operand for each predecessor of its block, in predecessor order.
 /// </summary>
 internal sealed class SsaValue
@@ -107,8 +107,8 @@ internal sealed class SsaValue
     public SsaVariable Variable { get; init; }
 
     /// <summary>
-    /// The IL offset of an operation or of the instruction that loads a constant, the start offset of
-    /// the block of a phi, or the offset of the first read of an entry value.
+    /// The IL offset of an operation or of the instruction that loads a constant. For a phi, the start
+    /// offset of its block. For an entry value, the offset of its first read.
     /// </summary>
     public int IlOffset { get; init; }
 

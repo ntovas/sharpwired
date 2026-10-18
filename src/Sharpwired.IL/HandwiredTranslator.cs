@@ -1,11 +1,11 @@
 // No Handwired source. Handwired has no translator. The entry points of the plan, section "Public
 // API", Sharpwired.IL: TranslateFunction and TranslateStep, with TranslatedFunction and
-// TranslatedStep, and TranslateRecurrent (Recurrent.cs). A translation checks the method, walks the cells (CellLayout.cs), decodes the IL,
-// builds the CFG and the SSA form, lowers the operations (OperationLowering.cs), emits the output
-// leaves at the return in walk order, pairs each state cell with its next value, and finishes the
-// source table. The translator caches nothing between calls. The evaluator of a TranslatedFunction
-// checks the overflow bit of each loop with [MaxIterations] (plan, question 5, form 2) after each
-// evaluation.
+// TranslatedStep, and TranslateRecurrent (Recurrent.cs). A translation checks the method, walks the
+// cells (CellLayout.cs), decodes the IL, builds the CFG and the SSA form, and lowers the operations
+// (OperationLowering.cs). Then it emits the output leaves at the return in walk order, pairs each
+// state cell with its next value, and finishes the source table. The translator caches nothing
+// between calls. The evaluator of a TranslatedFunction checks the overflow bit of each loop with
+// [MaxIterations] (plan, question 5, form 2) after each evaluation.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -26,8 +26,8 @@ public sealed record TranslationOptions
 
     /// <summary>
     /// True (the default): the translator recognizes the Handwired patterns where they cost less than
-    /// the normal form (plan, task 6b): a running total in a loop gives a prefix network, and a floor,
-    /// an int division or an int remainder with few results gives a threshold count. False: each
+    /// the normal form (plan, task 6b). A running total in a loop gives a prefix network. A floor, an
+    /// int division or an int remainder with few results gives a threshold count. False: each
     /// construct gets its normal form, for example for a comparison of the operation counts.
     /// </summary>
     public bool RecognizePatterns { get; init; } = true;
@@ -115,8 +115,8 @@ public static class HandwiredTranslator
     }
 
     /// <summary>
-    /// Translates a static [Handwired] method with one loop with no maximum (plan, question 5, form 3)
-    /// into a prefix, a step program and a suffix (Recurrent.cs). The loop must run on each call, at
+    /// Translates a static [Handwired] method with one loop with no maximum (plan, question 5, form 3).
+    /// The result is a prefix, a step program and a suffix (Recurrent.cs). The loop must run on each call, at
     /// the top level of the method. Throws <see cref="ArgumentException"/> for a method with no such loop.
     /// </summary>
     public static RecurrentFunction TranslateRecurrent(MethodInfo method) => TranslateRecurrent(method, TranslationOptions.Default);

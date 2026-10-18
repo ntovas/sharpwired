@@ -1,12 +1,12 @@
 // No Handwired source. Handwired has no translator. The loop tests of task 5 (plan, section
-// "Decisions", question 5, the rows of forms 1 and 2 and the row "all"): a constant trip count
-// unrolls the body (form 1); a runtime trip count with a maximum from [Range] or [MaxIterations]
+// "Decisions", question 5, the rows of forms 1 and 2 and the row "all"). A constant trip count
+// unrolls the body (form 1). A runtime trip count with a maximum from [Range] or [MaxIterations]
 // unrolls the maximum number of copies, each copy under its active bit (form 2). Each operation test
 // builds the unrolled circuit by hand and checks AssertSameOperations. Each value test compares the
 // translated program with the plain method over 200 seeded source tables. The C# loops have the
 // condition at the bottom of the IL (the C# for, while and do ... while). The F# loops are for ...
 // in, for ... to and while. The IL of each loop below gives the same relation in Debug and in
-// Release (clt and blt give Less), so the same expected circuit holds for both configurations.
+// Release (clt and blt give Less). Thus the same expected circuit holds for both configurations.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;
@@ -155,8 +155,8 @@ public class LoopTests
 
     // Copy k computes the bit k < n. The active bit of copy k + 1 is r_(k+1) = AND(r_k, k < n). The
     // loop counter is a constant back-edge value, so it stays a constant. The range refinement gives
-    // n >= k + 1 on the active path, so in copy 8 the bit 8 < n is the constant 0 and the unroll stops
-    // after 8 copies of the body. Copy k reads the kept state K_k = Select(r_k, K_(k-1), K_(k-1) + x),
+    // n >= k + 1 on the active path. Thus in copy 8 the bit 8 < n is the constant 0, and the unroll
+    // stops after 8 copies of the body. Copy k reads the kept state K_k = Select(r_k, K_(k-1), K_(k-1) + x),
     // which emits at the start of the copy (the header is a merge block). The first one is
     // Multiply(r_1, x), because the state before copy 1 is the constant 0. The value after the loop
     // is the last kept state.
@@ -233,7 +233,7 @@ public class LoopTests
     // at the bottom. The NOT of the guard gives n - 1 >= 0 on the active path, and each test removes
     // the lower end of the interval. In the eighth copy the test i + 1 == n is the constant 1, so the
     // loop stops after 8 copies (refinement through !=).
-    // The sum s + x has two uses (the header phi and the phi after the loop), so it emits at its
+    // The sum s + x has two uses: the header phi and the phi after the loop. Thus it emits at its
     // instruction, before the test of the copy. Copy k reads the kept state
     // K_k = Select(r_k, K_(k-1), sum of copy k - 1); the first one is Multiply(r_1, x). The value
     // after the loop is the sum of the last active copy: Select(r_k, value before, sum of copy k).
@@ -403,8 +403,8 @@ public class LoopTests
 
     // The row "all" and the loops with no maximum.
 
-    // A break to the end of the loop goes to the exit block of the loop test, with the same values, so
-    // the loop has one exit (the same IL as a loop test with two blocks).
+    // A break to the end of the loop goes to the exit block of the loop test, with the same values.
+    // Thus the loop has one exit (the same IL as a loop test with two blocks).
     [Fact]
     public void A_loop_with_a_break_to_its_end_gives_the_plain_values() =>
         AssertMatchesPlain(Translate(nameof(LoopInputs.Break)), 1117, ZeroSign.MayDiffer);
@@ -453,9 +453,9 @@ public class LoopTests
         }
     }
 
-    // Four copies of s += x: 0 + x is the wire x; x + x is the exact one-instruction form 2x; the sum
-    // that reads 2x composes it, so it is a round affine; the last sum reads a round affine, so it is
-    // an ordinary affine of two terms.
+    // Four copies of s += x. The sum 0 + x is the wire x. The sum x + x is the exact one-instruction
+    // form 2x. The sum that reads 2x composes it, so it is a round affine. The last sum reads a round
+    // affine, so it is an ordinary affine of two terms.
     private static ExpectedProgram RepeatAddCircuit()
     {
         var expected = new ExpectedProgram(Open);

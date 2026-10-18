@@ -6,15 +6,15 @@
 // - Probe: the normal lowering. The first loop with no maximum stops it and gives its header. A
 //   loop with no maximum inside a loop or inside a branch is refused.
 // - Prefix: the blocks before the loop. At the loop, the context gets the initial loop state (the
-//   entry values of the header phis) and the invariants: the values of the code before the loop
-//   that the loop or the code after it reads. The lowering stops there.
+//   entry values of the header phis) and the invariants. The invariants are the values of the code
+//   before the loop that the loop or the code after it reads. The lowering stops there.
 // - Step: one pass of the loop from its header, on the state cells and the invariant cells. The
 //   context gets the continue bit c, the back-edge values, next = Select(c, state, back) and
 //   done = NOT c. A lane that is done keeps its state.
 // - Suffix: one pass of the loop on the final state gives the values that the code after the loop
 //   reads. Then the blocks after the loop and the return value.
 //
-// The step has no copy of the body in the prefix for a bottom-tested loop: one pass from the header
+// The step has no copy of the body in the prefix for a bottom-tested loop. One pass from the header
 // holds the body and then the test, and the suffix computes the last pass again.
 
 using System.Collections.Immutable;
@@ -91,13 +91,13 @@ internal sealed partial class OperationLowering
 
     // The start block of a path condition outside the loops. The suffix does not lower the blocks
     // before the loop of form 3. That loop runs on each call, so its exit block dominates each block
-    // after it, and the path from the exit block gives the same condition.
+    // after it. The path from the exit block gives the same condition.
     private int TopStart => recurrent is { Part: RecurrentPart.Suffix } marked ? ssa.Graph.ExitBlock(MarkedLoop(marked)) : 0;
 
     private NaturalLoop MarkedLoop(RecurrentContext context) =>
         ssa.Graph.LoopAt(context.Header) ?? throw new InvalidOperationException($"block {context.Header} is not a loop header");
 
-    // True for a top-level block that the part does not lower: the step lowers only the loop, and
+    // True for a top-level block that the part does not lower. The step lowers only the loop, and
     // the suffix lowers the loop and the blocks after it.
     private bool SkipsBlock(int block)
     {
@@ -212,8 +212,9 @@ internal sealed partial class OperationLowering
         return LastOffset(exitSources.Contains(loop.Header) ? loop.Header : exitSources.Min());
     }
 
-    // One pass of the loop from its header on the state: the continue bit, the back-edge value of each
-    // header phi (the state when no back edge runs), and the values that the code after the loop reads.
+    // One pass of the loop from its header on the state. The pass gives the continue bit and the
+    // back-edge value of each header phi (the state when no back edge runs). It also gives the values
+    // that the code after the loop reads.
     // A store into a local array in the pass is refused, because the pass also runs in a lane that is done.
     private (ScalarValue Proceed, Value[] Back, List<(SsaValue Value, Value After)> LiveOuts, int TestOffset) Pass(NaturalLoop loop, Value[] state)
     {

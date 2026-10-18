@@ -102,8 +102,8 @@ public static class ToggleProgram
 
     /// <summary>
     /// Handwired buildToggle with another declaration of the 20 cells. The behavior is the same. The
-    /// order of the cells changes the wire numbers, so the phase 4 tests use this overload to build the
-    /// toggle with the cells in the order of a translated plain method.
+    /// order of the cells changes the wire numbers. Thus the phase 4 tests use this overload to build
+    /// the toggle with the cells in the order of a translated plain method.
     /// </summary>
     public static BuiltToggle Build(Func<ICellScope, ToggleCells> declare)
     {

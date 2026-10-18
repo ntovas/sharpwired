@@ -1,6 +1,6 @@
 // No Handwired source. Handwired has no translator. The per-construct tests of task 4 for branch to
-// select (plan, section "Decisions", question 4): each phi becomes a gate, the gate rules simplify
-// it, and the gate emits as an affine form, a Multiply, a Select, a NOT, an AND or an OR. Each test
+// select (plan, section "Decisions", question 4). Each phi becomes a gate, and the gate rules
+// simplify it. The gate emits as an affine form, a Multiply, a Select, a NOT, an AND or an OR. Each test
 // builds the expected circuit by hand, checks AssertSameOperations, and compares the translated
 // program with the plain method over 200 seeded source tables. The same expected circuit holds for
 // the Debug and the Release IL.

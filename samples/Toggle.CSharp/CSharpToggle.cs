@@ -1,7 +1,7 @@
 // Handwired source: template/toggle.ts, lines 39-84 (buildToggle, which returns the cells, the
 // outputs and the finished table). Handwired has no translator. This file translates the plain C#
-// toggle (ToggleStep.Step) with the IL translator and gives it the shape of the builder toggle, so
-// that ToggleMachine and ToggleWindowApp run it without a change.
+// toggle (ToggleStep.Step) with the IL translator. It gives the result the shape of the builder
+// toggle, so that ToggleMachine and ToggleWindowApp run it without a change.
 
 using System.Reflection;
 using Sharpwired.Core;

@@ -1,8 +1,11 @@
 // No Handwired source. Seeded source tables within the declarations of a finished table, for the
-// value tests of the translator (plan, task 3): bits 0 or 1; int values within the range; float
-// values on the grid; and otherwise random FP32 values in the range, with the range ends, 0 and -0.
-// An open range also gets values up to +-3E+38 and +-float.MaxValue, so that a value test reaches
-// the inputs that overflow FP32 (review of task 5, round 2, finding A).
+// value tests of the translator (plan, task 3). The tables hold these values:
+// - bits 0 or 1;
+// - int values within the range;
+// - float values on the grid;
+// - otherwise, random FP32 values in the range, with the range ends, 0 and -0.
+// An open range also gets values up to +-3E+38 and +-float.MaxValue. These values let a value test
+// reach the inputs that overflow FP32 (review of task 5, round 2, finding A).
 // A one-hot group gets exactly one member at 1, or no member when the group allows all zeros. Each
 // table passes the validator of the finished table.
 

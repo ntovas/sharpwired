@@ -5,8 +5,9 @@ namespace Sharpwired.Core.Tests;
 
 public class PreviewTests
 {
-    // A circuit with source cells on grids and without grids, constant wires, small affine producers
-    // that Affine composes into a reader, and a wide producer that it does not compose.
+    // A circuit with source cells on grids and without grids, and with constant wires. It also has
+    // small affine producers that Affine composes into a reader, and a wide producer that it does not
+    // compose.
     private static (Circuit Circuit, Wire[] Wires) BuildCircuit()
     {
         var circuit = new Circuit(5);

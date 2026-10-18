@@ -116,9 +116,9 @@ module Translation =
     let sequence (x: float32) =
         Seq.sum (seq { yield x; yield x * 2.0f }) // marker: fs-seq
 
-/// The inputs of the loop tests of task 5 (plan, section "Decisions", question 5): the F# loop
-/// shapes for ... in, for ... to and while, with a constant count (form 1) and with a runtime count
-/// with a maximum (form 2).
+/// The inputs of the loop tests of task 5 (plan, section "Decisions", question 5). They are the F#
+/// loop shapes for ... in, for ... to and while. Each shape has a form with a constant count (form 1)
+/// and a form with a runtime count with a maximum (form 2).
 module Loops =
     [<Handwired>]
     let repeatAddForIn (x: float32) =

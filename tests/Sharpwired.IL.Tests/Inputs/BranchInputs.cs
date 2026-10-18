@@ -1,6 +1,6 @@
 // No Handwired source. C# inputs for the branch tests of the translator (plan, task 4, and section
-// "Decisions", question 4): the gates of c ? x : y, of an if statement, of && and || chains, the
-// backward branches that the control-flow graph refuses, and a choice between two local arrays.
+// "Decisions", question 4). They give the gates of c ? x : y, of an if statement, of && and || chains.
+// They give the backward branches that the control-flow graph refuses, and a choice between two local arrays.
 // Each refused construct is on the line of its marker comment ("marker: <name>").
 
 using Sharpwired.Annotations;

@@ -1,5 +1,5 @@
 // No Handwired source. Handwired has no translator. The tests check the PDB reader of the plan,
-// section "Decisions", question 3: the location of an IL offset is the last sequence point at or
+// section "Decisions", question 3. The location of an IL offset is the last sequence point at or
 // before the offset that is not hidden. C# inputs use a separate portable PDB, F# inputs an
 // embedded portable PDB.
 

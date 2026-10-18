@@ -100,8 +100,9 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
         Js.AllIs([0, 0, 0, 0, 0, 1280, 800, .. Enumerable.Repeat(0.0, 13)], built.Table.InitialSource.Select(value => (double)value));
     }
 
-    // Decision 1, items 1 to 3: the operation list, the compiled program, the cell names, specs,
-    // next sources and initial values equal those of the builder toggle with its cells in the same order.
+    // Decision 1, items 1 to 3. The operation list and the compiled program equal those of the builder
+    // toggle with its cells in the same order. The cell names, specs, next sources and initial values
+    // also equal those of that toggle.
     [Fact]
     public void The_translated_toggle_equals_the_builder_toggle_operation_for_operation()
     {
@@ -143,7 +144,8 @@ public abstract class TranslatedToggleChecks(ITestOutputHelper output)
     // Decision 1, item 4, with the comparison rules of decision 8. The translated program and the
     // builder program are circuits with the same operations, so each output and each stored cell
     // compares with Js.Is. The plain method compares with Js.Is on the bit outputs and with == on the
-    // float outputs and the stored float cells, because an affine operation can give +0 where C# gives -0.
+    // float outputs and the stored float cells. This is because an affine operation can give +0 where
+    // C# gives -0.
     [Fact]
     public void Over_the_scripted_trace_the_translated_program_equals_the_builder_program_and_the_plain_method()
     {

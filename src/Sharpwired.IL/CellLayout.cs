@@ -1,11 +1,11 @@
-// No Handwired source. Handwired has no translator. The cell walk of the plan, section "Decisions",
-// question 2: the parameters in order, then the public instance properties of each type in
-// MetadataToken order; a fixed-length array gives one cell for each element; a cell name is the path
-// of property names with the first letter in lower case. The attributes come from the property, the
-// backing field or the primary constructor parameter with the same name. The walk checks each
-// attribute argument and refuses a type with public instance fields, a base type other than object
-// or ValueType, an array without [FixedLength] and a leaf type other than float, int and bool. The
-// output walk gives the output leaves of a return value in the same order.
+// No Handwired source. Handwired has no translator. This file holds the cell walk of the plan, section
+// "Decisions", question 2. The walk takes the parameters in order, then the public instance properties
+// of each type in MetadataToken order. A fixed-length array gives one cell for each element. A cell
+// name is the path of property names with the first letter in lower case. The attributes come from the
+// property, the backing field or the primary constructor parameter with the same name. The walk checks
+// each attribute argument. It refuses a type with public instance fields or with a base type other
+// than object or ValueType. It also refuses an array without [FixedLength] and a leaf type other than
+// float, int and bool. The output walk gives the output leaves of a return value in the same order.
 
 using System.Collections.Immutable;
 using System.Globalization;

@@ -1,8 +1,9 @@
 // No Handwired source. Handwired has no translator. The refusal tests of tasks 3 and 4 (plan, section
-// "Error message rules"): each refused construct gives the full message
-// "<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>" with the line of
-// the marker comment in Inputs/RefusedInputs.cs, Inputs/BranchInputs.cs or Inputs/CallInputs.cs (a
-// separate portable PDB) or in the F# inputs (an embedded portable PDB). A refusal in an inlined
+// "Error message rules"). Each refused construct gives the full message
+// "<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>". The message has
+// the line of the marker comment in Inputs/RefusedInputs.cs, Inputs/BranchInputs.cs or
+// Inputs/CallInputs.cs (a separate portable PDB). Or it has the line of the marker comment in the F#
+// inputs (an embedded portable PDB). A refusal in an inlined
 // method has the call sites after it (rule 4). The errors of the method itself are plain
 // ArgumentException values with no location (rule 8).
 
@@ -123,7 +124,7 @@ public class RefusalTests
         AssertRefused(() => HandwiredTranslator.TranslateFunction(Input(typeof(BranchInputs), method)), "BranchInputs.cs", marker,
             "a backward branch outside a natural loop", BackwardReason);
 
-    // Review of task 4, finding 2: a gate of two local arrays makes an alias, and a later store
+    // Review of task 4, finding 2: a gate of two local arrays makes an alias. A later store
     // through the chosen array changes the wrong array.
     [Fact]
     public void A_choice_between_two_local_arrays_is_refused() =>
@@ -162,7 +163,7 @@ public class RefusalTests
             $"{RefusalMessage(path, "pong", construct, reason)} (called from {Site(path, "ping")})", construct, reason);
     }
 
-    // Review of task 2: a call on an address keeps only the value of the receiver, so the inliner
+    // Review of task 2: a call on an address keeps only the value of the receiver. Thus the inliner
     // refuses an instance method that changes this.
     [Fact]
     public void An_instance_method_that_writes_to_this_is_refused_with_the_call_site()

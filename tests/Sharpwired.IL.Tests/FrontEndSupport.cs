@@ -1,5 +1,6 @@
-// No Handwired source. Helpers for the tests of the IL front end: the input methods, the paths of
-// the input source files, the line of a marker comment, and a text form of a decoded method.
+// No Handwired source. Helpers for the tests of the IL front end. They give the input methods, the
+// paths of the input source files, and the line of a marker comment. They also give a text form of a
+// decoded method.
 
 using System.Globalization;
 using System.Reflection;

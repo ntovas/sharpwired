@@ -2,9 +2,10 @@
 // (Math.floor(x / step) and i % count with few results; Math.floor(i / 64) and i % 64 with many
 // results) and line 48 (a division by a runtime value with few values), and
 // $REF/lab/ui-exploration/guide/patterns/threshold-counts.md. The tests of plan task 6b for threshold
-// counts: a floor, an int division or an int remainder of a value on a grid with K possible results
-// gives K - 1 comparisons and one sum in 3 layers. With more than 64 results, an int value gives an
-// index read over a table of the results. Each value test checks each grid point of the range.
+// counts. The input is a floor, an int division or an int remainder of a value on a grid with K
+// possible results. That operation gives K - 1 comparisons and one sum in 3 layers. With more than
+// 64 results, an int value gives an index read over a table of the results. Each value test checks
+// each grid point of the range.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;
@@ -20,7 +21,7 @@ public class ThresholdCountTests
     private const string DivisionReason = "the program has no exact integer division or remainder";
 
     // floor(width / 244) for width in 244..1708 has the 7 results 1..7: 6 thresholds 488, 732, ...,
-    // 1708. Each comparison with a constant on a grid is an integer bit of 2 operations, so the count
+    // 1708. Each comparison with a constant on a grid is an integer bit of 2 operations. Thus the count
     // is 13 operations in 3 layers, as the column count of threshold-counts.md.
     [Fact]
     public void A_floor_of_a_quotient_with_7_results_gives_6_comparisons_and_one_sum()

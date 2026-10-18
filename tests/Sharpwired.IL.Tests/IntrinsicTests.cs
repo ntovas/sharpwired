@@ -1,5 +1,5 @@
 // No Handwired source. Handwired has no translator. The per-construct tests of task 3 for the Hw
-// methods (plan, section "Lowering table", rows Hw.AnimatedObject to Hw.FirstActive): each call gives
+// methods (plan, section "Lowering table", rows Hw.AnimatedObject to Hw.FirstActive). Each call gives
 // the operations of its macro. Each Hw body equals its macro bit for bit (HwTests), so the value
 // comparison over 200 seeded source tables is Object.is.
 

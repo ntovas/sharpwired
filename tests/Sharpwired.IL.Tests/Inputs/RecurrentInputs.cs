@@ -1,6 +1,6 @@
 // No Handwired source. C# inputs for the tests of loop form 3 (plan, task 6, and section
-// "Decisions", question 5, the rows of form 3): a loop with no maximum that TranslateRecurrent
-// splits into a prefix, a step program and a suffix, and the form 3 loops that the translator
+// "Decisions", question 5, the rows of form 3). They are a loop with no maximum that TranslateRecurrent
+// splits into a prefix, a step program and a suffix. They also include the form 3 loops that the translator
 // refuses. Each refused loop is on the line of its marker comment ("marker: <name>").
 
 using Sharpwired.Annotations;
@@ -81,10 +81,10 @@ public static class RecurrentInputs
         return m;
     }
 
-    // Three state cells that widen one after the other: c widens after round 8, m widens in the next
-    // round, and p widens in the round after it. The counter x has a fixed point. With "c < n" as the
-    // loop test, the constant counter c gives loop form 2. p reads m with no arithmetic, because in the
-    // probe m is the product of an active bit, which has no grid, and an int affine form of it is refused.
+    // Three state cells widen one after the other: c after round 8, m in the next round, and p in the
+    // round after it. The counter x has a fixed point. With "c < n" as the loop test, the constant
+    // counter c gives loop form 2. The cell p reads m with no arithmetic, because in the probe m is the
+    // product of an active bit, which has no grid. An int affine form of that product is refused.
     [Handwired]
     public static int ChainLag([Range(0, 100)] int n)
     {
@@ -135,7 +135,7 @@ public static class RecurrentInputs
         return s;
     }
 
-    // A float state whose range has no fixed point in 8 rounds (m), and that still translates: on the
+    // A float state whose range has no fixed point in 8 rounds (m), and that still translates. On the
     // wide range the step values of m stay finite (final fix wave, item K).
     [Handwired]
     public static float LaterHalf([Range(0, 1000000)] float v)

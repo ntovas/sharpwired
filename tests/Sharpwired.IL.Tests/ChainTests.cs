@@ -1,5 +1,5 @@
 // No Handwired source. Handwired has no translator. The seeded differential test of the affine
-// emission rule (plan, section "Emission rules"; review of task 4, finding 1): each generated chain
+// emission rule (plan, section "Emission rules"; review of task 4, finding 1). Each generated chain
 // of Inputs/ChainInputs.cs translates, and the program equals the plain method on each output leaf
 // over 200 seeded source tables. An affine output can give +0 where C# gives -0 (plan, decision 8).
 

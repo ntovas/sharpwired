@@ -1,34 +1,37 @@
-// Handwired source: $REF/docs/expressions.md, table "Familiar expressions", rows 13 to 15 ("Math.round(x),
-// Math.floor(x)", "Math.floor(x / step) and i % count with few possible results", "Math.floor(i / 64)
-// and i % 64 for a runtime integer with many possible results") and line 48 (Math.floor(n / m) for a
-// runtime m with few possible values, through the one-hot of m), and
-// $REF/lab/ui-exploration/guide/patterns/threshold-counts.md. The threshold counts of plan task 6b.
+// Handwired source: $REF/docs/expressions.md, table "Familiar expressions", rows 13 to 15:
+// "Math.round(x), Math.floor(x)", "Math.floor(x / step) and i % count with few possible results",
+// "Math.floor(i / 64) and i % 64 for a runtime integer with many possible results". Also line 48 of
+// that file: Math.floor(n / m) for a runtime m with few possible values, through the one-hot of m.
+// Also $REF/lab/ui-exploration/guide/patterns/threshold-counts.md. The threshold counts of plan task 6b.
 //
 // A floor, an int division or an int remainder of a value is a step function of one input wire x:
 // MathF.Floor(e(x)), (int)MathF.Floor(e(x) / c), (int)(e(x) / c), e(x) / d and e(x) % d with
-// constants c and d, and a / b and a % b with a constant a and a runtime int b. Here e is the C#
+// constants c and d. Also a / b and a % b with a constant a and a runtime int b. Here e is the C#
 // expression of the operand: an open affine form whose only wire is x, or x itself. The translator
-// evaluates the function in C# arithmetic (each IL step rounds to FP32, an int division rounds toward
-// zero) at each grid point of the declared range of x, and finds the points where the value changes.
+// evaluates the function in C# arithmetic at each grid point of the declared range of x. In this
+// arithmetic, each IL step rounds to FP32, and an int division rounds toward zero. Then the
+// translator finds the points where the value changes.
 // With the change points t_1 < ... < t_(K-1) of K results:
 //
 //   F(x) = F(lowest) + Σ (F(t_j) - F(t_(j-1))) × [x >= t_j]
 //
-// Each [x >= t_j] is one Compare of x with a constant (an integer bit on a grid), and the sum is one
+// Each [x >= t_j] is one Compare of x with a constant (an integer bit on a grid). The sum is one
 // affine operation of exact bits with integer weights. So K results cost K - 1 comparisons and one sum
 // in 3 layers (threshold-counts.md, section "Cost"). The sum is a sum over the one-hot of the count
 // in another form: [x >= t_j] - [x >= t_(j+1)] is the one-hot bit of result j. An int remainder with
 // a constant divisor d is x - d × (x / d), one more sum (expressions.md, row 15).
 //
 // - More than 64 results of an int value (a grid of 1 or more): an index read over a table of the
-//   results, one entry for each grid point, at most 65536 entries (expressions.md, row 15).
-// - A value with no grid, with a range that is not finite, with more than 65536 grid points and a
-//   function that the translator cannot prove monotone, or with more than 64 results and no int grid,
-//   keeps the normal lowering, which refuses the division, the remainder or the floor.
+//   results. The table has one entry for each grid point, at most 65536 entries
+//   (expressions.md, row 15).
+// - Some values keep the normal lowering, which refuses the division, the remainder or the floor.
+//   These are a value with no grid, or with a range that is not finite. This also applies to a value
+//   with more than 65536 grid points and a function that the translator cannot prove monotone. It
+//   also applies to a value with more than 64 results and no int grid.
 // - A divisor whose range holds 0 is refused, because C# throws.
-// - A float division by a constant that is not a power of two is refused, except when a floor or a
-//   conversion to int is its only reader. Then the division has no wire of its own: the floor or the
-//   conversion evaluates the C# quotient at each grid point.
+// - The translator refuses a float division by a constant that is not a power of two. It accepts the
+//   division when a floor or a conversion to int is its only reader. Then the division has no wire of
+//   its own: the floor or the conversion evaluates the C# quotient at each grid point.
 // - With TranslationOptions.RecognizePatterns false, each of these constructs keeps its refusal.
 
 using System.Reflection;
@@ -67,8 +70,8 @@ internal sealed partial class OperationLowering
         Refuse(offset, $"float division by {Fp32.Format(divisor)}",
             $"C# rounds x / {Fp32.Format(divisor)} one time, and a product with the rounded reciprocal gives another value for some x; write x * (1f / {Fp32.Format(divisor)})");
 
-    // A float division by a constant that is not a power of two, whose only reader is a floor or a
-    // conversion to int, gives a QuotientValue. Otherwise null.
+    // This gives a QuotientValue for a float division by a constant that is not a power of two. The
+    // only reader of the division must be a floor or a conversion to int. Otherwise null.
     private QuotientValue? DeferredQuotient(ScalarValue dividend, double divisor, SsaValue operation)
     {
         if (!Emitter.RecognizePatterns || divisor == 0 || !double.IsFinite(divisor) || uses.GetValueOrDefault(operation) != 1)
@@ -130,8 +133,8 @@ internal sealed partial class OperationLowering
 
     /// <summary>
     /// An int division (remainder false) or remainder of two int values: a constant for two constants,
-    /// a threshold count for one runtime operand, or null for two runtime operands or with the option
-    /// off. A divisor that can be 0 is refused.
+    /// or a threshold count for one runtime operand. The result is null for two runtime operands or
+    /// with the option off. A divisor that can be 0 is refused.
     /// </summary>
     private ScalarValue? IntegerQuotient(ScalarValue left, ScalarValue right, bool remainder, int offset)
     {
@@ -187,9 +190,10 @@ internal sealed partial class OperationLowering
 
     /// <summary>
     /// The step function F(e(x)) of a value e with one input wire x, as a threshold count or an index
-    /// read, or null when the value has no pattern. kind is the kind of the value e, and function
-    /// takes the C# value of e. monotone: the function of e is monotone, so a range with more grid
-    /// points than a scan reads can be searched by bisection, when x occurs one time in e.
+    /// read. The result is null when the value has no pattern. The parameter kind is the kind of the
+    /// value e, and the parameter function takes the C# value of e. The parameter monotone is true
+    /// when the function of e is monotone. Then, when x occurs one time in e, a bisection can search a
+    /// range with more grid points than a scan reads.
     /// </summary>
     private ScalarValue? Step(ScalarValue value, ScalarKind kind, Func<double, double> function, ScalarKind resultKind, bool monotone, int offset)
     {
@@ -336,8 +340,8 @@ internal sealed partial class OperationLowering
         return new WireValue(count, kind);
     }
 
-    // The one wire of a value and the count of its occurrences: a wire, or an open affine form whose
-    // leaves are one wire and constants. Otherwise (null, 0).
+    // The one wire of a value and the count of its occurrences. The value is a wire, or an open affine
+    // form whose leaves are one wire and constants. Otherwise (null, 0).
     private static (Wire? Wire, int Occurrences) SingleInput(ScalarValue value)
     {
         Wire? found = null;

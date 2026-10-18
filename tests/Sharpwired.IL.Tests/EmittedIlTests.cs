@@ -1,9 +1,9 @@
 // No Handwired source. Handwired has no translator. Tests of the IL front end for IL forms that the
-// C# and F# compilers do not write (final fix wave, item G): long-form branches, a switch, an
-// unreachable block, a merge with different stack depths or value types, an address that depends on
-// a branch, and the tail. prefix. Each input method is built with System.Reflection.Emit in a
-// dynamic assembly. A dynamic assembly has no file and no PDB, so a refusal names the form
-// "Type.Method+IL_offset". The tests also check that a resolve error becomes a refusal.
+// C# and F# compilers do not write (final fix wave, item G). The forms are long-form branches, a
+// switch, an unreachable block, and a merge with different stack depths or value types. The forms
+// also include an address that depends on a branch, and the tail. prefix. Each input method is built
+// with System.Reflection.Emit in a dynamic assembly. A dynamic assembly has no file and no PDB, so a
+// refusal names the form "Type.Method+IL_offset". The tests also check that a resolve error becomes a refusal.
 
 using System.Collections.Immutable;
 using System.Reflection;

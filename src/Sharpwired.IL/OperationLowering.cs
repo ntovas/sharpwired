@@ -1,8 +1,9 @@
 // No Handwired source for the walk. The rows follow the plan, sections "IL opcode table" and
-// "Lowering table", whose source is $REF/docs/expressions.md, table "Familiar expressions": the rows
-// "a >= b, a > b, a === b" (Compare), "NOT, AND and OR", "Math.min(a, b), Math.max(a, b), clamps and
-// Math.abs(x)" (MinimumExact, MaximumExact, ClampExact, Absolute) and "table[index] at a computed
-// integer index" (IndexRead). The arithmetic follows $REF/docs/execution-model.md, section "FP32".
+// "Lowering table". Their source is $REF/docs/expressions.md, table "Familiar expressions", with the
+// rows "a >= b, a > b, a === b" (Compare) and "NOT, AND and OR". The other rows are "Math.min(a, b),
+// Math.max(a, b), clamps and Math.abs(x)" (MinimumExact, MaximumExact, ClampExact, Absolute) and
+// "table[index] at a computed integer index" (IndexRead).
+// The arithmetic follows $REF/docs/execution-model.md, section "FP32".
 // The lowering runs one time over the blocks of the SSA form in IL order. At each merge block it
 // emits the gates of the phis that an operation reads (Gates.cs). The gate of a phi that only a
 // branch, a ret or another phi reads stays symbolic, so that an AND chain gives one AND. A call to a
@@ -122,14 +123,15 @@ internal sealed partial class OperationLowering
         return (gates.ReturnValue(returns, returnType), returns[^1].Terminator.Instruction!.Offset);
     }
 
-    // One block: the gates of its phis that an operation reads or that have two or more readers (not
-    // the phis of a loop header, which hold the loop state), its operations in IL order, and the
-    // literals of its branch. After each step, a value past the FP32 range is refused (LoopForms.cs).
-    // A phi with one reader that is a branch or a phi does not emit here: it is a partial result of
-    // an && or || chain (F# Debug IL), and its reader merges it into one AND or OR (gate rule 4). A
-    // phi with two readers emits here also when only branches and phis read it, as an affine form
-    // with two uses emits at its definition. So the F# IL, where branches read a bool local, gives
-    // the same operation order as the C# IL, where the IL "and" reads it.
+    // Lowers one block in three steps. The first step emits the gates of its phis that an operation
+    // reads or that have two or more readers. This step skips the phis of a loop header, which hold
+    // the loop state. The second step lowers its operations in IL order, and the third step lowers
+    // the literals of its branch. After each step, a value past the FP32 range is refused
+    // (LoopForms.cs). A phi with one reader that is a branch or a phi does not emit here. It is a
+    // partial result of an && or || chain (F# Debug IL). Its reader merges it into one AND or OR
+    // (gate rule 4). A phi with two readers emits here also when only branches and phis read it. In
+    // the same way, an affine form with two uses emits at its definition. So the F# IL, where branches
+    // read a bool local, gives the same operation order as the C# IL, where the IL "and" reads it.
     private void LowerBlock(SsaBlock block)
     {
         currentBlock = block.Block.Index;
@@ -161,8 +163,8 @@ internal sealed partial class OperationLowering
         CheckRanges(block.Terminator.Instruction?.Offset ?? block.Block.StartOffset);
     }
 
-    // The emit of a gate at its merge block (plan, "Emission rules", rule 3): each leaf that a gate
-    // made, in the order of the fields.
+    // The emit of a gate at its merge block (plan, "Emission rules", rule 3). It emits each leaf that
+    // a gate made, in the order of the fields.
     private void EmitResults(Value value, int ilOffset)
     {
         switch (value)
@@ -382,7 +384,7 @@ internal sealed partial class OperationLowering
         return FiniteConstant(result, kind, offset);
     }
 
-    // A folded constant that is not finite has no operand wires, so the range check of decision 11
+    // A folded constant that is not finite has no operand wires. So the range check of decision 11
     // does not see it (review of task 5, round 2, finding C).
     private ConstantValue FiniteConstant(float value, ScalarKind kind, int offset) =>
         float.IsFinite(value) ? new ConstantValue(value, kind) : throw Refuse(offset, OverflowConstruct, OverflowReason);
@@ -480,103 +482,6 @@ internal sealed partial class OperationLowering
         };
     }
 
-    // The comparison opcodes (plan, "Decisions", question 4). "cgt; ldc.i4.0; ceq" and
-    // "clt; ldc.i4.0; ceq" give the other relation, also in the .un forms.
-    private ScalarValue Comparison(SsaValue operation)
-    {
-        var offset = operation.IlOffset;
-        if (invertedComparisons.TryGetValue(operation, out var inner))
-        {
-            var relation = inner.Op is ILOpCode.Cgt or ILOpCode.Cgt_un ? Relation.LessOrEqual : Relation.GreaterOrEqual;
-            return CompareOperands(inner.Operands[0], inner.Operands[1], relation, inner.Op is ILOpCode.Cgt_un or ILOpCode.Clt_un, inner.IlOffset);
-        }
-
-        var relationOfOp = operation.Op switch
-        {
-            ILOpCode.Ceq => Relation.Equal,
-            ILOpCode.Cgt or ILOpCode.Cgt_un => Relation.Greater,
-            _ => Relation.Less,
-        };
-        return CompareOperands(operation.Operands[0], operation.Operands[1], relationOfOp, operation.Op is ILOpCode.Cgt_un or ILOpCode.Clt_un, offset);
-    }
-
-    /// <summary>
-    /// The comparison of two SSA values, for a comparison opcode and for a branch. An equality with
-    /// the bit constant 0 or 1 gives the NOT of the bit or the bit. An unsigned comparison of int
-    /// values is refused.
-    /// </summary>
-    public ScalarValue CompareOperands(SsaValue leftValue, SsaValue rightValue, Relation relation, bool unsigned, int offset)
-    {
-        var left = Scalar(leftValue, offset);
-        var right = Scalar(rightValue, offset);
-        if (unsigned && UnsignedZeroTest(left, right, relation) is { } notZero)
-        {
-            // Roslyn writes the int test x != 0 as cgt.un against 0 (final fix wave, item D). For
-            // an int, x >u 0 is x != 0, and x <=u 0 is x == 0.
-            var equal = CompareValues(notZero.Value, new ConstantValue(0, ScalarKind.Int), Relation.Equal, offset);
-            return notZero.IsNotEqual ? Gates.Not(equal) : equal;
-        }
-
-        if (unsigned && (left.Kind == ScalarKind.Int || right.Kind == ScalarKind.Int))
-        {
-            throw Refuse(offset, "an unsigned comparison", "the program has no unsigned int values");
-        }
-
-        if (relation == Relation.Equal)
-        {
-            foreach (var (bit, constant) in new[] { (left, right), (right, left) })
-            {
-                if (bit.Kind == ScalarKind.Bit && constant is ConstantValue { Number: 0 or 1 } value)
-                {
-                    return value.Number == 0 ? Gates.Not(bit) : bit;
-                }
-            }
-        }
-
-        return CompareValues(left, right, relation, offset);
-    }
-
-    // An unsigned comparison of an int with the constant 0 that is an equality test: x >u 0 and
-    // 0 <u x are x != 0; x <=u 0 and 0 >=u x are x == 0. Null for each other comparison.
-    private static (ScalarValue Value, bool IsNotEqual)? UnsignedZeroTest(ScalarValue left, ScalarValue right, Relation relation) =>
-        (left, right, relation) switch
-        {
-            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.Greater) => (left, true),
-            ({ Kind: ScalarKind.Int }, ConstantValue { Number: 0 }, Relation.LessOrEqual) => (left, false),
-            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.Less) => (right, true),
-            (ConstantValue { Number: 0 }, { Kind: ScalarKind.Int }, Relation.GreaterOrEqual) => (right, false),
-            _ => null,
-        };
-
-    /// <summary>The comparison of two values at the instruction: a constant for two constants, otherwise the Compare macro.</summary>
-    public ScalarValue CompareValues(ScalarValue left, ScalarValue right, Relation relation, int offset)
-    {
-        if (left is ConstantValue a && right is ConstantValue b)
-        {
-            var holds = relation switch
-            {
-                Relation.Greater => a.Number > b.Number,
-                Relation.GreaterOrEqual => a.Number >= b.Number,
-                Relation.Less => a.Number < b.Number,
-                Relation.LessOrEqual => a.Number <= b.Number,
-                _ => a.Number == b.Number,
-            };
-            return new ConstantValue(holds ? 1 : 0, ScalarKind.Bit);
-        }
-
-        var bound = BoundOf(left, right, relation);
-        if (DecideInLoop(bound) is { } decided)
-        {
-            return decided;
-        }
-
-        var leftWire = Emit(left, offset);
-        var rightWire = Emit(right, offset);
-        var bit = Macro(offset, "a comparison", () => Circuit.Compare(leftWire, relation, rightWire));
-        RecordComparison(bit, bound);
-        return new WireValue(bit, ScalarKind.Bit);
-    }
-
     // conv.r4: an int value as a float, with no change of the value. An int form is exact within 2^24.
     private ScalarValue ToFloat(ScalarValue value, int offset) => value switch
     {
@@ -634,8 +539,8 @@ internal sealed partial class OperationLowering
         return aggregate.With([.. path.Select(field => field.Name)], Get(operation.Operands[1]));
     }
 
-    // An initonly static field of type float, int, bool, float[] or int[]: constants, read one time
-    // at translation (plan, "Behavior with no direct form", row "a static readonly field").
+    // An initonly static field of type float, int, bool, float[] or int[]. The translator reads these
+    // constants one time at translation (plan, "Behavior with no direct form", row "a static readonly field").
     private Value ReadStatic(FieldInfo field, int offset)
     {
         if (!field.IsInitOnly || field.IsLiteral)
@@ -751,7 +656,7 @@ internal sealed partial class OperationLowering
     private ArrayValue Array(SsaValue value, int offset) => Get(value) as ArrayValue
         ?? throw Refuse(offset, "an array that is not a fixed-length value", "the program reads an array of a cell, a static readonly field or newarr");
 
-    // ldelem: a constant index gives the element; a computed index gives IndexRead with the range
+    // ldelem: a constant index gives the element. A computed index gives IndexRead with the range
     // of the index in 0..length - 1 (plan, "Lowering table", rows "array[i]").
     private Value ReadElement(ArrayValue array, SsaValue indexValue, int offset)
     {
@@ -782,7 +687,7 @@ internal sealed partial class OperationLowering
         var read = Macro(offset, "an array read at a computed index", () => Circuit.IndexRead(indexWire, candidates, OutOfRange.Clamp));
         if (kind == ScalarKind.Int)
         {
-            // An index read infers no grid. Each element of an int array is an integer, so the read is
+            // An index read infers no grid. Each element of an int array is an integer. So the read is
             // on the grid 1, and an int form that reads it stays exact.
             Circuit.AssumeGrid(read, 1);
         }

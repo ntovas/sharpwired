@@ -3,49 +3,51 @@
 // src/runtime/prefix-networks.ts through Sharpwired.Core/PrefixNetworks.cs. The running totals of plan
 // task 6b, after docs/design.md, Layer 2, step 4.
 //
-// A running total is an accumulator of a loop of form 1 or 2 that takes an associative combine in
-// each copy: acc = combine(acc, x[i]) with acc in a local (a phi of the loop header) or in an array
-// element of the step before (acc[i] = combine(acc[i - 1], x[i])). The combine is float or int +,
-// Math.Min, Math.Max, MathF.Min, MathF.Max, the bit and, the bit or (C# &, |, and && or || with a
-// local right operand), or a static [Handwired] [Associative] method of two parameters. The proof
-// from the SSA form, before the unroll:
+// A running total is an accumulator of a loop of form 1 or 2. The accumulator takes an associative
+// combine in each copy: acc = combine(acc, x[i]). The value acc is in a local (a phi of the loop header)
+// or in an array element of the step before. For the array form: acc[i] = combine(acc[i - 1], x[i]). The
+// combine is float or int +, Math.Min, Math.Max, MathF.Min, MathF.Max, the bit and, or the bit or. The
+// C# forms of the bit and and the bit or are &, |, and && or || with a local right operand. The combine
+// can also be a static [Handwired] [Associative] method of two parameters. The proof from the SSA form,
+// before the unroll:
 //
-// - The accumulator operand of the combine is a header phi whose back-edge operands are the combine,
-//   or an array read at a loop-copy constant index of an array that the loop stores the combine into,
-//   in the block of the combine. A + in array elements with one store is not a running total for the
-//   translator: its normal form already is one wide sum for each element, in 1 layer.
-// - The element operand does not depend on the accumulator, on the combine, or on a read of an array
-//   that the loop stores the total into.
+// - The accumulator operand of the combine is a header phi whose back-edge operands are the combine.
+//   Or it is an array read at a loop-copy constant index, in the block of the combine. The loop stores
+//   the combine into that array. The translator does not take a + in array elements with one store as
+//   a running total. Its normal form already is one wide sum for each element, in 1 layer.
+// - The element operand does not depend on the accumulator or on the combine. It also does not depend
+//   on a read of an array that the loop stores the total into.
 // - Inside the loop, the accumulator and the combine go only to the combine, the back edge and array
-//   stores, and each such array goes only to these stores, the accumulator read and ldlen.
+//   stores. Each such array goes only to these stores, the accumulator read and ldlen.
 //
 // The unroll then lowers each copy as usual, except the combine and its stores. In copy k the combine
-// keeps its input (the accumulator value), its element t_k, and the gate g_k: the bit that is 1 when
-// the copy runs the combine (the active bit of the copy and the branch literals from the header). Its
-// value is a placeholder P_k. A store of the total writes a pending store: the stored value under the
-// store's active condition, with the old element. After the unroll the translator checks that the
-// input of copy k is P_(k-1) (for the array form: the element that copy k - 1 stored), and lowers the
-// items with PrefixNetworks.Sklansky (depth first). The items are the value before the loop (when it is
-// not the identity of the combine) and the elements. The value before the loop has no gate. In a copy
-// with a runtime gate, the element is gated: ITE(g_k, t_k, identity), so an inactive copy adds
-// nothing. The identity is 0 for +, 1 for AND, 0 for OR. For Min and Max it is a bound of the ranges
-// of the elements and of the value before the loop. Each prefix replaces its placeholder, and each
-// pending store gets its prefix.
+// keeps its input (the accumulator value), its element t_k, and the gate g_k. The gate g_k is the bit
+// that is 1 when the copy runs the combine. It holds the active bit of the copy and the branch
+// literals from the header. Its value is a placeholder P_k. A store of the total writes a pending
+// store: the stored value under the store's active condition, with the old element. After the unroll
+// the translator checks that the input of copy k is P_(k-1). For the array form, the input must be the
+// element that copy k - 1 stored. Then the translator lowers the items with PrefixNetworks.Sklansky
+// (depth first). The items are the value before the loop (when it is not the identity of the combine)
+// and the elements. The value before the loop has no gate. In a copy with a runtime gate, the element
+// is gated: ITE(g_k, t_k, identity), so an inactive copy adds nothing. The identity is 0 for +, 1 for
+// AND, 0 for OR. For Min and Max it is a bound of the ranges of the elements and of the value before
+// the loop. Each prefix replaces its placeholder, and each pending store gets its prefix.
 //
 // Exactness (plan, decision 8): a prefix network groups the combines in another order. Min, Max, AND
 // and OR return one operand, so each grouping gives the same value. A float or int + is exact only
-// when each item is on a grid and each partial sum in any order stays within 2^24 grid steps.
+// when each item is on a grid. Also, each partial sum in any order must stay within 2^24 grid steps.
 //
 // The normal form stays in these cases. The first copy decides most of them: an element that is not
-// on a grid (for +), a constant element (the normal form folds it), or an [Associative] method under a
-// runtime gate (the method has no identity value). Then the combine of each copy lowers at its
-// instruction, and the operations are the operations of the normal form. A case that shows only after
-// the unroll (a broken chain, a sum past 2^24 grid steps, a runtime gate in a later copy) gets the
-// combines in loop order after the unroll, each one the lowering of the IL instruction of the combine:
-// the values of the normal form, with its operations in another order.
+// on a grid (for +), or a constant element (the normal form folds it). The first copy also decides an
+// [Associative] method under a runtime gate (the method has no identity value). Then the combine of
+// each copy lowers at its instruction, and the operations are the operations of the normal form. Some
+// cases show only after the unroll: a broken chain, a sum past 2^24 grid steps, or a runtime gate in a
+// later copy. In such a case, the combines lower in loop order after the unroll. Each one is the
+// lowering of the IL instruction of the combine. The result has the values of the normal form, with
+// its operations in another order.
 //
-// Cost (loops.md, "The shapes of cost"): a chain of k items has k - 1 combines in k - 1 levels, and
-// the Sklansky network has (k / 2) × log2(k) combines in log2(k) levels. So in a loop of form 1 the
+// Cost (loops.md, "The shapes of cost"): a chain of k items has k - 1 combines in k - 1 levels. The
+// Sklansky network has (k / 2) × log2(k) combines in log2(k) levels. So in a loop of form 1 the
 // network has more operations and fewer layers. In a loop of form 2 the network also removes the
 // Select that keeps the state in each copy, so it has fewer operations too.
 
@@ -199,8 +201,8 @@ internal sealed partial class OperationLowering
         var isRead = !isPhi && accumulator.Kind == SsaValueKind.Operation && IsElementRead(accumulator.Op) && body.Contains(accumulator.Block)
             && graph.OutermostLoopIn(accumulator.Block, loop) is null
             && !Inside(accumulator.Operands[0]) && IsCopyConstant(accumulator.Operands[1], loop, []);
-        // A + in array elements with one store: each element is an open form, and the normal form
-        // emits one wide sum for each element (loops.md, section 3), in 1 layer with fewer operations.
+        // A + in array elements with one store: each element is an open form. The normal form emits
+        // one wide sum for each element (loops.md, section 3), in 1 layer with fewer operations.
         if ((!isPhi && !isRead) || (isRead && kind == CombineKind.Add && uses.GetValueOrDefault(combine) == 1))
         {
             return null;
@@ -261,9 +263,9 @@ internal sealed partial class OperationLowering
         bool Inside(SsaValue value) => value.Block >= 0 && body.Contains(value.Block) && value.Kind is SsaValueKind.Operation or SsaValueKind.Phi;
     }
 
-    // True for a value that is a constant in each copy of the loop: a constant, an arithmetic of such
-    // values, or a header phi whose operands are such values (a loop counter). The unroll keeps a
-    // constant back-edge value a constant.
+    // True for a value that is a constant in each copy of the loop. Such a value is a constant, an
+    // arithmetic of such values, or a header phi whose operands are such values (a loop counter). The
+    // unroll keeps a constant back-edge value a constant.
     private static bool IsCopyConstant(SsaValue value, NaturalLoop loop, HashSet<SsaValue> visiting)
     {
         if (value.Kind == SsaValueKind.Constant)
@@ -290,9 +292,9 @@ internal sealed partial class OperationLowering
 
     private static bool IsElementStore(ILOpCode op) => op is ILOpCode.Stelem or ILOpCode.Stelem_r4 or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i1;
 
-    // In a loop copy: the combine of a running total keeps its input, its element and its gate, and
-    // gives a placeholder; a store of the total writes a pending store. Returns false for another
-    // operation.
+    // In a loop copy: the combine of a running total keeps its input, its element and its gate. The
+    // combine gives a placeholder, and a store of the total writes a pending store. Returns false for
+    // another operation.
     private bool LowerRunningTotal(SsaValue operation)
     {
         if (!runningTotals.TryGetValue(operation, out var total) || copy is not { } current)
@@ -326,9 +328,10 @@ internal sealed partial class OperationLowering
         return true;
     }
 
-    // The first copy shows that a total keeps its normal form: a + whose first item is not on a grid,
-    // a constant element, or an [Associative] method under a runtime gate. Then the unroll lowers the
-    // combine of each copy at its instruction, and the operations are those of the normal form.
+    // The first copy shows that a total keeps its normal form. This is the case for a + whose first
+    // item is not on a grid, a constant element, or an [Associative] method under a runtime gate. Then
+    // the unroll lowers the combine of each copy at its instruction, and the operations are those of
+    // the normal form.
     private bool KeepsNormalForm(RunningTotal total, Value input, ScalarValue element, ScalarValue gate) =>
         element is ConstantValue || input is not ScalarValue first || (total.Kind == CombineKind.Method && gate is not ConstantValue)
         || (total.Kind == CombineKind.Add && !IsExactTotal(Identity(total, first, [element]) is null ? [first, element] : [element]));
@@ -374,9 +377,9 @@ internal sealed partial class OperationLowering
         return (array, (int)index);
     }
 
-    // After the unroll: the prefix network or the normal form of each running total, the pending
-    // stores, and the value of the accumulator after the loop. initial holds the value of each header
-    // phi at the loop entry.
+    // After the unroll: the prefix network or the normal form of each running total, and the pending
+    // stores. Also the value of the accumulator after the loop. The parameter initial holds the value
+    // of each header phi at the loop entry.
     private void FinishRunningTotals(List<RunningTotal> totals, Value[] initial, ImmutableArray<SsaValue> headerPhis)
     {
         foreach (var total in totals.Where(total => !total.Abandoned))
@@ -512,8 +515,8 @@ internal sealed partial class OperationLowering
         return holds ? constant : null;
     }
 
-    // True when each partial sum of the items, in any order, is an exact FP32 value: each item is on a
-    // grid, and the sum of the largest magnitudes stays within 2^24 steps of the finest grid.
+    // True when each partial sum of the items, in any order, is an exact FP32 value. Each item must be
+    // on a grid, and the sum of the largest magnitudes must stay within 2^24 steps of the finest grid.
     private bool IsExactTotal(IEnumerable<ScalarValue> items)
     {
         var grid = double.PositiveInfinity;
@@ -596,11 +599,11 @@ internal sealed partial class OperationLowering
         }
     }
 
-    // The normal form: the combines in loop order, each one the lowering of the IL instruction of the
-    // combine on the value before the copy and the element. A copy with a runtime gate keeps the value
-    // before it when the gate is 0. A value that a later copy reads emits, as the unroll emits the
-    // loop state at the start of each copy. A pending store is refused, as the normal form refuses an
-    // array store under a runtime condition.
+    // The normal form: the combines in loop order. Each one is the lowering of the IL instruction of
+    // the combine on the value before the copy and the element. A copy with a runtime gate keeps the
+    // value before it when the gate is 0. A value that a later copy reads emits, as the unroll emits
+    // the loop state at the start of each copy. A pending store is refused, as the normal form refuses
+    // an array store under a runtime condition.
     private void NormalForm(RunningTotal total, Value[] outputs, Func<Value, Value> resolve)
     {
         var steps = total.Steps;
@@ -646,7 +649,7 @@ internal sealed partial class OperationLowering
 
     /// <summary>
     /// A running total of a loop: the combine, its accumulator operand (a header phi, or an array
-    /// read), its element operand, the stores of the total, and the copies after the unroll.
+    /// read), and its element operand. Also the stores of the total and the copies after the unroll.
     /// </summary>
     private sealed class RunningTotal(
         SsaValue combine, SsaValue accumulator, SsaValue element, bool isPhi, CombineKind kind, MethodInfo? method, bool accumulatorFirst,

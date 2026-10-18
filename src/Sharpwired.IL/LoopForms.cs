@@ -21,14 +21,15 @@
 // - [MaxIterations(N)] limits the copies of a loop with a runtime active bit to N copies of its
 //   body. The bit "the loop needs one more copy" after copy N, AND the entry condition of the loop,
 //   is the overflow bit of the loop.
-// - A loop with a runtime continue bit whose copy shrinks no interval of a wire from before the
-//   loop, and no [MaxIterations], has no maximum (form 3, RecurrentLowering.cs). A fact on a wire of
-//   the loop is not progress, because the next copy compares a new wire. A loop with two exit
-//   blocks, with no exit, or with more than 65536 copies of its body is refused.
+// - A loop can have a runtime continue bit and no [MaxIterations]. Such a loop has no maximum (form 3,
+//   RecurrentLowering.cs) when its copy shrinks no interval of a wire from before the loop. A fact
+//   on a wire of the loop is not progress, because the next copy compares a new wire. A loop with two
+//   exit blocks, with no exit, or with more than 65536 copies of its body is refused.
 // - An emitted operation whose range passes FP32, while the wires that it reads have finite
 //   ranges, is refused (in loops and in straight-line code).
-// - The lowering changes a local array in place, so a store in a loop copy is accepted only when
-//   the copy always runs: its active bit is the constant 1 and constant branches reach the store.
+// - The lowering changes a local array in place. So a store in a loop copy is accepted only when the
+//   copy always runs. The copy always runs when its active bit is the constant 1 and constant
+//   branches reach the store.
 // - A running total of the loop (RunningTotals.cs) keeps a placeholder as its state in each copy,
 //   and its stores keep their conditions. After the unroll a prefix network gives its values.
 
@@ -64,8 +65,8 @@ internal sealed partial class OperationLowering
 
     private readonly Func<ScalarValue>? entryCondition;
 
-    // The comparisons with a constant that the lowering emitted, as a bound on one int wire, by the
-    // wire of their bit, for the range refinement.
+    // The comparisons with a constant that the lowering emitted, as a bound on one int wire. The key is
+    // the wire of their bit. The range refinement uses them.
     private readonly Dictionary<Wire, IntBound> comparisons = [];
 
     private int currentBlock;
@@ -74,9 +75,9 @@ internal sealed partial class OperationLowering
     private LoopCopy? copy;
 
     /// <summary>
-    /// The bit that is 1 when the current block runs in the plain method: the entry condition of the
-    /// method, the active bit and entry condition of each loop copy around the block, and the
-    /// literals of the branches before the block.
+    /// The bit that is 1 when the current block runs in the plain method. It is the AND of the entry
+    /// condition of the method, and the active bit and entry condition of each loop copy around the
+    /// block. The literals of the branches before the block are also in the AND.
     /// </summary>
     public ScalarValue ActiveCondition()
     {
@@ -95,10 +96,10 @@ internal sealed partial class OperationLowering
         _ => new AndValue([.. Gates.Literals<AndValue>(left), .. Gates.Literals<AndValue>(right)]),
     };
 
-    // Lowers the blocks in the order. A block of a loop inside the enclosing loop (or of a loop at the
-    // top level) unrolls that loop at the position of its first block. In a copy of the enclosing
-    // loop, a block is lowered only when an edge from a lowered block reaches it with a literal other
-    // than the constant 0, and only when "only" holds it. Returns the lowered blocks.
+    // Lowers the blocks in the order. Take a block of a loop inside the enclosing loop (or of a loop
+    // at the top level). That block unrolls its loop at the position of the first block of the loop.
+    // In a copy of the enclosing loop, a block is lowered only when "only" holds it. Also, an edge from
+    // a lowered block must reach it with a literal other than the constant 0. Returns the lowered blocks.
     private HashSet<int> LowerRegion(ImmutableArray<int> order, NaturalLoop? enclosing, HashSet<int>? only = null)
     {
         var graph = ssa.Graph;
@@ -193,9 +194,9 @@ internal sealed partial class OperationLowering
         var testOffset = LastOffset(exitSources.Contains(loop.Header) ? loop.Header : exitSources.Min());
 
         // A copy count is a count of copies of the body. When the blocks of the exit test come before
-        // the body (no back edge leaves them), the last pass runs only the test, so the test runs one
-        // more time than the body. The test can span the header and other blocks, for example
-        // "i < 1 || i < n", and an && value in Debug (review of task 5, round 2, finding B).
+        // the body (no back edge leaves them), the last pass runs only the test. So the test runs one
+        // more time than the body. The test can span the header and other blocks. Examples are
+        // "i < 1 || i < n" and an && value in Debug (review of task 5, round 2, finding B).
         var testBlocks = BlocksBefore(loop, exitSources);
         var extra = testBlocks.Overlaps(loop.BackEdgeSources) ? 0 : 1;
         var maximum = method.Method.GetCustomAttribute<MaxIterationsAttribute>()?.Count;
@@ -261,8 +262,9 @@ internal sealed partial class OperationLowering
                     if (CurrentValue(value, loop, lowered) is { } current)
                     {
                         // The value after the loop is the value of the last active copy. A Select is
-                        // not needed when the copy is always active, or when the state of a header phi
-                        // already is the Select of the active bit over the value that held keeps.
+                        // not needed when the copy is always active. A header phi can have a state that
+                        // already is the Select of the active bit over the value that held keeps. Such
+                        // a phi also needs no Select.
                         var phiIndex = value.Kind == SsaValueKind.Phi && value.Block == loop.Header ? headerPhis.IndexOf(value) : -1;
                         held[value] = active is ConstantValue || !held.TryGetValue(value, out var before)
                             || (phiIndex >= 0 && kept[phiIndex] && ReferenceEquals(before, previous[phiIndex]))
@@ -341,8 +343,8 @@ internal sealed partial class OperationLowering
 
     // Emits the int gates that the loop test reads from outside the loop, before the first copy. A
     // gate with one reader emits at that reader, and here the reader is in a copy. A fact on a wire
-    // of a copy does not count as progress of the range refinement. So the count of a loop such as
-    // "if (c) n = n + 1; for (i < n)" had no maximum in Release (final fix wave, item J).
+    // of a copy does not count as progress of the range refinement. In Release, a loop such as
+    // "if (c) n = n + 1; for (i < n)" thus had no maximum (final fix wave, item J).
     private void EmitInvariantGates(NaturalLoop loop, HashSet<int> testBlocks)
     {
         var operands = testBlocks.Select(index => ssa.Blocks[index])
@@ -356,10 +358,10 @@ internal sealed partial class OperationLowering
         }
     }
 
-    // A loop must have one exit (plan, question 5). Two or more exit edges are one exit when they go
-    // to one block, and each phi of that block reads one value on each of them. This holds for a loop
-    // test that spans two or more blocks, for example "i < n && x > 1f" in Release, and for a break
-    // to the end of the loop. A return in the loop gives a second exit block.
+    // A loop must have one exit (plan, question 5). Two or more exit edges that go to one block are one
+    // exit when each phi of that block reads one value on each edge. This holds for a loop test that
+    // spans two or more blocks, for example "i < n && x > 1f" in Release. It also holds for a break to
+    // the end of the loop. A return in the loop gives a second exit block.
     private void CheckExits(NaturalLoop loop)
     {
         if (loop.ExitEdges.IsEmpty)
@@ -400,7 +402,7 @@ internal sealed partial class OperationLowering
     // The loop state for the next copy (docs/design.md: a select keeps the old loop state when the bit
     // is 0): Select(next, state before, back-edge value). An inactive copy then computes on the kept
     // state, so its values stay in the ranges of the active copies. A constant back-edge value, for
-    // example a loop counter, stays a constant: an active copy reads the same constant, and the value
+    // example a loop counter, stays a constant. An active copy reads the same constant, and the value
     // of an inactive copy is not read. Returns true when a Select keeps the state.
     private (Value State, bool Kept) Keep(ScalarValue next, Value back, Value old, Type? type, int offset) =>
         next is ConstantValue || back is ConstantValue || ReferenceEquals(back, old)
@@ -409,7 +411,7 @@ internal sealed partial class OperationLowering
 
     // A topological order of the loop body with no back edges. A loop inside the body is one unit.
     // The header comes first. Among the units whose units before them are placed, the unit with the
-    // lowest block index comes next, so the order is the IL order when the IL order is topological.
+    // lowest block index comes next. So the order is the IL order when the IL order is topological.
     private ImmutableArray<int> CopyOrder(NaturalLoop loop)
     {
         var graph = ssa.Graph;
@@ -454,9 +456,9 @@ internal sealed partial class OperationLowering
         return order.ToImmutable();
     }
 
-    // Refuses a value past the FP32 range (an emitted operation whose range is not finite while each
-    // wire that it reads has a finite range, or a constant that is not finite), and a gate with a side
-    // that can be Infinity (Emitter.cs).
+    // Refuses a value past the FP32 range and a gate with a side that can be Infinity (Emitter.cs). A
+    // constant that is not finite is past the FP32 range. An emitted operation is past the range when
+    // its range is not finite while each wire that it reads has a finite range.
     private void CheckRanges(int offset)
     {
         if (Emitter.CheckRanges() is { } fault)
@@ -533,8 +535,8 @@ internal sealed partial class OperationLowering
         return lowered.Contains(value.Block) && values.TryGetValue(value, out var found) ? found : null;
     }
 
-    // The comparison "left relation right" as a bound on one int wire, before the emit of its operands
-    // (the emit gives an open form a wire, and then the form no longer shows its base wire).
+    // The comparison "left relation right" as a bound on one int wire, before the emit of its operands.
+    // The emit gives an open form a wire, and then the form no longer shows its base wire.
     private static IntBound? BoundOf(ScalarValue left, ScalarValue right, Relation relation) => Intervals.Constraint(left, right, relation);
 
     // The range refinement: a comparison in a loop copy that the intervals decide gives a constant.
@@ -552,18 +554,18 @@ internal sealed partial class OperationLowering
     /// <summary>A bound "Wire Bound Limit" on an int wire, for example w &lt; 8.</summary>
     private readonly record struct IntBound(Wire Wire, Bound Bound, double Limit);
 
-    // True when the block runs on each call: outside the loops, a block that dominates each ret
-    // block; in a loop copy, a block that the copy always reaches, in a copy whose active bit is the
-    // constant 1, of a loop whose header runs on each call.
+    // True when the block runs on each call. Outside the loops, such a block dominates each ret block.
+    // In a loop copy, the copy always reaches such a block. Also, the active bit of the copy is the
+    // constant 1, and the header of the loop runs on each call.
     private bool RunsOnEachCall(int block) => copy is { } current
         ? current.Certain && current.Active is ConstantValue
             && gates.Reach(current.Loop.Header, block, ssa.Graph.Blocks[block].StartOffset) is ConstantValue { Number: not 0 }
         : returns.All(ret => ssa.Graph.Dominates(block, ret.Block.Index));
 
     /// <summary>
-    /// One copy of a loop: the loop, its entry condition, the active bit of the copy, the intervals on
-    /// its active path, and Certain: the header of the loop runs on each call when the copies before
-    /// it are active.
+    /// One copy of a loop: the loop, its entry condition, the active bit of the copy, and the intervals
+    /// on its active path. Certain: the header of the loop runs on each call when the copies before it
+    /// are active.
     /// </summary>
     private sealed record LoopCopy(NaturalLoop Loop, ScalarValue Entry, ScalarValue Active, Intervals Facts, bool Certain);
 
@@ -579,8 +581,8 @@ internal sealed partial class OperationLowering
     }
 
     /// <summary>
-    /// The intervals of the range refinement on the active path of a loop copy (plan, question 5):
-    /// one integer interval for each int wire that a comparison with a constant reads. A wire with
+    /// The intervals of the range refinement on the active path of a loop copy (plan, question 5). It
+    /// holds one integer interval for each int wire that a comparison with a constant reads. A wire with
     /// no fact has the interval of its declared range. The interval of a NotEqual fact loses only an
     /// end that equals the bound.
     /// </summary>
@@ -717,8 +719,8 @@ internal sealed partial class OperationLowering
         }
 
         /// <summary>
-        /// The comparison "left relation right" as a bound on one int wire w, when one side is a
-        /// constant and the other side is the int form c * w + b with c = 1 or -1. Otherwise null.
+        /// The comparison "left relation right" as a bound on one int wire w. One side must be a
+        /// constant, and the other side must be the int form c * w + b with c = 1 or -1. Otherwise null.
         /// </summary>
         public static IntBound? Constraint(ScalarValue left, ScalarValue right, Relation relation)
         {

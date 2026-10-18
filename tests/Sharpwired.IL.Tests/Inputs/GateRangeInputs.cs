@@ -1,5 +1,5 @@
 // No Handwired source. C# inputs for the gate range tests of the final fix wave of phase 4 (items B
-// and C): gates in long loops, whose inferred Select range grew in each copy, and int gates, whose
+// and C). They are gates in long loops, whose inferred Select range grew in each copy, and int gates, whose
 // result had no grid.
 
 using Sharpwired.Annotations;

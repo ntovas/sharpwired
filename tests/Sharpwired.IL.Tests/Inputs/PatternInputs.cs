@@ -1,10 +1,10 @@
-// Handwired source: $REF/docs/expressions.md, rows 13 to 15 of the table "Familiar expressions"
-// (Math.floor, threshold counts, an index read over a table of results) and line 48 (a floor
-// division by a runtime value through its one-hot), $REF/lab/ui-exploration/guide/patterns/
-// threshold-counts.md and $REF/lab/ui-exploration/guide/sections/loops.md, sections 3 and 4. C#
-// inputs for the pattern tests of the translator (plan, task 6b): running totals in loops of form 1
-// and form 2, loops that look like running totals and keep their normal form, and threshold counts
-// for a floor, an int division and an int remainder. Each refused input is on the line of its marker
+// Handwired source: $REF/docs/expressions.md, rows 13 to 15 of the table "Familiar expressions" (Math.floor,
+// threshold counts, an index read over a table of results). Line 48 of that file (a floor division by a
+// runtime value through its one-hot) is also a source. Other sources: $REF/lab/ui-exploration/guide/patterns/
+// threshold-counts.md and $REF/lab/ui-exploration/guide/sections/loops.md, sections 3 and 4. C# inputs for
+// the pattern tests of the translator (plan, task 6b). They are running totals in loops of form 1 and form 2,
+// and loops that look like running totals and keep their normal form. They also include threshold counts for
+// a floor, an int division and an int remainder. Each refused input is on the line of its marker
 // comment ("marker: <name>").
 
 using Sharpwired.Annotations;

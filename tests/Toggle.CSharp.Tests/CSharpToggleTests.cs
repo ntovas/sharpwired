@@ -1,7 +1,8 @@
 // Handwired source: template/toggle.ts (buildToggle and toggleCells) and template/toggle.test.ts
 // (scriptedTrace and its tests). Handwired has no translator, so these tests have no Handwired twin.
-// They check the plain C# toggle of Toggle.CSharp (ToggleStep.Step) after the IL translator: the five
-// checks of decision 1 in the phase 4 plan (TranslatedToggleChecks), and the C# parts of the sample.
+// They check the plain C# toggle of Toggle.CSharp (ToggleStep.Step) after the IL translator. They run
+// the five checks of decision 1 in the phase 4 plan (TranslatedToggleChecks). They also check the C#
+// parts of the sample.
 
 using Sharpwired.Core.Tests;
 using Sharpwired.IL;

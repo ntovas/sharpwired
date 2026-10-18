@@ -1,12 +1,12 @@
-// No Handwired source. Handwired has no translator. The inlining of the plan, section "Decisions",
-// question 3, "Inlining decision": the translator inlines each call to a non-generic [Handwired]
-// method, static or an instance method of a struct or a sealed class. The value of the call emits
+// No Handwired source. Handwired has no translator. This file holds the inlining of the plan, section
+// "Decisions", question 3, "Inlining decision". The translator inlines each call to a non-generic
+// [Handwired] method, static or an instance method of a struct or a sealed class. The value of the call emits
 // at the call, so a helper result is one wire, as a builder local function returns one wire.
 // Recursion is refused. A refusal in the callee gives the location in the callee, and each call site
 // follows, innermost first (section "Error message rules", rule 4). Property getters and data
 // constructors are not inlined: OperationLowering reads their backing fields. The callee gets the
-// active condition of the call, so that the overflow bit of a loop in the callee is 0 when the
-// caller does not run the call (LoopForms.cs).
+// active condition of the call. So the overflow bit of a loop in the callee is 0 when the caller
+// does not run the call (LoopForms.cs).
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -44,7 +44,7 @@ internal static class Inliner
         }
     }
 
-    // An array argument: the callee reads it, and a store into it is refused, because the lowering
+    // An array argument: the callee reads it, and a store into it is refused. The reason: the lowering
     // changes an array value in place, and the call can be under a branch of the caller.
     private static Value Pass(Value value) =>
         value is ArrayValue { IsLocal: true } array ? new ArrayValue(array.ElementType, [.. array.Elements], isLocal: false) : value;

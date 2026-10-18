@@ -1,6 +1,7 @@
 // No Handwired source. Handwired has no translator. The F# tests of task 4 (plan, section
-// "Decisions", question 8): records, struct records, struct tuples, System.Tuple, if, match on
-// constants (the switch opcode), &&, not, min, max, abs, an inline function and a NoInlining helper.
+// "Decisions", question 8). They cover records, struct records, struct tuples, System.Tuple, if,
+// and match on constants (the switch opcode). They also cover &&, not, min, max, abs, an inline
+// function and a NoInlining helper.
 // Each test builds the expected circuit by hand, checks AssertSameOperations, and compares the
 // translated program with the plain function over 200 seeded source tables. The F# inputs compile in
 // the configuration of the test run, so the same expected circuit holds for the Debug and the
@@ -153,7 +154,7 @@ public class FSharpInputTests
         AssertMatchesPlain(translated, 909, ZeroSign.MayDiffer);
     }
 
-    // An inline function is already expanded in the IL: two instructions with no grid give a
+    // An inline function is already expanded in the IL. Two instructions with no grid give a
     // RoundAffine chain, as the C# expression x * 2f + 1f does.
     [Fact]
     public void An_inline_function_gives_the_operations_of_its_expanded_body()

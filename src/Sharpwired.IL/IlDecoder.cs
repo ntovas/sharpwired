@@ -1,8 +1,8 @@
-// No Handwired source. Handwired has no translator. The IL decoder of the plan, section "Decisions",
-// question 3, and the opcode table of section "IL opcode table": the method body bytes, read with
-// System.Reflection.Metadata.BlobReader and the ILOpCode enum; the tokens, resolved through the
-// module with the generic context of the method; the refusal of an exception clause and of each
-// opcode that the table does not accept.
+// No Handwired source. Handwired has no translator. This file holds the IL decoder of the plan,
+// section "Decisions", question 3, and the opcode table of section "IL opcode table". The decoder reads
+// the method body bytes with System.Reflection.Metadata.BlobReader and the ILOpCode enum. It resolves
+// the tokens through the module with the generic context of the method. It refuses an exception
+// clause and each opcode that the table does not accept.
 
 using System.Collections.Frozen;
 using System.Collections.Immutable;
@@ -13,11 +13,11 @@ using System.Reflection.Metadata;
 namespace Sharpwired.IL;
 
 /// <summary>
-/// One decoded IL instruction. The operand is normalized: an int for an argument, a local, an int
-/// constant (also of the forms with an implicit operand) and the absolute target of a branch; a
-/// float for ldc.r4; an <see cref="ImmutableArray{T}"/> of absolute targets for switch; the
-/// resolved <see cref="MethodBase"/>, <see cref="FieldInfo"/> or <see cref="Type"/> for a token;
-/// otherwise null.
+/// One decoded IL instruction. The decoder normalizes the operand. It is an int for an argument, a
+/// local, an int constant and the absolute target of a branch. The int constant includes the forms
+/// with an implicit operand. It is a float for ldc.r4, and an <see cref="ImmutableArray{T}"/> of absolute targets for
+/// switch. For a token, it is the resolved <see cref="MethodBase"/>, <see cref="FieldInfo"/> or
+/// <see cref="Type"/>. Otherwise it is null.
 /// </summary>
 internal sealed record IlInstruction(int Offset, int Size, ILOpCode OpCode, object? Operand)
 {
@@ -272,7 +272,8 @@ internal static class IlDecoder
     }
 
     // Resolves a token. A token that the module cannot resolve is a refusal with the file and the
-    // line: a bad token, a missing type or member, or a missing assembly (final fix wave, item G).
+    // line. The cause is a bad token, a missing type or member, or a missing assembly (final fix wave,
+    // item G).
     internal static object Resolve(DecodedMethod partial, int offset, Func<object?> resolve)
     {
         try

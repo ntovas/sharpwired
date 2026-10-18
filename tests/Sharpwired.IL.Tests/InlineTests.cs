@@ -1,8 +1,8 @@
 // No Handwired source. Handwired has no translator. The per-construct tests of task 4 for inlining
-// (plan, section "Decisions", question 3, "Inlining decision"): the translator inlines each call to
-// a [Handwired] method, and the value of the call emits at the call, so the helper result is one
-// wire. Each test builds the expected circuit by hand, checks AssertSameOperations, and compares the
-// translated program with the plain method over 200 seeded source tables in Debug and in Release.
+// (plan, section "Decisions", question 3, "Inlining decision"). The translator inlines each call to
+// a [Handwired] method. The value of the call emits at the call, so the helper result is one wire.
+// Each test builds the expected circuit by hand and checks AssertSameOperations. It also compares
+// the translated program with the plain method over 200 seeded source tables in Debug and in Release.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;
@@ -47,8 +47,8 @@ public class InlineTests
         AssertMatchesPlain(translated, 802, ZeroSign.MayDiffer);
     }
 
-    // In an instance method of a struct, ldarg.0 loads the address of this, and each getter call
-    // reads a field through it (final fix wave, item I).
+    // In an instance method of a struct, ldarg.0 loads the address of this. Each getter call reads a
+    // field through it (final fix wave, item I).
     [Fact]
     public void In_an_instance_method_of_a_struct_the_first_argument_is_the_address_of_this()
     {

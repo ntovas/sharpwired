@@ -1,8 +1,12 @@
 // No Handwired source. Handwired has no translator. The tests check the cell walk of the plan,
-// section "Decisions", question 2: the cells of the toggle types in walk order, with the names,
-// policies, ranges, grids and initial values of the plan, section "Files"; [OneHot]; an attribute
-// on a primary constructor parameter, on a property and on a backing field; [State] in a
-// TranslateFunction parameter; the refusals of the walk; and the checks of the attribute arguments.
+// section "Decisions", question 2. They check these items:
+// - the cells of the toggle types in walk order, with the names, policies, ranges, grids and
+//   initial values of the plan, section "Files";
+// - [OneHot];
+// - an attribute on a primary constructor parameter, on a property and on a backing field;
+// - [State] in a TranslateFunction parameter;
+// - the refusals of the walk;
+// - the checks of the attribute arguments.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;
@@ -79,7 +83,7 @@ public class CellLayoutTests
             Assert.Equal(expected.Circuit.ExactBits[cell], actual.Circuit.ExactBits[cell]);
         }
 
-        // The next sources tell the policies: a state cell holds its next value, an input cell holds
+        // The next sources tell the policies. A state cell holds its next value, an input cell holds
         // itself, and an event holds the wire of Constant(0).
         Assert.Equal<Wire>(expected.NextSource, actual.NextSource);
         Assert.Equal<float>(expected.InitialSource, actual.InitialSource);

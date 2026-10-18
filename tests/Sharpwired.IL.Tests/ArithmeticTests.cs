@@ -1,8 +1,8 @@
 // No Handwired source. Handwired has no translator. The per-construct tests of task 3 for
 // arithmetic, comparisons, bits and the Math methods. Each test builds the expected circuit by hand
 // with the builder calls of the plan (sections "Emission rules", "Lowering table" and "Decisions",
-// question 4), checks AssertSameOperations, and compares the translated program with the plain
-// method over 200 seeded source tables. The same expected circuit holds for the Debug and the
+// question 4). Then it checks AssertSameOperations and compares the translated program with the
+// plain method over 200 seeded source tables. The same expected circuit holds for the Debug and the
 // Release IL.
 
 using Sharpwired.Cells;

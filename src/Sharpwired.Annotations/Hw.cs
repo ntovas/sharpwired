@@ -13,7 +13,7 @@ namespace Sharpwired.Annotations;
 /// <summary>
 /// The operations with no plain C# form. A plain method calls them, and the translator replaces each
 /// call with its macro. Each body computes in FP32, operation for operation as the macro in
-/// Sharpwired.Core, so the plain method gives the value of the program bit for bit.
+/// Sharpwired.Core. So the plain method gives the value of the program bit for bit.
 /// </summary>
 public static class Hw
 {
@@ -40,8 +40,8 @@ public static class Hw
     /// <remarks>
     /// The body always rebases the displacement from destinationDuringSteps to destination. The macro
     /// skips the rebase when the two arguments are the same wire. For a finite destination the two
-    /// forms give the same value bit for bit: destination - destination is +0, and the displacement
-    /// after the spring step is never -0, because its sum starts at +0. Only a destination of
+    /// forms give the same value bit for bit. The reason: destination - destination is +0, and the
+    /// displacement after the spring step is never -0, because its sum starts at +0. Only a destination of
     /// ±Infinity gives a difference: the body computes Infinity - Infinity, which is NaN.
     /// </remarks>
     public static AnimatedValue AnimatedObject(

@@ -1,10 +1,10 @@
-// No Handwired source. Handwired has no translator. The SSA (static single assignment) form of the
-// plan, section "Decisions", question 3: an abstract IL stack for each block; locals, arguments and
-// stack slots as variables; the phis of Braun, Buchwald, Hack, Leissa, Mallon and Zwinkau, "Simple
-// and Efficient Construction of Static Single Assignment Form" (2013), on the control-flow graph;
-// and a type for each value (Float, Int, Bit, Aggregate, Array, Address). In an instance method of
-// a struct, ldarg.0 is the address of this. A store into this is refused. The model types are in
-// SsaModel.cs.
+// No Handwired source. Handwired has no translator. This file builds the SSA (static single
+// assignment) form of the plan, section "Decisions", question 3. Each block has an abstract IL stack.
+// Locals, arguments and stack slots are variables. The phis follow Braun, Buchwald, Hack, Leissa,
+// Mallon and Zwinkau, "Simple and Efficient Construction of Static Single Assignment Form" (2013), on
+// the control-flow graph. Each value has a type (Float, Int, Bit, Aggregate, Array, Address). In an
+// instance method of a struct, ldarg.0 is the address of this. A store into this is refused. The
+// model types are in SsaModel.cs.
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -48,8 +48,8 @@ internal sealed class SsaBuilder
 
     /// <summary>
     /// Builds the SSA form. Throws <see cref="TranslationException"/> for a value type that the
-    /// program does not have, a merge with different stack depths or value types, and an address
-    /// that the translator cannot follow.
+    /// program does not have and for a merge with different stack depths or value types. It also
+    /// throws for an address that the translator cannot follow.
     /// </summary>
     public static SsaMethod Build(ControlFlowGraph graph)
     {
@@ -570,8 +570,8 @@ internal sealed class SsaBuilder
         return phi;
     }
 
-    // A constant has the block and the IL offset of the instruction that loads it, so that a refusal
-    // that names the constant gives its line.
+    // A constant has the block and the IL offset of the instruction that loads it. So a refusal that
+    // names the constant gives its line.
     private SsaValue NewConstant(object constant, SsaType type) => new(nextId++, SsaValueKind.Constant, type)
     {
         Constant = constant,
@@ -626,7 +626,7 @@ internal sealed class SsaBuilder
 
     private bool IsThisAddress() => !method.Method.IsStatic && method.Method.DeclaringType!.IsValueType;
 
-    // A call on an address passes only the value of the receiver (ApplyCall), so a change of this in
+    // A call on an address passes only the value of the receiver (ApplyCall). So a change of this in
     // an inlined instance method has no effect on the variable of the caller. The translator refuses it.
     private void CheckNotThis(SsaVariable variable)
     {

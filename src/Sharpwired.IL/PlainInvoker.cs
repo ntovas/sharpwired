@@ -1,6 +1,7 @@
-// No Handwired source. Handwired has no translator. The reflection runner of a plain method on a
-// source table (plan, section "Files", PlainInvoker.cs): it builds each parameter from the cells of
-// its walk, calls the plain method, and reads the output leaves of the return value in walk order.
+// No Handwired source. Handwired has no translator. This file holds the reflection runner of a plain
+// method on a source table (plan, section "Files", PlainInvoker.cs). The runner builds each parameter
+// from the cells of its walk and calls the plain method. Then it reads the output leaves of the return
+// value in walk order.
 // The tests compare a translated program with this runner.
 
 using System.Reflection;

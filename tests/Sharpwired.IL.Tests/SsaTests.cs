@@ -1,6 +1,7 @@
 // No Handwired source. Handwired has no translator. The tests check the SSA form of the plan,
-// section "Decisions", question 3: the abstract stack, the phis of Braun et al. (2013) for locals,
-// arguments and stack slots at a merge, and the value types (Float, Int, Bit, Aggregate, Address).
+// section "Decisions", question 3. They check the abstract stack, and the phis of Braun et al. (2013)
+// for locals, arguments and stack slots at a merge. They also check the value types (Float, Int,
+// Bit, Aggregate, Address).
 // The Debug IL keeps more locals than the Release IL, so the tests check the phi leaves and types.
 
 using System.Reflection.Metadata;

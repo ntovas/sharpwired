@@ -68,7 +68,7 @@ public static (ToggleState Next, ToggleOutput Output) Step(ToggleState state, To
 
 The entry points of `HandwiredTranslator`:
 
-- `TranslateStep(method)`: the input contract above. The result has the `FinishedTable`, the cells and outputs by path, an evaluator of the program, and an evaluator that runs the plain method on the same source table.
+- `TranslateStep(method)`: the input contract above. The result has the `FinishedTable` and the cells and outputs by path. It also has an evaluator of the program, and an evaluator that runs the plain method on the same source table.
 - `TranslateFunction(method)`: a static method with any parameters. Each parameter leaf is an input or event cell. Each return leaf is an output.
 - `TranslateRecurrent(method)`: a method with one loop with no maximum (step 4). The result has a prefix program, a step program and a suffix program. `RecurrentRunner.Run(arguments, stepLimit)` evaluates them on the CPU.
 
@@ -76,44 +76,45 @@ The entry points of `HandwiredTranslator`:
 
 1. Decode the IL with `System.Reflection.Metadata`. Read sequence points from the PDB (program database) file for error messages.
 2. Build the control-flow graph and convert the evaluation stack to SSA (static single assignment) form.
-3. Inline calls to other `[Handwired]` methods and to known pure methods. The callee must be static and not generic. Recursion is refused. The value of an inlined call emits at the call, so a helper result becomes one wire, as a builder local function returns one wire.
+3. Inline calls to other `[Handwired]` methods and to known pure methods. The callee must be static and not generic. The translator refuses recursion. The value of an inlined call emits at the call. So a helper result becomes one wire, as a builder local function returns one wire.
 4. Lower each loop. A network has a fixed number of operations in one evaluation and cannot stop early. The translator therefore uses one of three forms:
    - **Constant trip count:** unroll the body.
    - **Runtime trip count with a maximum:** the count `n` has a declared maximum `N`, from `[Range]` or `[MaxIterations]`. Unroll the body `N` times. Each copy computes the bit `i < n`, and a select keeps the old loop state when the bit is 0. The cost is always `N` copies of the body. The translator finds `N` from the declared range of `n` by a refinement of its interval on the active path. With `[MaxIterations]`, the active bit after the last copy is an overflow bit, and the evaluator checks that it is 0.
-   - **Runtime trip count with no maximum:** the loop body becomes a separate step program, a recurrent net. The loop state is the step's state cells, and the loop condition is a `done` output bit. The runner evaluates the step until `done` is 1 or until a configured limit. On the GPU, the kernel loops over the step. A lane that is done stays idle until all lanes in its group are done. `TranslateRecurrent` splits the method into a prefix (the initial loop state and the values that the loop reads), the step, and a suffix (the return value). The first version accepts one such loop in a method, at the top level. The range of each state cell is a fixed point of at most 8 rounds, with a wide range when the rounds do not stop.
+   - **Runtime trip count with no maximum:** the loop body becomes a separate step program, a recurrent net. The loop state is the step's state cells, and the loop condition is a `done` output bit. The runner evaluates the step until `done` is 1 or until a configured limit. On the GPU, the kernel loops over the step. A lane that is done stays idle until all lanes in its group are done. `TranslateRecurrent` splits the method into three programs. The prefix computes the initial loop state and the values that the loop reads. The step follows, and the suffix computes the return value. The first version accepts one such loop in a method, at the top level. The range of each state cell is a fixed point of at most 8 rounds, with a wide range when the rounds do not stop.
 
-   A loop with two exits (a `return` in the body) is refused. A `break` to the end of the loop is accepted. The translator also recognizes the handwired patterns where they cost less than an unrolled loop. A running total with an associative combine (`+`, `Math.Min`, `Math.Max`, `&&`, `||`, or an `[Associative]` method) gives a Sklansky prefix network, which has fewer layers. `floor(x / step)`, an `int` division and an `int` remainder with at most 64 results give a threshold count. With more results and an integer `x`, they give an index read over a table of results. `TranslationOptions.RecognizePatterns = false` turns the recognition off.
+   The translator refuses a loop with two exits (a `return` in the body). It accepts a `break` to the end of the loop. The translator also recognizes the handwired patterns where they cost less than an unrolled loop. A running total with an associative combine gives a Sklansky prefix network, which has fewer layers. The combine is `+`, `Math.Min`, `Math.Max`, `&&`, `||`, or an `[Associative]` method. `floor(x / step)`, an `int` division and an `int` remainder with at most 64 results give a threshold count. With more results and an integer `x`, they give an index read over a table of results. `TranslationOptions.RecognizePatterns = false` turns the recognition off.
 5. Convert branches to selects: each phi node becomes a gate `ITE(c, on, off)` on the branch condition of its immediate dominator. Both sides of each branch are computed. The gate rules simplify a gate before the emit:
    - A bit gate with a constant side becomes an AND, an OR or a NOT. Nested AND and OR values become one AND or OR with all the literals, so `a && b && c` gives one operation.
    - A gate of two constants gives one affine form when the form gives both constants exactly. `c ? x : 0` gives `Multiply(c, x)`.
    - Each other gate gives `Circuit.Select(c, off, on)`.
+   - A gate returns exactly one side, up to the sign of zero. So the translator declares the union of the side ranges on the result, and the grid of both sides. Without the declaration, the inferred range of `Select` grows in each loop copy.
 6. Lower each operation:
    - `+`, `-`, constant `*`, and `/` by a power of two: `affine`. An exact affine form (FP32 coefficients and a grid) is one operation. Otherwise each IL instruction gives one rounded affine operation, so the program rounds where C# rounds.
    - `*` of two wires: `Multiply`.
-   - `<`, `<=`, `>`, `>=`, `==`: `Compare`, which uses the declared ranges and grids.
+   - `<`, `<=`, `>`, `>=`, `==`: `Compare`, which uses the declared ranges and grids. `int != 0` gives `NOT(Compare(x, Equal, 0))`, for the value form and for the branch form.
    - `&&`, `||`, `!` on bits: the AND, OR and NOT bit constructions.
    - `Math.Min`, `Math.Max`, `Math.Clamp`: the exact versions.
    - `array[i]` with a computed `i`: `indexRead`.
    - Calls to `Hw.*` intrinsics, for example `Hw.AnimatedObject`: the matching macro.
-7. Refuse every other instruction with a message that names the source line, for example a heap allocation, a virtual call, or an exception. The form is `<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>`. `TranslationException` derives from `ArgumentException`. The translator also refuses `double` arithmetic, `int` division with no threshold count, a division by a runtime value, and `MathF.FusedMultiplyAdd`, because the program computes in FP32 and must give the value of the plain method.
+7. Refuse every other instruction with a message that names the source line, for example a heap allocation, a virtual call, or an exception. The form is `<file>:<line>: <construct> is not supported in a [Handwired] method: <reason>`. `TranslationException` derives from `ArgumentException`. The program computes in FP32 and must give the value of the plain method. So the translator also refuses `double` arithmetic, `int` division with no threshold count, a division by a runtime value, and `MathF.FusedMultiplyAdd`.
 
 The emit order follows the IL order of the blocks:
 
 - A `Compare`, a `Multiply`, a known call, an `Hw` call, an index read and the result of an inlined call emit at their IL instruction.
 - An affine form with two or more uses emits at its definition. An affine form with one use emits at its reader.
-- A gate emits at its merge block when an IL operation reads it, or when it has two or more readers. A gate with one reader that is a branch or a phi emits at that reader: it is a partial result of an `&&` or `||` chain, and the reader merges it into one AND or OR.
+- A gate emits at its merge block when an IL operation reads it, or when it has two or more readers. A gate with one reader that is a branch or a phi emits at that reader. That gate is a partial result of an `&&` or `||` chain, and the reader merges it into one AND or OR.
 
-With these rules, the C# toggle and the F# toggle give the operation list of the builder toggle, operation for operation, in Debug and in Release.
+With these rules, the C# toggle and the F# toggle give the operation list of the builder toggle in Debug and in Release. The operation equality with a builder program needs two conditions. The plain method has its statements in the order of the builder statements. Each `&&` chain has its operands in the order of the builder `All` call.
 
 ### F# notes
 
 F# compiles `if`, `match` on constants, records and tuples to IL that the steps above accept. F# closures and `seq` expressions compile to classes and state machines. The translator refuses them in the first version. F# inlined functions (`inline`) are already expanded in the IL.
 
-The F# compiler can inline a small function in Release and keep the call in Debug. Then the values stay equal, but the operation lists differ. An F# `[<Handwired>]` helper therefore has `[<MethodImpl(MethodImplOptions.NoInlining)>]`. The F# IL differs from the C# IL for the same statements: F# puts the then side of an `if` first, writes `&&` as branch chains where Roslyn writes the IL `and`, and reads a `bool` local with a branch. The gate rules and the emit order above give the same operations from both forms.
+The F# compiler can inline a small function in Release and keep the call in Debug. Then the values stay equal, but the operation lists differ. An F# `[<Handwired>]` helper therefore has `[<MethodImpl(MethodImplOptions.NoInlining)>]`. The F# IL differs from the C# IL for the same statements. F# puts the then side of an `if` first. It writes `&&` as branch chains where Roslyn writes the IL `and`, and it reads a `bool` local with a branch. The gate rules and the emit order above give the same operations from both forms.
 
 ### Intrinsics
 
-The `Hw` static class holds the operations that have no plain C# form, for example a spring step with a host-written matrix, a settle check, and a one-hot selection. Each `Hw` method has a plain .NET body with the same FP32 semantics, so the method still runs as the reference. The first version has `Hw.AnimatedObject`, `Hw.ApplySpringMatrix`, `Hw.Relu`, `Hw.Boolean` and `Hw.FirstActive`. `Hw` and the attributes are in `Sharpwired.Annotations`, which has no reference, so a plain method needs no translator to run.
+The `Hw` static class holds the operations that have no plain C# form. Examples are a spring step with a host-written matrix, a settle check, and a one-hot selection. Each `Hw` method has a plain .NET body with the same FP32 semantics, so the method still runs as the reference. The first version has `Hw.AnimatedObject`, `Hw.ApplySpringMatrix`, `Hw.Relu`, `Hw.Boolean` and `Hw.FirstActive`. `Hw` and the attributes are in `Sharpwired.Annotations`, which has no reference, so a plain method needs no translator to run.
 
 ## Layer 3: execution
 

@@ -1,6 +1,6 @@
 // No Handwired source. C# inputs for the inlining tests of the translator (plan, task 4, and section
-// "Decisions", question 3, "Inlining decision"): calls of [Handwired] methods, an instance method of
-// a struct, and the calls that the translator refuses. Each refused construct is on the line of its
+// "Decisions", question 3, "Inlining decision"). They have calls of [Handwired] methods, an instance method
+// of a struct, and the calls that the translator refuses. Each refused construct is on the line of its
 // marker comment ("marker: <name>").
 
 using Sharpwired.Annotations;

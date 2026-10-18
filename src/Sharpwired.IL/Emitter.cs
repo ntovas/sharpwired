@@ -1,6 +1,6 @@
-// No Handwired source. Handwired has no translator. The emit of a symbolic value, after the plan,
-// section "Emission rules": the C#-equal rule of an affine form (exact form, one C# operation, or a
-// RoundAffine chain in C# order), and the bit forms and the gate rules 5 to 7 of section
+// No Handwired source. Handwired has no translator. The emit of a symbolic value follows the plan,
+// section "Emission rules". It uses the C#-equal rule of an affine form (exact form, one C# operation,
+// or a RoundAffine chain in C# order). It also follows the bit forms and the gate rules 5 to 7 of section
 // "Decisions", question 4. The bit forms follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT
 // is 1 - bit, AND of N bits is relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is
 // relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off". The emitter also keeps
@@ -9,9 +9,9 @@
 //
 // The circuit computes both sides of each gate, and each inactive loop copy, where C# computes only
 // the side that it takes. So a side whose range is not finite can be Infinity in the circuit while C#
-// does not compute it, and Select(0, kept, Infinity) gives NaN. The emitter refuses such a side
-// (review of task 5, round 2, finding A). A cell holds a finite value (the cell validator checks it),
-// and an emitted gate holds one of its checked sides, so these sides are accepted.
+// does not compute it. Then Select(0, kept, Infinity) gives NaN. The emitter refuses such a side
+// (review of task 5, round 2, finding A). A cell holds a finite value (the cell validator checks it).
+// An emitted gate holds one of its checked sides. So the emitter accepts these sides.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -22,8 +22,8 @@ namespace Sharpwired.IL;
 internal sealed record LoopOverflow(Wire Bit, SourceLocation Location, int Copies);
 
 /// <summary>
-/// A refusal of <see cref="Emitter.CheckRanges"/>: the construct, the reason, and for a gate the IL
-/// offset of its branch (-1 for none) in the lowering that holds it.
+/// A refusal of <see cref="Emitter.CheckRanges"/>: the construct and the reason. For a gate, it also
+/// holds the IL offset of its branch (-1 for none) in the lowering that holds it.
 /// </summary>
 internal sealed record RangeFault(string Construct, string Reason, int IlOffset, OperationLowering? Owner);
 
@@ -58,13 +58,13 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
 
     /// <summary>
     /// Returns the construct and the reason of a refusal, or null. A value that the translator emitted
-    /// after the last check can overflow FP32 when its range is not finite while each wire that it
-    /// reads has a finite range, or when it is a constant that is not finite. The rule checks the value
-    /// wires (an affine form, a gate, a product), and not the operations in a macro, because a macro
-    /// can use a saturation with a range that is not finite. A gate is refused when a side that is not
-    /// a cell or a gate has a range that is not finite. For such a gate the fault also gives the
-    /// IL offset of its branch and the lowering that holds it, so the refusal names the line of the
-    /// branch (final fix wave, item E).
+    /// after the last check can overflow FP32 in two cases. In the first case, its range is not finite
+    /// while each wire that it reads has a finite range. In the second case, it is a constant that is
+    /// not finite. The rule checks the value wires (an affine form, a gate, a product). It does not
+    /// check the operations in a macro, because a macro can use a saturation with a range that is not
+    /// finite. A gate is refused when a side that is not a cell or a gate has a range that is not
+    /// finite. For such a gate the fault also gives the IL offset of its branch and the lowering that
+    /// holds it. So the refusal names the line of the branch (final fix wave, item E).
     /// </summary>
     public RangeFault? CheckRanges()
     {
@@ -152,9 +152,9 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     /// <summary>
-    /// True when the affine form is exact: each coefficient of the stored form and its bias are FP32
-    /// values, and the stored form has a grid. Then each partial sum in any order is an exact FP32
-    /// value, and so is each intermediate value of the C# expression (plan, "Emission rules", step 2).
+    /// True when the affine form is exact. Then each coefficient of the stored form and its bias are
+    /// FP32 values, and the stored form has a grid. So each partial sum in any order is an exact FP32
+    /// value. Each intermediate value of the C# expression is also exact (plan, "Emission rules", step 2).
     /// A form that reads a rounded affine wire, which the builder composes, is not exact.
     /// </summary>
     public bool IsExact(IReadOnlyList<Term> terms, double bias)
@@ -171,9 +171,9 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     // True for a wire that Circuit.Affine composes into its reader (an ordinary affine operation with
-    // few terms) and that has no grid. Such a wire holds a rounded value, and the composition puts
-    // its unrounded form into the reader, so a form that reads the wire is not exact (review of
-    // task 4, finding 1). A constant folds with no change of its value, so it is not in this rule.
+    // few terms) and that has no grid. Such a wire holds a rounded value. The composition puts its
+    // unrounded form into the reader. So a form that reads the wire is not exact (review of task 4,
+    // finding 1). A constant folds with no change of its value, so it is not in this rule.
     private bool IsRoundedProducer(Wire wire)
     {
         if (Circuit.Grids[wire.Position] is not null)
@@ -274,8 +274,8 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     // The gate rules 5 to 7 of the plan, section "Decisions", question 4. The emit order is the
-    // condition, then the off value, then the on value, then the gate operations, as the arguments of
-    // circuit.Select(gate, off, on) in the builder toggle.
+    // condition, then the off value, then the on value, then the gate operations. This order is the
+    // order of the arguments of circuit.Select(gate, off, on) in the builder toggle.
     private Wire EmitGate(GateValue gate)
     {
         if (gate.Kind != ScalarKind.Bit && gate.On is ConstantValue on && gate.Off is ConstantValue off)
@@ -329,7 +329,7 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     // ranges. In a loop that range grows in each copy, so without the declaration a gate in a long
     // loop passes the FP32 range. A new result (a wire at or after start) has no readers. The
     // circuit can give back an existing wire for the same operation. That wire already has the same
-    // declaration, or it is a product of the same bit and the same side, so the declaration is true
+    // declaration, or it is a product of the same bit and the same side. So the declaration is true
     // for its readers too.
     private Wire Chosen(GateValue gate, Wire result, int start, (NumericRange Range, double Grid) off, (NumericRange Range, double Grid) on)
     {
@@ -377,8 +377,8 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
         (Circuit.Reglu([], 1, [(right, 1), (left, -1)], 0), 1),
     ]);
 
-    // The terms sorted by wire, the terms of one wire merged, and the zero coefficients dropped, as
-    // the builder normalizes a form before it folds constants and composes producers.
+    // The terms sorted by wire, the terms of one wire merged, and the zero coefficients dropped. The
+    // builder normalizes a form in the same way before it folds constants and composes producers.
     private static (ImmutableArray<Term> Terms, double Bias) Normalize(IReadOnlyList<Term> terms, double bias)
     {
         var merged = new List<Term>();

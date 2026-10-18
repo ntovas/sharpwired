@@ -1,8 +1,8 @@
 // Handwired source: template/toggle.ts (buildToggle and toggleCells) and template/toggle.test.ts
 // (scriptedTrace and its tests). Handwired has no translator, so these tests have no Handwired twin.
-// They check the plain F# toggle of Toggle.FSharp (ToggleStep.step) after the IL translator: the five
-// checks of decision 1 in the phase 4 plan (TranslatedToggleChecks), and the equality of the F# and
-// the C# translated operation lists.
+// They check the plain F# toggle of Toggle.FSharp (ToggleStep.step) after the IL translator. They run
+// the five checks of decision 1 in the phase 4 plan (TranslatedToggleChecks). They also check the
+// equality of the F# and the C# translated operation lists.
 
 using System.Reflection;
 using Sharpwired.Core;
@@ -29,8 +29,8 @@ public class FSharpToggleTests(ITestOutputHelper output) : TranslatedToggleCheck
 
     protected override TranslatedStep Translate() => TranslateFSharp();
 
-    // The F# compiler and Roslyn write other IL for the same statements (plan, decisions 1 and 3), and
-    // the translator gives the same operations from both.
+    // The F# compiler and Roslyn write other IL for the same statements (plan, decisions 1 and 3). The
+    // translator gives the same operations from both.
     [Fact]
     public void The_FSharp_translated_operation_list_equals_the_CSharp_translated_operation_list()
     {

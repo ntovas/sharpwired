@@ -196,7 +196,7 @@ public class RecurrentTests
     }
 
     // The step evaluates one pass of the loop from its header. The pass of a do ... while loop holds
-    // the body and then the test, so Steps counts the back edges: one less than the body count.
+    // the body and then the test. Thus Steps counts the back edges: one less than the body count.
     [Fact]
     public void A_do_while_loop_gives_the_plain_values()
     {

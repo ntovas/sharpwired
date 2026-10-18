@@ -1,6 +1,7 @@
 // No Handwired source. Handwired has no translator. The tests check the IL decoder of the plan,
-// section "IL opcode table": the instruction list of input methods in Debug and in Release, and the
-// refusal of an exception clause and of refused opcodes with the source file and line.
+// section "IL opcode table". They check the instruction list of input methods in Debug and in
+// Release. They also check the refusal of an exception clause and of refused opcodes with the
+// source file and line.
 
 using static Sharpwired.IL.Tests.FrontEndSupport;
 

@@ -104,8 +104,8 @@ public class HwTests
         }
     }
 
-    // ApplySpringMatrix reads each product through a sum that starts at +0, so the macro value does not
-    // depend on whether a range proves an operand nonnegative. The second row of ranges checks this.
+    // ApplySpringMatrix reads each product through a sum that starts at +0. Thus the macro value does
+    // not depend on whether a range proves an operand nonnegative. The second row of ranges checks this.
     [Theory]
     [InlineData(-40.0, -1280.0)]
     [InlineData(0.0, 0.0)]
