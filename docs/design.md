@@ -25,7 +25,8 @@ src/Sharpwired.Raylib/      the Raylib host loop: input queue, frame clock, outp
 samples/Toggle.Builder/     the toggle switch with the builder API, its machine and its window app (a library)
 samples/Toggle.CSharp/      the toggle switch as a plain C# method, and the program that opens its Raylib window
 samples/Toggle.FSharp/      the same switch as a plain F# function (a library that references only Sharpwired.Annotations)
-samples/JsonSearch/         the JSON highlighter and the regex search over 100,000 documents
+samples/JsonSearch/         the JSON highlighter and the regex search over 100,000 documents, and the window app
+samples/JsonSearch.App/     the program that opens the JSON search window, or writes the bench table
 tests/                      xUnit tests: ports of handwired's tests, differential and seeded random tests
 ```
 
@@ -106,6 +107,18 @@ The emit order follows the IL order of the blocks:
 
 With these rules, the C# toggle and the F# toggle give the operation list of the builder toggle in Debug and in Release. The operation equality with a builder program needs two conditions. The plain method has its statements in the order of the builder statements. Each `&&` chain has its operands in the order of the builder `All` call.
 
+### The rules of phase 6
+
+Phase 6 adds five rules for the step methods of the JSON search. Rules 2 to 5 follow the reads of handwired's `json-step.ts` and `data-program.ts`. `TranslationOptions.RecognizePatterns = false` turns rules 2 to 5 off, and then each construct has its phase 4 form.
+
+1. A `bool` that the program reads as a number, for example `b ? 1 : 0` in an `int` sum, is the bit wire with no operation. The emitter declares the grid 1 and the bit on the wire. An `int` form that reads the bit stays exact. A bit is also an index: `t[b ? 1 : 0]` is one index read at the bit. Rule 1 is not under `RecognizePatterns`, because the phase 4 form of an `int` form that reads such a bit was a refusal.
+2. `t[Math.Clamp(i, 0, t.Length - 1)]` is one index read at `i` with the clamp rule on both sides. A clamp to other bounds, or a clamp result that a second reader reads, keeps `ClampExact` and the read of its result.
+3. `Hw.ReadOrZero(t, i)` is one index read with the zero rule on both sides. An index outside the table gives `+0`.
+4. `bit && t[i]`, with `t` a `bool[]` and `i` proven inside the table, is one index read at `i + n × (1 - bit)` with the zero rule above the table. An `int[]` table keeps the gate, because a whole value is no bit.
+5. An index read registers only the candidates that the range of its index form reaches, and the form gets the offset of the first candidate as its bias. A read at `k × 17 + c` has a candidate table of 17 wires.
+
+Limit: a local array cannot be the state of a step program of `TranslateRecurrent`. The translator refuses a store into a local array in the step pass, and a choice between two local arrays. No program of phase 6 needs such a state.
+
 ### F# notes
 
 F# compiles `if`, `match` on constants, records and tuples to IL that the steps above accept. F# closures and `seq` expressions compile to classes and state machines. The translator refuses them in the first version. F# inlined functions (`inline`) are already expanded in the IL.
@@ -171,7 +184,7 @@ Limit: WGSL §15.7.5 blocks the reorder and the fusion of operations across `k`,
 - A masked gather read is whole only when each member of its one-hot group is a proven bit. A one-hot declaration is not a proof, because no evaluator checks it. A finite cone alone is not enough: a member can hold 0.5.
 - A grid or a bit that the caller declares on an operation is not a proof. The bit of `Compare` is the one exception: the rule trusts the declarations that `Compare` used.
 
-An `i32` has no `-0`, so the integer writer can give `+0` where the reference gives `-0` (sameNumericValue). The packed words of handwired's bit-emit.ts (bits of one `u32`, `packWords`) move to phase 6.
+An `i32` has no `-0`, so the integer writer can give `+0` where the reference gives `-0` (sameNumericValue). The packed words of handwired's bit-emit.ts (bits of one `u32`, `packWords`) are in the loop writers of phase 6 (see "Loop programs").
 
 ### The batch runner
 
@@ -179,9 +192,21 @@ One invocation evaluates one source table. Workgroup size 64. A batch splits int
 
 ### The recurrent step on the GPU
 
-`GpuRecurrentRunner` runs a `RecurrentFunction` of `TranslateRecurrent`. The prefix, the step kernel and the suffix run in one command buffer. The step kernel holds each state cell in a `var` and loops over the step program for each lane. It runs at most `StepsPerDispatch` (1,024) evaluations of each lane in one dispatch, because some systems stop a GPU command that runs too long. No test on this machine showed such a stop. The host submits more dispatches while a lane runs.
+`GpuRecurrentRunner` runs a `RecurrentFunction` of `TranslateRecurrent`. A batch splits into chunks that fit the buffer limits. For each chunk, the prefix and the first step dispatch run in one command buffer. The step kernel holds each state cell in a `var` and loops over the step program for each lane. It runs at most `GpuRecurrentOptions.StepsPerDispatch` evaluations of each lane in one dispatch (default 1,024, at least 1), because some systems stop a GPU command that runs too long. No test on this machine showed such a stop. The host reads the status of each lane after each dispatch, and submits one more step dispatch while a lane runs. The suffix then runs one time for each chunk, after the last step dispatch. An internal counter of the suffix dispatches checks this.
 
-The step kernel checks each cell in the kernel with the declarations of the step table: finite, within the range, an exact bit, a multiple of the grid, and the one-hot rules. It checks the cells of the first source table, and each next value before the done test. So a value past a cell range, also the range ±2^23 of a wide `int` cell, stops the lane. It is never a silent wrong value. For a lane that fails, the host replays the lane on the CPU with `RecurrentRunner` and throws its message with the lane number. Each lane equals `RecurrentRunner.Run`: the same steps, the same `Completed`, and the same outputs, with the writer limits above.
+The step kernel checks each cell in the kernel with the declarations of the step table: finite, within the range, an exact bit, a multiple of the grid, and the one-hot rules. It checks the cells of the first source table, and each next value before the done test. So a value past a cell range, also the range ±2^23 of a wide `int` cell, stops the lane. It is never a silent wrong value. For a lane that fails, the host replays the lane on the CPU with `RecurrentRunner`. A CPU check that fails gives the lane the status `Invalid`, NaN outputs, 0 steps and the CPU message, and the other lanes keep their results. `RecurrentBatch.ThrowIfInvalid` throws the message of phase 5 for the first invalid lane. A CPU replay that passes gives the lane the CPU result. An internal counter `ReplayPasses` counts such lanes, and each GPU test asserts 0, apart from the lanes that the subnormal rule excludes. So a kernel check that fails falsely cannot hide behind the replay. Each lane equals `RecurrentRunner.Run`: the same steps, the same `Completed`, and the same outputs, with the writer limits above.
+
+`CpuRecurrentRunner` runs the same batch contract (`IRecurrentBatchRunner`) on the CPU, with blocks of lanes in a parallel loop. `RecurrentRunners.Create` gives the GPU runner for a device and the CPU runner otherwise. The status of each lane is `Completed`, `Limit` or `Invalid`.
+
+### Loop programs
+
+Phase 6 adds the loop program of handwired's `loop-program.ts`. A `LoopProgram` runs translated step methods over the positions of each document. Each stage is one `TranslateFunction` result, and it runs one time, forward over the positions, or backward. For each input cell, the stage names what the cell reads: the item of a buffer at the position, one fixed document cell, a register, a component of a field, or a shared cell. For each output, it names what it writes: a register, a field component, a document output, or a position output. A register carries a value from one position to the next. A field holds values for each position, which one stage writes and a later stage reads. `LoopProgram.Create` refuses a bad program with `ArgumentException`, for example a field read before a stage writes it, or a stage that writes some but not all components of a field of bits. `LoopProgram.EvaluatePlain` runs the plain step methods in a C# loop, as the reference of the translation.
+
+An `ILoopBackend` keeps document buffers and makes runners. A runner gets the shared cells one time, and then runs a request: the input buffers, the document count, a target buffer for each position group, and a window of documents whose position values come back. A document that fails a cell check gets a `LaneFault` with the message of the check, and NaN outputs. The other documents keep their values. A backend refuses one buffer as the target of two position groups.
+
+- `CpuLoopBackend` runs blocks of documents in a parallel loop, and stops at a cancellation between blocks. Its default stage backend is `CompiledStage`: the rows of a stage as .NET delegates (System.Linq.Expressions), at most 2,000 operations in one delegate. Each value is equal by Object.is to the value of `TensorEvaluator`. In Release on the Apple M5 Pro, one evaluation was 1.9 to 7.5 times faster than `TensorEvaluator` less its range check (Reverse32 1.9, Forward32 2.8, Reverse8 3.6). `TensorEvaluator` stays a test option, and a failed range check of it also gives a `LaneFault`.
+- `GpuLoopBackend` keeps the document buffers on the device, so a position group that one runner writes can be the input of a second runner with no readback. One invocation runs one document: the WGSL has a `for` loop for each looped stage, the registers in `var` values, a field in a function array, and a field of bits in one `u32` word for each position. The constant tables go into the shared storage buffer. A run splits into chunks of at most 65,535 workgroups of 64 invocations. The kernel checks each cell as the CPU runner does and writes a status for each document. The host replays each document with status 1 on the CPU runner, which gives the fault message, or the values when it finds no fault. An internal counter `ReplayPasses` counts the replays that pass, and the GPU tests assert 0. A cancelled run writes NaN for each document that it did not reach, with one fill for each output.
+- `LoopFloatWriter` writes each row as `f32` statements with keep, as `WgslFloatWriter` does. `LoopIntegerWriter` ports the rules of handwired's `bit-emit.ts`: sums and gates of proven bits and whole numbers as `u32` and `i32` statements, comparisons, reads, packed reads (gated reads of a bit table as bits of `u32` words, which `PackedWords.Pack` writes one time for each `WriteShared`), and lanes (a list of bits stored together, for example the registers of bits that the same stages write, as one word, so that one word operation computes the same gate for each bit). A register value that reads another register goes into a `let` before the first register write, so that it reads the value of the previous position.
 
 ### Result
 
@@ -192,7 +217,20 @@ The rounding-point test (`RoundingPointTests`) runs the boolean atom, a round ch
 `Sharpwired.Raylib` holds the frame loop. Input handlers queue events with timestamps. Each frame calls `AdvanceFrame`, which plans the evaluations: one per event timestamp, a settle check each 64 ms of simulated time, and one at the frame time. The host then draws from the output numbers only.
 
 - **Toggle**: the template switch, written once as a C# method and once as an F# function. The test compares the translated program with the plain method over a scripted trace of events, as handwired's `toggle.test.ts` does.
-- **JSON search**: the highlighter and the regex search as `[Handwired]` methods over the characters of a document. The GPU backend runs them over 100,000 generated documents. The Raylib window shows the pattern field, the match map and one document. The CPU path runs the compiled program in parallel over document blocks.
+- **JSON search**: the highlighter and the regex search as `[Handwired]` step methods over one position of a document, which a `LoopProgram` runs over the positions (phase 6 decision 1). The GPU backend runs them over 100,000 generated documents. The Raylib window shows the pattern field, the match map and one document. The CPU path runs the same loop programs in parallel over document blocks.
+
+### The JSON search
+
+`samples/JsonSearch` is a library, and `samples/JsonSearch.App` opens the window or writes the bench table (`--bench`).
+
+- **Documents.** `Documents.Generate` ports handwired's `documents.ts`: the hash `lowbias32`, 7 shapes, 4 styles and 16 defects, at most 512 code points. The texts are equal to the handwired texts: the `lowbias32` hash of the UTF-16 code units of the first 2,000 texts is 3,798,448,091, the value that handwired's `json-search.test.ts` pins. `DocumentCells` writes the first 512 code points and the length of each text as the cells of one document.
+- **Highlighter.** `HighlighterStep.Step` runs at the positions 0 to 511 and gives the display kind of each code point. `HighlighterStep.End` runs one time for position 512 and gives whether the text is valid, the position and the kind of the first error, and whether the text is too long. Step has 40 live operations that compute, with 12 index reads, and End has 18, with 6 index reads (handwired: 37 and 17). Each error-state bit is a comparison of 2 operations (handwired: 1 ReGLU), and the first error kind is 1 operation more.
+- **Search.** `PatternParser`, `Automaton` and `PatternCompiler` turn a pattern into the cells of an automaton. The search programs hold 8, 16 and 32 states. `SearchStart`, `Reverse` and `Forward` are step methods for each capacity, and the classes differ only in the constant of the states. Reverse has 151, 359 and 1,159 live operations that compute, and Forward 96, 312 and 1,128. The integer writer gives 229, 301 and 445 statements (handwired: 147, 171 and 219), with 128, 512 and 2,048 packed reads.
+- **Searcher.** `Searcher.Create` writes the cells, uploads them, makes the highlighter runner and the three search runners, and runs the highlighter one time. The display kinds stay on the backend. `Search` compiles the pattern, picks the smallest capacity that holds it, writes the shared cells and runs the search. Only the newest request gets a result. On the CPU, the documents are in slices of 16,384, so a search reports its progress and stops at a cancellation. The times start after the wait for the evaluation lock.
+- **.NET baseline.** `DotNetBaseline` translates the pattern for .NET `Regex` (code points as surrogate pairs) and counts the matches on one thread, with a limit of 10 s.
+- **Window.** `JsonSearchApp` (1,280 × 860 px, "JSON search") draws the pattern field, the scope toggle (All, Keys, String values), the backend toggle (GPU, CPU), the four examples, the line of counts and times, the match map and one document with the colors of the display kinds and a mark under each match. It makes no Raylib call. `SearchService` has three worker threads: the search, the document, and the .NET `Regex` timing. Each thread runs only the newest job, and each answer carries the ID of its request. The window loads Monaco and Arial Unicode on macOS, reads the character map of each font file (`FontCoverage`), and draws `?` for a code point that no font has.
+
+The bench on the Apple M5 Pro (Metal), 100,000 documents, Release, 2026-10-19: the GPU search took 12.9 to 14.8 ms, the CPU search on all cores 850 to 2,231 ms, and .NET `Regex` on one thread 12.5 to 302 ms. Each of the 24 rows has equal totals for the program and .NET `Regex`, and the tests compare the count of each document. The GPU searcher of 100,000 documents took 2,177 ms to make, and the CPU searcher 1,336 ms.
 
 ## Order of work
 

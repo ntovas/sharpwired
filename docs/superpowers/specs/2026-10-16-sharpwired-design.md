@@ -59,17 +59,17 @@ This checklist is the definition of done. Each phase owns the items under it.
 
 ### Phase 6: the JSON search demo
 
-- [ ] R6.1 The document generator (seeded, 7 kinds, valid JSON of up to 512 code points).
-- [ ] R6.2 The JSON highlighter program and the regex search program in sizes of 8, 16 and 32 states, as in Handwired `src/json-search`.
-- [ ] R6.3 GPU and CPU paths over 100,000 documents, with timings next to .NET `Regex`.
-- [ ] R6.4 A Raylib-cs window: the pattern field, the scope toggle (all, keys, string values), the backend toggle, the match map, and one document with colors and marks.
-- [ ] R6.5 Tests that run without a GPU compare the programs with a plain C# reference.
+- [x] R6.1 The document generator (seeded, 7 kinds, valid JSON of up to 512 code points).
+- [x] R6.2 The JSON highlighter program and the regex search program in sizes of 8, 16 and 32 states, as in Handwired `src/json-search`.
+- [x] R6.3 GPU and CPU paths over 100,000 documents, with timings next to .NET `Regex`.
+- [x] R6.4 A Raylib-cs window: the pattern field, the scope toggle (all, keys, string values), the backend toggle, the match map, and one document with colors and marks.
+- [x] R6.5 Tests that run without a GPU compare the programs with a plain C# reference.
 
 ### All phases
 
-- [ ] RA.1 The `NOTICE` file keeps the Handwired MIT notice.
+- [x] RA.1 The `NOTICE` file keeps the Handwired MIT notice.
 - [ ] RA.2 Docs and code comments use ASD-STE100.
-- [ ] RA.3 Each phase ends with a green `dotnet test` run.
+- [x] RA.3 Each phase ends with a green `dotnet test` run.
 
 ## Conventions
 
