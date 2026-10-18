@@ -16,8 +16,11 @@ internal static class WgslText
     /// <list type="bullet">
     /// <item><c>k(v)</c> is the keep function. It returns <c>v</c> with the same bits, because
     /// <c>params.zero</c> is 0. The shader compiler cannot know the value, so it cannot move arithmetic
-    /// across <c>k</c>: no contraction to a fused multiply-add, no regrouped sum, no folded constant. The
-    /// XOR also keeps NaN, the infinities and -0.</item>
+    /// across <c>k</c>. Thus no contraction to a fused multiply-add, no regrouped sum, and no folded
+    /// constant occur.
+    /// The rules of WGSL §15.7.5 block the reorder and the fusion across <c>k</c>. The XOR also keeps
+    /// the bits of NaN, the infinities and -0 on the measured adapters. WGSL §15.7.2 does not guarantee
+    /// these values, so the tests measure them on each adapter.</item>
     /// <item><c>is_nan</c> and <c>is_finite</c> test the bits. WGSL lets a compiler fold <c>v != v</c> to
     /// false.</item>
     /// <item><c>relu(g)</c> equals <c>MathF.Max(0, g)</c>: NaN for a NaN gate, +0 for a -0 gate.</item>

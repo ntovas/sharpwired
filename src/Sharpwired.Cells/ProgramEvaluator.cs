@@ -51,7 +51,8 @@ public static class ProgramEvaluator
     /// the program, and then calls <paramref name="backend"/> one time with the circuit of the table and
     /// the compiled program. Each call of Evaluate runs the program through the root evaluator that the
     /// backend returns, for example a GPU evaluator. The checks before and after the evaluation are the
-    /// same as without a backend.
+    /// same as without a backend. The caller owns the root evaluator that the backend returns. The
+    /// program evaluator does not dispose it, so the caller disposes it after the last Evaluate.
     /// </summary>
     /// <exception cref="InvalidOperationException">The backend returned null, or a root evaluator of another program.</exception>
     public static ProgramEvaluator<TOutput> Create<TOutput>(

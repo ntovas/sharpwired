@@ -69,11 +69,11 @@ public static class WgslFloatWriter
     }
 }
 
-// The statements of the main function of an f32 shader. The integer writer passes floatName, which gives the
-// f32 text of a position that it holds as an integer, for example f32(w3), and null for an f32 position. The
-// step kernel of RecurrentKernelWriter passes cellName, which gives the variable of a source cell, for example
-// cell3. Then a read of a source cell reads the variable, and a read of a source cell at a computed index is a
-// select over the variables, as for a list of computed values.
+// The statements of the main function of an f32 shader. The integer writer passes floatName. floatName gives
+// the f32 text of a position that the integer writer holds as an integer, for example f32(w3). It gives null
+// for an f32 position. The step kernel of RecurrentKernelWriter passes cellName, which gives the variable of a
+// source cell, for example cell3. Then a read of a source cell reads the variable. A read of a source cell at
+// a computed index is a select over the variables, as for a list of computed values.
 internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floatName = null, Func<int, string>? cellName = null)
 {
     // A sum of more terms continues in a new statement (emit.ts termsPerStatement).
@@ -178,7 +178,7 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
 
     // The left fold of the reference: value = f(bias), then value = f(value + f(weight × input)) for
     // each term in stored order. A weight of 1 adds the input and a weight of -1 subtracts it, which is
-    // exact. Another weight adds or subtracts f(|weight| × input), after its sign bit, which is the same
+    // exact. Another weight adds or subtracts f(|weight| × input), after its sign bit. This is the same
     // value, because FP32 rounding is symmetric and a - b is a + (-b). The text continues in a new
     // statement after each 32 terms.
     private string Sum(string partialName, float bias, ImmutableArray<ShaderTerm> terms)
@@ -208,9 +208,10 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     // The candidate at the index expression. A list of computed values becomes the variable arrayName
     // and one select for each candidate after the first. In a step kernel, source cells become the same
     // select over the cell variables. Else a list of source cells becomes one module
-    // array for each stored table. Two forms of the plan failed on the M5 Pro with this wgpu-native: a
-    // const array with an index that is not a constant (shader module error), and a function array
-    // of computed values in a shader with keep (pipeline error, with no detail in the message).
+    // array for each stored table. Two forms of the plan failed on the M5 Pro with this wgpu-native. The
+    // first is a const array with an index that is not a constant (shader module error). The second is a
+    // function array of computed values in a shader with keep (pipeline error, with no detail in the
+    // message).
     private string Candidate(ShaderCandidates candidates, string index, string arrayName)
     {
         if (candidates.Count == 1) return Name(candidates.PositionAt(0));
@@ -239,7 +240,10 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
 
     // The index and the mass of one slot. For an exact one-hot, both are small whole numbers, which
     // FP32 computes without a rounding in any order, so the terms need no keep. The mass starts at
-    // k(0.0f), as the reference starts at +0: a group of -0 bits then gives the mass +0.
+    // k(0.0f), as the reference starts at +0: a group of -0 bits then gives the mass +0. A broken
+    // one-hot declaration is outside the contract. For such a group, a compiler can regroup the terms,
+    // so the index and the mass can differ from the values of TensorEvaluator. For a NaN index sum,
+    // the WGSL i32() conversion is not defined, and TensorEvaluator gives the index 0.
     private void WriteGatherCompute(GatherComputeRow compute)
     {
         var bits = compute.BitPositions;
@@ -284,7 +288,7 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     }
 
     // Circuit.ResolveIndexPosition in WGSL. The floor and the bounds stay in f32, and a NaN index never
-    // converts to i32: the select gives candidate 0, and the last if writes NaN. The index value is
+    // converts to i32. The select gives candidate 0, and the last if writes NaN. The index value is
     // x<position>: the name i<position> is a WGSL type name for the positions 8, 16, 32 and 64.
     private void WriteIndexRead(IndexRow row)
     {

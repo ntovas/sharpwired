@@ -1,7 +1,7 @@
 // Handwired source: src/json-search/gpu/host.ts (the evaluate function of createProgramRunner). The GPU
-// batch evaluator: one shader of the program, the source tables in chunks that fit the buffer limits
-// of the device, one dispatch and one readback for each chunk. It is also the root evaluator of one
-// table (IRootEvaluator) that ProgramEvaluator uses for a program on the GPU.
+// batch evaluator. It has one shader of the program. It puts the source tables in chunks that fit the
+// buffer limits of the device. It does one dispatch and one readback for each chunk. It is also the root
+// evaluator of one table (IRootEvaluator) that ProgramEvaluator uses for a program on the GPU.
 
 using Sharpwired.Core;
 
@@ -13,13 +13,20 @@ namespace Sharpwired.Gpu;
 /// sends the tables to the GPU.
 /// </summary>
 /// <remarks>
-/// The evaluator uses the lock of its device for the full call, so two threads can call evaluators of
-/// one device. Dispose the evaluators before their device. With <see cref="GpuWriter.Float32"/> the
-/// values are the reference values bit for bit, except on a device that flushes subnormal values
-/// (<see cref="GpuDevice.FlushesSubnormals"/>), for an evaluation that holds a subnormal value in an
-/// f32 row. With <see cref="GpuWriter.Integer"/>, the default, the same holds, except that a zero can
-/// have the other sign. The integer evaluator also checks the grid and the bit declarations of the
-/// source cells, because the integer writer reads such a cell as an integer.
+/// <para>The evaluator checks the arguments and the source tables before it takes the lock of its
+/// device. It holds the lock for the GPU work of the call, so two threads can call evaluators of one
+/// device. Dispose the evaluators before their device.</para>
+/// <para>With <see cref="GpuWriter.Float32"/> the values are the reference values bit for bit, with one
+/// exception. On a device that flushes subnormal values (<see cref="GpuDevice.FlushesSubnormals"/>), an
+/// evaluation that holds a subnormal value in an f32 row can differ. With <see cref="GpuWriter.Integer"/>,
+/// the default, the same holds, and a zero can also have the other sign. The integer evaluator also
+/// checks the grid and the bit declarations of the source cells. The integer writer reads such a cell
+/// as an integer.</para>
+/// <para>A gather read of a lowered program reads the candidate at the index that the bits of its
+/// one-hot group give. A broken one-hot declaration is outside the contract. For such a group, the
+/// index and the mass of the GPU can differ from the values of <see cref="TensorEvaluator"/>. The WGSL
+/// conversion <c>i32()</c> of a NaN index sum is not defined, and <see cref="TensorEvaluator"/> gives 0.
+/// A NaN member makes the sum of a masked read NaN on the GPU too.</para>
 /// </remarks>
 public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 {
@@ -101,6 +108,10 @@ public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
     /// Evaluate one source table on the GPU, and return the values of Program.Roots, in root order. The
     /// call does one dispatch and one readback. For many tables, use the batch Evaluate.
     /// </summary>
+    /// <remarks>
+    /// Each call returns the same array. So do not call this method of one evaluator on two threads at
+    /// the same time. The second call overwrites the values of the first call.
+    /// </remarks>
     /// <returns>The same array on each call. The next call overwrites it.</returns>
     public float[] Evaluate(ReadOnlySpan<float> source)
     {
@@ -110,23 +121,25 @@ public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 
     public void Evaluate(ReadOnlySpan<float> sources, int tableCount, Span<float> outputs)
     {
+        // The checks read only the circuit, the program and the arguments, so they run before the lock.
+        ObjectDisposedException.ThrowIf(disposed, this);
+        BatchArguments.Check(circuit, Program, sources, tableCount, outputs.Length);
+        var sourceSize = Module.SourceSize;
+        if (checksDeclarations)
+        {
+            for (var table = 0; table < tableCount; table++) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(table * sourceSize, sourceSize));
+        }
         lock (device.Sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             device.ThrowIfUnusable();
-            BatchArguments.Check(circuit, Program, sources, tableCount, outputs.Length);
-            var sourceSize = Module.SourceSize;
-            if (checksDeclarations)
-            {
-                for (var table = 0; table < tableCount; table++) IntegerProof.ValidateSourceDeclarations(circuit, sources.Slice(table * sourceSize, sourceSize));
-            }
             if (RootCount == 0) return;
             for (var first = 0; first < tableCount; first += TablesPerChunk)
             {
                 var count = Math.Min(TablesPerChunk, tableCount - first);
                 kernel.Write(SourceBinding, sources.Slice(first * sourceSize, count * sourceSize));
                 // Params: first (the first table of the chunk in the batch, which the shader does not
-                // read), count, zero (always 0), and one word of padding.
+                // read), count, zero (always 0), and one unused word. The unused word makes the size 16 bytes.
                 kernel.Write<uint>(ParamsBinding, [(uint)first, (uint)count, 0u, 0u]);
                 kernel.Reserve(OutputBinding, (long)count * RootCount * sizeof(float));
                 var workgroups = (uint)((count + Module.WorkgroupSize - 1) / Module.WorkgroupSize);
