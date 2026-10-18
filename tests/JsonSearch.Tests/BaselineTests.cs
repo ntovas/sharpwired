@@ -81,6 +81,19 @@ public sealed class BaselineTests(ITestOutputHelper output)
         Assert.False(baseline.OverLimit);
     }
 
+    // Task 8: the window cancels the .NET Regex count of a pattern that the person left. The count stops between
+    // documents and throws OperationCanceledException.
+    [Fact]
+    public void A_cancelled_count_throws_operation_cancelled()
+    {
+        string[] texts = ["[\"aId\"]", "[\"bId\"]"];
+        var kinds = KindsOf(texts);
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+        Assert.Throws<OperationCanceledException>(() => DotNetBaseline.Count(texts, kinds, "[a-z]+Id", SearchScope.All, Limit, cancel.Token));
+        Assert.Equal(2, DotNetBaseline.Count(texts, kinds, "[a-z]+Id", SearchScope.All, Limit, CancellationToken.None).Matches);
+    }
+
     [Fact]
     public void A_scope_counts_inside_each_run_of_its_kinds()
     {
@@ -172,7 +185,26 @@ public sealed class BaselineTests(ITestOutputHelper output)
         var lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(12, lines.Count(line => line.StartsWith("| `", StringComparison.Ordinal) && line.Contains("| CPU |", StringComparison.Ordinal)));
         Assert.Equal(2, JsonSearchCommand.Run(["--documents", "x"], new StringWriter(), error));
-        Assert.Equal(2, JsonSearchCommand.Run([], new StringWriter(), new StringWriter()));
+        // Task 8: a run without --bench opens the window, so the test only parses that case.
+        Assert.Equal(2, JsonSearchCommand.Run(["--frames"], new StringWriter(), new StringWriter()));
+    }
+
+    // Task 8: the window options of the app. --frames and --screenshot go to WindowRunOptions, and the bench does not
+    // take them.
+    [Fact]
+    public void The_app_options_without_bench_are_the_window_options()
+    {
+        var window = JsonSearchCommand.Parse(["--frames", "120", "--screenshot", "/tmp/a.png", "--documents", "50", "--cpu"], new StringWriter());
+        Assert.NotNull(window);
+        Assert.Equal((false, true, 50, 120, "/tmp/a.png"), (window.Bench, window.CpuOnly, window.Documents, window.Window.FrameLimit, window.Window.ScreenshotPath));
+        var plain = JsonSearchCommand.Parse([], new StringWriter());
+        Assert.NotNull(plain);
+        Assert.Equal((false, 100_000, (int?)null), (plain.Bench, plain.Documents, plain.Window.FrameLimit));
+        var error = new StringWriter();
+        Assert.Null(JsonSearchCommand.Parse(["--bench", "--frames", "2"], error));
+        Assert.Contains("options of the window", error.ToString(), StringComparison.Ordinal);
+        Assert.Null(JsonSearchCommand.Parse(["--frames", "0"], new StringWriter()));
+        Assert.Null(JsonSearchCommand.Parse(["--screenshot"], new StringWriter()));
     }
 }
 

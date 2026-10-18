@@ -89,6 +89,9 @@ public sealed class Searcher : IDisposable
     /// <summary>The number of documents.</summary>
     public int DocumentCount { get; }
 
+    /// <summary>The search program of the capacity at this index of SearchCapacity.All, which each searcher shares.</summary>
+    internal static SearchProgram ProgramAt(int index) => SearchPrograms[index].Value;
+
     /// <summary>What the highlighter says about each document, in document order.</summary>
     public ImmutableArray<DocumentSummary> Validation { get; }
 
@@ -232,8 +235,8 @@ public sealed class Searcher : IDisposable
         }
     }
 
-    // The compiled pattern and the index of the smallest capacity that holds it, or the result that says why there is none.
-    private static (CompiledPattern? Compiled, int Index, SearchResult? Result) Resolve(string pattern)
+    /// <summary>The compiled pattern and the index of the smallest capacity that holds it, or the result that says why there is none.</summary>
+    internal static (CompiledPattern? Compiled, int Index, SearchResult? Result) Resolve(string pattern)
     {
         CompiledPattern compiled;
         try

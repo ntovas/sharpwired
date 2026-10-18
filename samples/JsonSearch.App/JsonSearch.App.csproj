@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- No Handwired source. The executable of the JSON search sample. In phase 6 task 6 it has only the
-       bench mode. Program.cs gives the options. -->
+  <!-- No Handwired source. The executable of the JSON search sample. It opens the JSON search window, or
+       with the option bench writes the bench table. Program.cs gives the options. -->
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>

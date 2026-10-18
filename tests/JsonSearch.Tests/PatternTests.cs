@@ -55,6 +55,24 @@ public sealed class PatternTests(ITestOutputHelper output)
         Assert.Equal((message, position), (translated.Message, translated.Position));
     }
 
+    // Task 5 review: a lone surrogate after a backslash threw ArgumentOutOfRangeException from the message text. It is
+    // an escape that the language does not have, so it gives the syntax error at the backslash. A Fact and not a row
+    // of the theory above, so that no test name holds a lone surrogate.
+    [Fact]
+    public void A_lone_surrogate_after_a_backslash_is_a_syntax_error_at_the_backslash()
+    {
+        foreach (var (pattern, position) in new[] { ("a\\\ud800", 1), ("\\\udc00b", 0), ("[x\\\udbff]", 2), ("😀\\\ud800", 1) })
+        {
+            var error = Assert.Throws<PatternSyntaxException>(() => PatternCompiler.Compile(pattern));
+            Assert.Equal(position, error.Position);
+            Assert.StartsWith("the escape \\", error.Message, StringComparison.Ordinal);
+            Assert.EndsWith(" isn’t supported", error.Message, StringComparison.Ordinal);
+            var translated = Assert.Throws<PatternSyntaxException>(() => DotNetPattern.Translate(pattern));
+            Assert.Equal((error.Message, position), (translated.Message, translated.Position));
+            Assert.IsType<PatternAnalysis.Refused>(Sentences.Analyze(pattern));
+        }
+    }
+
     [Fact]
     public void The_language_accepts_each_construct()
     {

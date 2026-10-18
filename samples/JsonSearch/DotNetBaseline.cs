@@ -211,11 +211,13 @@ public static class DotNetBaseline
     /// <summary>
     /// Count the matches of the pattern in each document, or in each run of the kinds of the scope, on one thread.
     /// The kinds hold the 512 display kinds of each document. The limit stops the count between documents, and it is
-    /// also the match timeout of Regex. A pass under 100 ms runs two times, and the faster pass counts.
+    /// also the match timeout of Regex. A pass under 100 ms runs two times, and the faster pass counts. A cancellation
+    /// stops the count between documents.
     /// </summary>
     /// <exception cref="PatternSyntaxException">The pattern is outside the language.</exception>
     /// <exception cref="ArgumentException">The kinds do not match the texts.</exception>
-    public static BaselineResult Count(IReadOnlyList<string> texts, IReadOnlyList<ImmutableArray<byte>> kinds, string pattern, SearchScope scope, TimeSpan limit)
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public static BaselineResult Count(IReadOnlyList<string> texts, IReadOnlyList<ImmutableArray<byte>> kinds, string pattern, SearchScope scope, TimeSpan limit, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(texts);
         ArgumentNullException.ThrowIfNull(kinds);
@@ -225,16 +227,16 @@ public static class DotNetBaseline
         var translated = DotNetPattern.Translate(pattern);
         var regex = new Regex(translated, RegexOptions.CultureInvariant, limit > TimeSpan.Zero ? limit : Regex.InfiniteMatchTimeout);
         var (runs, firstRun) = Runs(texts, kinds, scope);
-        var best = Pass(regex, runs, firstRun, texts.Count, limit);
+        var best = Pass(regex, runs, firstRun, texts.Count, limit, cancel);
         if (!best.OverLimit && best.Milliseconds < RepeatBelowMs)
         {
-            var second = Pass(regex, runs, firstRun, texts.Count, limit);
+            var second = Pass(regex, runs, firstRun, texts.Count, limit, cancel);
             if (second.Milliseconds < best.Milliseconds) best = second;
         }
         return best;
     }
 
-    private static BaselineResult Pass(Regex regex, List<string> runs, int[] firstRun, int documentCount, TimeSpan limit)
+    private static BaselineResult Pass(Regex regex, List<string> runs, int[] firstRun, int documentCount, TimeSpan limit, CancellationToken cancel)
     {
         var counts = new List<int>(documentCount);
         var matches = 0L;
@@ -243,6 +245,7 @@ public static class DotNetBaseline
         var watch = Stopwatch.StartNew();
         for (var row = 0; row < documentCount; row++)
         {
+            cancel.ThrowIfCancellationRequested();
             if (watch.Elapsed >= limit)
             {
                 overLimit = true;

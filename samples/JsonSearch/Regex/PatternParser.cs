@@ -197,7 +197,9 @@ internal sealed class PatternParser
         {
             return ([new CodePointRange(escaped, escaped)], escaped);
         }
-        throw Fail($"the escape \\{char.ConvertFromUtf32(escaped)} isn’t supported", at);
+        // A lone surrogate is its own code point, and char.ConvertFromUtf32 does not take it, so it is written as one char.
+        var text = escaped is >= 0xd800 and <= 0xdfff ? ((char)escaped).ToString() : char.ConvertFromUtf32(escaped);
+        throw Fail($"the escape \\{text} isn’t supported", at);
     }
 
     private (ImmutableArray<CodePointRange> Set, int? CodePoint) ParseClassAtom()
