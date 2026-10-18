@@ -13,6 +13,11 @@
 // - Fma: x * 1.0000001 - 1.0000002 at each position, for the keeps of the f32 writer (the inputs near 1 of
 //   WgslFormTests, as RoundingPointTests reads them).
 // - Search8: the Reverse8 and Forward8 steps of LoopInputs as a search of two passes, with a field of 8 bits.
+// - Delay and DelayInt: (x, a, b) with a and b registers, so that one register gets the old value of another
+//   register (review of task 3: the kernel read the new value).
+// - Mul: x * y + 1.37, a ReGLU product that an affine row reads (the keep of the f32 writer).
+// - SignField: a field of bits that holds -0, 0 and 1, read back as an output (the word of the signs).
+// - OneHot: three registers in a one-hot group, which the item 77 breaks (the one-hot check of the kernel).
 // Each program has its own seeded documents, with each item inside the declared range of its cell.
 
 using System.Collections.Immutable;
@@ -82,6 +87,33 @@ public static class LoopWriterInputs
 
     [Handwired]
     public static (float Kept, float Opposite) DeclaredKeep([Range(0, 1)] float value) => (value, 1f - value);
+
+    [Handwired]
+    public static (float X, float A, float B) Delay([Range(-1, 1000)] float x, [Range(-1, 1000)] float a, [Range(-1, 1000)] float b) => (x, a, b);
+
+    [Handwired]
+    public static (int X, int A, int B) DelayInt([Range(-1, 1000)] int x, [Range(-1, 1000)] int a, [Range(-1, 1000)] int b) => (x, a, b);
+
+    [Handwired]
+    public static float Mul([Range(-10, 10)] float x, [Range(0, 10)] float y) => (x * y) + 1.37f;
+
+    [Handwired]
+    public static float SignKeep([Range(0, 1)] float value) => value;
+
+    [Handwired]
+    public static float SignPass([Range(0, 1)] float kept) => kept;
+
+    // The one-hot state moves one place at each position. The item 77 also sets bit 0, so the next state has two
+    // bits. The group allows all zeros, because the initial source table of the translator holds zeros.
+    [Handwired]
+    public static (bool[] Next, bool First) OneHotRotate([OneHot(AllowAllZero = true), FixedLength(3)] bool[] state, [Range(-1, 1000)] int item)
+    {
+        var next = new bool[3];
+        next[0] = state[2] || item == 77;
+        next[1] = state[0];
+        next[2] = state[1];
+        return (next, next[0]);
+    }
 
     [Handwired]
     public static (int Count, float Marked) DeclaredCount([Range(0, 64)] int count, [FixedLength(2)] bool[] kept) =>
@@ -177,6 +209,55 @@ internal static class LoopWriterPrograms
         ],
         0);
 
+    // a and b are registers 0 and 1: the stage writes x to a and the old a to b, and the old b goes out.
+    public static LoopProgram Delay(bool whole) => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [new LoopRegister("a", 0), new LoopRegister("b", 0)],
+        [],
+        [new LoopOutputGroup("delayed", OutputGroupKind.Position, Positions, 0)],
+        [
+            Stage("Delay", StageRepeat.Forward, Function(whole ? nameof(LoopWriterInputs.DelayInt) : nameof(LoopWriterInputs.Delay)),
+                [("x", new CellSource.Item(0)), ("a", new CellSource.Register(0)), ("b", new CellSource.Register(1))],
+                [("item1", new StageWrite.Register(0)), ("item2", new StageWrite.Register(1)), ("item3", new StageWrite.Position(0))]),
+        ],
+        0);
+
+    // x is the item at the position, and y the first item of the document.
+    public static LoopProgram Mul() => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [],
+        [],
+        [new LoopOutputGroup("product", OutputGroupKind.Position, Positions, 0)],
+        [Stage("Mul", StageRepeat.Forward, Function(nameof(LoopWriterInputs.Mul)), [("x", new CellSource.Item(0)), ("y", new CellSource.DocumentCell(0, 0))], [("", new StageWrite.Position(0))])],
+        0);
+
+    public static LoopProgram SignField() => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [],
+        [new LoopField("kept", 1, true)],
+        [new LoopOutputGroup("kept", OutputGroupKind.Position, Positions, 7)],
+        [
+            Stage("Keep", StageRepeat.Backward, Function(nameof(LoopWriterInputs.SignKeep)), [("value", new CellSource.Item(0))], [("", new StageWrite.Field(0, 0))]),
+            Stage("Pass", StageRepeat.Forward, Function(nameof(LoopWriterInputs.SignPass)), [("kept", new CellSource.Field(0, 0))], [("", new StageWrite.Position(0))]),
+        ],
+        0);
+
+    public static LoopProgram OneHot() => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [new LoopRegister("state0", 1), new LoopRegister("state1", 0), new LoopRegister("state2", 0)],
+        [],
+        [new LoopOutputGroup("first", OutputGroupKind.Position, Positions, 0)],
+        [
+            Stage("Rotate", StageRepeat.Forward, Function(nameof(LoopWriterInputs.OneHotRotate)),
+                [("state", new CellSource.Register(0)), ("item", new CellSource.Item(0))],
+                [("item1", new StageWrite.Register(0)), ("item2", new StageWrite.Position(0))]),
+        ],
+        0);
+
     // The shared cells: boundaries at 0..31, region classes at 32..64, accepting at 65..72, transitions at 73..1160.
     public static LoopProgram Search8()
     {
@@ -224,11 +305,19 @@ internal static class LoopWriterPrograms
                     "Mixed" => random() < 0.3 ? new[] { 0f, 12.5f, 12.25f, 50f, 50.5f, 99.75f, 100f }[(int)Math.Floor(random() * 7)] : MathF.Round((float)(random() * 100), 2),
                     "DeclaredField" => random() < 0.5 ? 0f : 1f,
                     "Fma" => NearOne[((document * Positions) + position) % NearOne.Length],
+                    "Mul" => (float)(random() * 10),
+                    "SignField" => new[] { 0f, -0f, 1f }[(int)Math.Floor(random() * 3)],
+                    "OneHot" => position < length ? (float)Math.Floor(random() * 77) : -1f,
                     "Search8" => position < length ? (random() < 0.1 ? (float)Math.Floor(random() * 0x110000) : 97 + (float)Math.Floor(random() * 5)) : -1f,
                     _ => position < length ? (float)Math.Floor(random() * 1000) : -1f,
                 };
             }
             row[Positions] = length;
+            if (name == "OneHot" && document == 7)
+            {
+                row[3] = 77;
+                row[Positions] = Math.Max(length, 4);
+            }
         }
         return cells;
     }

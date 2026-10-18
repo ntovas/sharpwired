@@ -18,7 +18,8 @@ internal static class LoopCases
 {
     public const int Positions = 32;
 
-    public static readonly string[] Names = ["Sum", "Leaders", "LeadersBits", "Lookup", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Fma", "Search8"];
+    public static readonly string[] Names =
+        ["Sum", "Leaders", "LeadersBits", "Lookup", "LookupFaults", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Fma", "Search8", "Delay", "DelayInt", "Mul", "SignField", "OneHot"];
 
     public static (LoopProgram Program, float[] Shared, float[] Documents) Case(string name, int count, int seed) => name switch
     {
@@ -26,6 +27,7 @@ internal static class LoopCases
         "Leaders" => (Leaders(Positions), [], CreateDocuments(count, Positions, seed)),
         "LeadersBits" => (LeadersBits(), [], LeadersBitsDocuments(count, seed)),
         "Lookup" => (Lookup(Positions), LookupShared(), CreateDocuments(count, Positions, seed)),
+        "LookupFaults" => (Lookup(Positions), LookupShared(), LookupFaultDocuments(count, seed)),
         "Overflow" => (Overflow(Positions), [], CreateDocuments(count, Positions, seed, overflowAt: 7)),
         _ => (Program(name), LoopWriterPrograms.Shared(name, seed), LoopWriterPrograms.DocumentCells(name, count, seed)),
     };
@@ -38,8 +40,36 @@ internal static class LoopCases
         "Fma" => LoopWriterPrograms.Fma(),
         "DeclaredField" => LoopWriterPrograms.DeclaredField(),
         "Search8" => LoopWriterPrograms.Search8(),
+        "Delay" => LoopWriterPrograms.Delay(whole: false),
+        "DelayInt" => LoopWriterPrograms.Delay(whole: true),
+        "Mul" => LoopWriterPrograms.Mul(),
+        "SignField" => LoopWriterPrograms.SignField(),
+        "OneHot" => LoopWriterPrograms.OneHot(),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such program"),
     };
+
+    // The Lookup documents, with an item past the declared range 0..1000 in each 50th document, so that a program
+    // with a document group of 2 values has faults.
+    private static float[] LookupFaultDocuments(int count, int seed)
+    {
+        var cells = CreateDocuments(count, Positions, seed);
+        for (var document = 7; document < count; document += 50) cells[(document * (Positions + 1)) + 2] = 2000;
+        return cells;
+    }
+
+    /// <summary>
+    /// The index of each value of a document in LoopRun.DocumentValues, with its name. The document groups come
+    /// group after group, and in a group document after document, with ValuesPerDocument values each.
+    /// </summary>
+    public static IEnumerable<(int Index, string Name)> DocumentValueIndices(LoopProgram program, int count, int document)
+    {
+        var start = 0;
+        foreach (var group in program.OutputGroups.Where(group => group.Kind == OutputGroupKind.Document))
+        {
+            for (var column = 0; column < group.ValuesPerDocument; column++) yield return (start + (document * group.ValuesPerDocument) + column, $"{group.Name}[{column}]");
+            start += group.ValuesPerDocument * count;
+        }
+    }
 
     // The Leaders program with a field of bits that gets the largest item: each document whose largest item is
     // not 0 or 1 gets a fault.
@@ -120,17 +150,15 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         var (actual, actualTargets) = LoopCases.RunInterpreted(program, module, shared, documents, DocumentCount);
 
         var faults = expected.Faults.Select(fault => fault.Document).ToHashSet();
-        var documentValues = expected.DocumentValues.Length / DocumentCount;
         var compared = 0;
         for (var document = 0; document < DocumentCount; document++)
         {
             Assert.True(faults.Contains(document) == (actual.Lanes[document] != 0), $"document {document}: CPU fault {faults.Contains(document)}, kernel status {actual.Lanes[document]}");
             if (faults.Contains(document)) continue;
             compared++;
-            for (var group = 0; group < documentValues; group++)
+            foreach (var (index, value) in LoopCases.DocumentValueIndices(program, DocumentCount, document))
             {
-                var index = (group * DocumentCount) + document;
-                Same(writer, expected.DocumentValues[index], actual.DocumentValues[index], $"document {document} value {group}");
+                Same(writer, expected.DocumentValues[index], actual.DocumentValues[index], $"document {document} value {value}");
             }
             for (var group = 0; group < expectedTargets.Length; group++)
             {
@@ -147,6 +175,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         Assert.True(compared > DocumentCount / 3 || name == "LeadersBits", $"compared {compared}");
         if (name is "Overflow") Assert.Contains(7, faults);
         if (name is "LeadersBits") Assert.NotEmpty(faults);
+        if (name is "LookupFaults") Assert.Equal(Enumerable.Range(0, 6).Select(index => 7 + (50 * index)), faults.Order());
+        if (name is "OneHot") Assert.Equal([7], faults);
     }
 
     private static void Same(GpuWriter writer, float expected, float actual, string what)
@@ -186,6 +216,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         "LeadersBits Integer: 74 statements, rows 0/11/13, packed 0, lanes 0, tables 0",
         "Lookup Float32: 46 statements, rows 16/0/0, packed 0, lanes 0, tables 0",
         "Lookup Integer: 44 statements, rows 3/7/4, packed 0, lanes 0, tables 0",
+        "LookupFaults Float32: 46 statements, rows 16/0/0, packed 0, lanes 0, tables 0",
+        "LookupFaults Integer: 44 statements, rows 3/7/4, packed 0, lanes 0, tables 0",
         "Overflow Float32: 39 statements, rows 19/0/0, packed 0, lanes 0, tables 0",
         "Overflow Integer: 35 statements, rows 0/8/6, packed 0, lanes 0, tables 0",
         "Switches Float32: 80 statements, rows 20/0/0, packed 0, lanes 0, tables 0",
@@ -200,6 +232,16 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         "Fma Integer: 17 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
         "Search8 Float32: 1001 statements, rows 503/0/0, packed 0, lanes 0, tables 0",
         "Search8 Integer: 635 statements, rows 30/99/309, packed 80, lanes 50, tables 0",
+        "Delay Float32: 24 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "Delay Integer: 24 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "DelayInt Float32: 20 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "DelayInt Integer: 22 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "Mul Float32: 20 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
+        "Mul Integer: 20 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
+        "SignField Float32: 26 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "SignField Integer: 24 statements, rows 0/0/0, packed 0, lanes 0, tables 0",
+        "OneHot Float32: 30 statements, rows 5/0/0, packed 0, lanes 0, tables 0",
+        "OneHot Integer: 30 statements, rows 0/0/3, packed 0, lanes 0, tables 0",
     ];
 
     // Switches: the six gates of one form are one word operation, over the word of the six registers, the packed

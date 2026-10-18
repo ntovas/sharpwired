@@ -77,6 +77,10 @@ internal sealed partial class LoopStageWriter
     [GeneratedRegex(@"^\w+$")]
     private static partial Regex PlainName();
 
+    // A register variable, r<n> or rw<n>, in a text.
+    [GeneratedRegex(@"\brw?\d+\b")]
+    private static partial Regex RegisterName();
+
     private static string Text(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static string Grouped(string text) => text.Contains(' ', StringComparison.Ordinal) ? $"({text})" : text;
@@ -511,14 +515,16 @@ internal sealed partial class LoopStageWriter
     }
 
     // The writes of the outputs, after the statements of the rows. The registers come last, so that each
-    // statement above reads the registers of the previous position.
+    // statement above reads the registers of the previous position. A register value that reads a register,
+    // for example a register that gets the old value of another register, is copied into a let before the
+    // first register write, so that it also reads the value of the previous position.
     private List<string> WriteOutputs()
     {
         var (positionIndex, documentStart, _) = kernel.Shape.GroupLayout();
         var fieldLines = new List<string>();
         var windowLines = new List<string>();
         var documentLines = new List<string>();
-        var registerLines = new List<string>();
+        var registerValues = new List<(string Target, string Type, string Text)>();
         var wordLanes = new Dictionary<int, int[]>();
         var fieldLanes = new Dictionary<int, int[]>();
         var fieldBits = new Dictionary<int, (string[] Bits, string[] Signs)>();
@@ -542,12 +548,13 @@ internal sealed partial class LoopStageWriter
                         lanes[lane.Lane] = position;
                         break;
                     }
-                    registerLines.Add($"r{Text(register.Index)} = {kernel.RegisterStorage[register.Index] switch
+                    var (type, text) = kernel.RegisterStorage[register.Index] switch
                     {
-                        CellStorage.Bit => BitText(position),
-                        CellStorage.Whole => IntText(position),
-                        _ => Value(position),
-                    }};");
+                        CellStorage.Bit => ("u32", BitText(position)),
+                        CellStorage.Whole => ("i32", IntText(position)),
+                        _ => ("f32", Value(position)),
+                    };
+                    registerValues.Add(($"r{Text(register.Index)}", type, text));
                     break;
                 case StageWrite.Field field:
                     WriteField(field, position, fieldLines, fieldLanes, fieldBits, OutputLet);
@@ -574,7 +581,18 @@ internal sealed partial class LoopStageWriter
         foreach (var (word, lanes) in wordLanes)
         {
             if (lanes.Contains(-1)) throw new InvalidOperationException("a stage that writes one register of a word writes each register of it");
-            registerLines.Add($"rw{Text(word)} = {WordOfBits(lanes)};");
+            registerValues.Add(($"rw{Text(word)}", "u32", WordOfBits(lanes)));
+        }
+        var registerLines = new List<string>();
+        foreach (var (target, type, text) in registerValues)
+        {
+            var value = text;
+            if (RegisterName().IsMatch(text))
+            {
+                value = $"o{Text(outputLets++)}";
+                Emit($"let {value}: {type} = {text};");
+            }
+            registerLines.Add($"{target} = {value};");
         }
         return [.. fieldLines, .. windowLines, .. documentLines, .. registerLines];
     }

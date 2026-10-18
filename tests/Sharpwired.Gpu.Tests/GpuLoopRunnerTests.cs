@@ -6,6 +6,8 @@
 // fault of the CPU runner and keeps the other lanes. The create time of each shader and the run time over
 // 100,000 documents go to the test output. The subnormal rule (phase 5 decision 4) excludes a document with a
 // subnormal value on a device that flushes them, and the test writes the count.
+// A document value is compared at the index of its group and column (LoopCases.DocumentValueIndices), so a
+// group of 2 values with faults (LookupFaults) is compared document by document.
 
 using System.Diagnostics;
 using Sharpwired.Core;
@@ -44,12 +46,12 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         Assert.Equal(expected.Faults.ToArray(), actual.Faults.ToArray());
         Assert.Equal(count, actual.DocumentsDone);
         var faults = expected.Faults.Select(fault => fault.Document).ToHashSet();
-        var documentValues = expected.DocumentValues.Length / Math.Max(1, count);
         var cells = program.Buffers[0].CellsPerDocument;
         var excluded = 0;
         for (var document = 0; document < count; document++)
         {
-            var values = Enumerable.Range(0, documentValues).Select(group => expected.DocumentValues[(group * count) + document])
+            var indices = LoopCases.DocumentValueIndices(program, count, document).ToList();
+            var values = indices.Select(value => expected.DocumentValues[value.Index])
                 .Concat(Enumerable.Range(0, expectedTargets.Length).SelectMany(group => expectedTargets[group].Skip(document * program.Positions).Take(program.Positions)))
                 .Concat(documents.Skip(document * cells).Take(cells));
             if (device.FlushesSubnormals && values.Any(float.IsSubnormal))
@@ -57,10 +59,9 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
                 excluded++;
                 continue;
             }
-            for (var group = 0; group < documentValues; group++)
+            foreach (var (index, value) in indices)
             {
-                var index = (group * count) + document;
-                Same(writer, faults.Contains(document), expected.DocumentValues[index], actual.DocumentValues[index], $"document {document} value {group}");
+                Same(writer, faults.Contains(document), expected.DocumentValues[index], actual.DocumentValues[index], $"document {document} value {value}");
             }
             for (var group = 0; group < expectedTargets.Length; group++)
             {
