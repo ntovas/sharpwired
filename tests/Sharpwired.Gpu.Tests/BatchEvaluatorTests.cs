@@ -173,6 +173,8 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
             evaluator.Evaluate(sources, TableCount, outputs);
             var (compared, excluded) = GpuChecks.Compare(device, circuit, program, sources, TableCount, outputs, SameNumericValue(writer));
             output.WriteLine($"[chunks] {writer}: {compared} compared, {excluded} with a subnormal value not compared");
+            // The subnormal rule must leave most tables compared, so that each chunk is checked.
+            Assert.True(compared >= TableCount / 2, $"compared {compared} of {TableCount}");
         });
     }
 
@@ -367,6 +369,89 @@ public sealed class BatchEvaluatorTests(GpuFixture fixture, ITestOutputHelper ou
             output.WriteLine($"[forms] {writer}: {compared} evaluations compared, {excluded} with a subnormal value not compared; "
                 + $"rows: {floatRows} f32, {wholeRows} i32, {bitRows} u32");
             if (writer == GpuWriter.Integer) Assert.True(wholeRows > 0 && bitRows > 0, "the integer writer wrote no integer row");
+            // The forms give 3 * 256 + 48 * 64 = 3,840 evaluations. The subnormal rule must leave at
+            // least half of them compared, so that it cannot exclude each table and pass.
+            Assert.True(compared >= 1_920, $"compared {compared} of 3840");
+        });
+    }
+
+    // A one-hot group of -0 bits and a row with the bias -0. The mass of a gather starts at +0, as the
+    // tensor evaluator starts it, so a group of -0 bits gives the mass +0, the masked product -0 for a
+    // negative candidate, and the row value -0 + -0 = -0. A mass that starts at the first bit gives -0,
+    // the product +0, and the row value +0. The f32 writer must give the bits of the tensor evaluator,
+    // and each writer must give the numeric value of the reference.
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void A_gather_over_negative_zero_bits_with_a_negative_zero_bias_gives_the_sign_of_the_tensor_evaluator(GpuWriter writer)
+    {
+        var circuit = new Circuit(6);
+        var cells = Enumerable.Range(0, 6).Select(circuit.Source).ToArray();
+        circuit.AssumeOneHot(cells[..3], allowAllZero: true);
+        foreach (var cell in cells[3..]) circuit.AssumeRange(cell, -100, 100);
+        var sum = circuit.Affine([
+            (circuit.Multiply(cells[0], cells[3]), 1),
+            (circuit.Multiply(cells[1], cells[4]), 1),
+            (circuit.Multiply(cells[2], cells[5]), 1),
+        ], -0.0);
+        var program = circuit.CompileTensorProgram([sum]);
+        Assert.Equal(1, TensorChecks.ProgramCounts(program).GatherReads);
+        float[][] tables =
+        [
+            [-0f, -0f, -0f, -5f, -6f, -7f],
+            [-0f, -0f, -0f, 5f, -6f, -0f],
+            [-0f, -0f, -0f, -0f, -0f, -0f],
+            [1f, -0f, -0f, -0f, 6f, 7f],
+            [-0f, 1f, -0f, 5f, -0f, 7f],
+            [-0f, -0f, 1f, 5f, 6f, -7f],
+            [0f, 0f, 0f, -5f, -6f, -7f],
+        ];
+        var sources = tables.SelectMany(table => table).ToArray();
+        var tensor = circuit.CreateTensorProgramEvaluator(program);
+        var expected = tables.Select(table => tensor.Evaluate(table)[0]).ToArray();
+        // The case of the test: the tensor evaluator gives -0 for the first table.
+        Assert.True(expected[0] == 0 && float.IsNegative(expected[0]), $"tensor value {expected[0]:R}");
+        fixture.ForEachDevice(output, device =>
+        {
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
+            var outputs = evaluator.Evaluate(sources, tables.Length);
+            var (compared, _) = GpuChecks.Compare(device, circuit, program, sources, tables.Length, outputs, sameNumericValue: true);
+            Assert.Equal(tables.Length, compared);
+            if (writer == GpuWriter.Float32)
+            {
+                Js.AllIs(expected.Select(value => (double)value), outputs.Select(value => (double)value));
+            }
+        });
+    }
+
+    // GpuEvaluator is also a root evaluator of one source table (IRootEvaluator). The values equal the
+    // batch values and the reference. The evaluator returns the same array on each call.
+    [Theory]
+    [MemberData(nameof(Writers))]
+    public void The_root_evaluator_of_one_table_gives_the_batch_values(GpuWriter writer)
+    {
+        const int TableCount = 64;
+        var (circuit, program) = BatchPrograms.Create();
+        var sources = BatchPrograms.Tables(TableCount, 0x1e0);
+        fixture.ForEachDevice(output, device =>
+        {
+            using var evaluator = GpuEvaluator.Create(device, circuit, program, writer);
+            IRootEvaluator root = evaluator;
+            Assert.Same(program, root.Program);
+            var batch = evaluator.Evaluate(sources, TableCount);
+            var single = new float[batch.Length];
+            float[]? first = null;
+            for (var table = 0; table < TableCount; table++)
+            {
+                var values = root.Evaluate(sources.AsSpan(table * 6, 6));
+                Assert.Equal(evaluator.RootCount, values.Length);
+                first ??= values;
+                Assert.Same(first, values);
+                values.CopyTo(single, table * evaluator.RootCount);
+            }
+            Js.AllIs(batch.Select(value => (double)value), single.Select(value => (double)value));
+            var (compared, _) = GpuChecks.Compare(device, circuit, program, sources, TableCount, single, SameNumericValue(writer));
+            Assert.True(compared >= TableCount / 2, $"compared {compared}");
+            Assert.Throws<ArgumentException>(() => root.Evaluate(sources.AsSpan(0, 5)));
         });
     }
 

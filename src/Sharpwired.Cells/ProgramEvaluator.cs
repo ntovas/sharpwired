@@ -3,6 +3,7 @@
 // types, so ProgramEvaluation holds the outputs in OutputPaths order, and Read gives the value of one
 // output wire. ISourceTableEvaluator and ISourceTableEvaluation have no Handwired source. A host
 // reads a program evaluator and a plain method runner of phase 4 through them.
+// The Create overload with a backend has no Handwired source. It lets a GPU evaluator run the program.
 
 using System.Collections.Immutable;
 using Sharpwired.Core;
@@ -43,7 +44,23 @@ public static class ProgramEvaluator
     /// fields, for example a ValueTuple, is refused, because the walker reads only properties.
     /// </remarks>
     public static ProgramEvaluator<TOutput> Create<TOutput>(FinishedTable program, TOutput output)
-        where TOutput : notnull => new(program, output);
+        where TOutput : notnull => new(program, output, null);
+
+    /// <summary>
+    /// <see cref="Create{TOutput}(FinishedTable, TOutput)"/> with another root evaluator. Create compiles
+    /// the program, and then calls <paramref name="backend"/> one time with the circuit of the table and
+    /// the compiled program. Each call of Evaluate runs the program through the root evaluator that the
+    /// backend returns, for example a GPU evaluator. The checks before and after the evaluation are the
+    /// same as without a backend.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The backend returned null, or a root evaluator of another program.</exception>
+    public static ProgramEvaluator<TOutput> Create<TOutput>(
+        FinishedTable program, TOutput output, Func<Circuit, TensorProgram, IRootEvaluator> backend)
+        where TOutput : notnull
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        return new(program, output, backend);
+    }
 }
 
 /// <summary>
@@ -60,11 +77,12 @@ public sealed class ProgramEvaluator<TOutput> : ISourceTableEvaluator
     private readonly Circuit circuit;
     private readonly CellValidator validator;
     private readonly ImmutableArray<Wire> roots;
-    private readonly TensorEvaluator evaluator;
+    private readonly IRootEvaluator evaluator;
     private readonly int nextCount;
     private readonly ProgramEvaluation result;
 
-    internal ProgramEvaluator(FinishedTable program, TOutput output)
+    // A null backend gives the TensorEvaluator of the program.
+    internal ProgramEvaluator(FinishedTable program, TOutput output, Func<Circuit, TensorProgram, IRootEvaluator>? backend)
     {
         ArgumentNullException.ThrowIfNull(program);
         var leaves = WireStruct.CollectLeaves(output, "", []);
@@ -73,7 +91,15 @@ public sealed class ProgramEvaluator<TOutput> : ISourceTableEvaluator
         nextCount = program.NextSource.Length;
         roots = [.. program.NextSource, .. leaves.Select(leaf => leaf.Wire)];
         Program = circuit.CompileTensorProgram(roots);
-        evaluator = circuit.CreateTensorProgramEvaluator(Program);
+        if (backend is null)
+        {
+            evaluator = circuit.CreateTensorProgramEvaluator(Program);
+        }
+        else
+        {
+            evaluator = backend(circuit, Program) ?? throw new InvalidOperationException("the backend returned no root evaluator");
+            if (!ReferenceEquals(evaluator.Program, Program)) throw new InvalidOperationException("the backend returned a root evaluator of another program");
+        }
         OutputPaths = [.. leaves.Select(leaf => leaf.Path)];
         var firstLeaf = new Dictionary<Wire, int>();
         for (var index = 0; index < leaves.Count; index++) firstLeaf.TryAdd(leaves[index].Wire, index);

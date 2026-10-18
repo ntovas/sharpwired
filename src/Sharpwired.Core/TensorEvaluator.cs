@@ -28,7 +28,7 @@ namespace Sharpwired.Core;
 /// <see cref="IndexOutOfRangeException"/>. Handwired reads undefined in the same case.
 /// </para>
 /// </remarks>
-public sealed class TensorEvaluator
+public sealed class TensorEvaluator : IRootEvaluator
 {
     private readonly Circuit circuit;
     private readonly TensorWorkspace workspace;

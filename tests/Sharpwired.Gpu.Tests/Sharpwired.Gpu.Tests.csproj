@@ -25,10 +25,12 @@
     <Compile Include="..\Sharpwired.Core.Tests\Js.cs" Link="Js.cs" />
     <Compile Include="..\Sharpwired.Core.Tests\TensorChecks.cs" Link="TensorChecks.cs" />
     <Compile Include="..\Sharpwired.Core.Tests\RandomPrograms.cs" Link="RandomPrograms.cs" />
+    <Compile Include="..\Toggle.Builder.Tests\ToggleTrace.cs" Link="ToggleTrace.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
+    <ProjectReference Include="..\..\samples\Toggle.Builder\Toggle.Builder.csproj" />
   </ItemGroup>
 
 </Project>

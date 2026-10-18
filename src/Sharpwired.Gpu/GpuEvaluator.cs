@@ -1,6 +1,7 @@
 // Handwired source: src/json-search/gpu/host.ts (the evaluate function of createProgramRunner). The GPU
 // batch evaluator: one shader of the program, the source tables in chunks that fit the buffer limits
-// of the device, one dispatch and one readback for each chunk.
+// of the device, one dispatch and one readback for each chunk. It is also the root evaluator of one
+// table (IRootEvaluator) that ProgramEvaluator uses for a program on the GPU.
 
 using Sharpwired.Core;
 
@@ -20,7 +21,7 @@ namespace Sharpwired.Gpu;
 /// have the other sign. The integer evaluator also checks the grid and the bit declarations of the
 /// source cells, because the integer writer reads such a cell as an integer.
 /// </remarks>
-public sealed class GpuEvaluator : IBatchEvaluator
+public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 {
     // The bindings of the shader: sources, outputs, params (WgslFloatWriter).
     private const int SourceBinding = 0;
@@ -33,6 +34,8 @@ public sealed class GpuEvaluator : IBatchEvaluator
     private readonly Circuit circuit;
     private readonly ComputeKernel kernel;
     private readonly bool checksDeclarations;
+    // The values of the last call of the root evaluator of one table.
+    private readonly float[] rootValues;
     private bool disposed;
 
     private GpuEvaluator(GpuDevice device, Circuit circuit, TensorProgram program, WgslModule module, int tablesPerChunk, bool checksDeclarations)
@@ -43,6 +46,7 @@ public sealed class GpuEvaluator : IBatchEvaluator
         Program = program;
         Module = module;
         TablesPerChunk = tablesPerChunk;
+        rootValues = new float[module.RootCount];
         kernel = new ComputeKernel(device, module.Code, Layout);
     }
 
@@ -91,6 +95,17 @@ public sealed class GpuEvaluator : IBatchEvaluator
         var outputs = new float[checked(tableCount * RootCount)];
         Evaluate(sources, tableCount, outputs);
         return outputs;
+    }
+
+    /// <summary>
+    /// Evaluate one source table on the GPU, and return the values of Program.Roots, in root order. The
+    /// call does one dispatch and one readback. For many tables, use the batch Evaluate.
+    /// </summary>
+    /// <returns>The same array on each call. The next call overwrites it.</returns>
+    public float[] Evaluate(ReadOnlySpan<float> source)
+    {
+        Evaluate(source, 1, rootValues);
+        return rootValues;
     }
 
     public void Evaluate(ReadOnlySpan<float> sources, int tableCount, Span<float> outputs)

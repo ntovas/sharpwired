@@ -236,4 +236,86 @@ public class ProgramEvaluatorTests
         Js.AllIs([0, 1], last.NextValues.Select(value => (double)value));
         Js.AllIs([1, 1], last.Outputs.Select(value => (double)value));
     }
+
+    // Sharpwired case with no Handwired test (phase 5, task 4). Create with a backend calls the backend
+    // one time, with the circuit of the table and the compiled program, and evaluates through the root
+    // evaluator that the backend returns. The results equal the results of Create without a backend.
+    [Fact]
+    public void Create_with_a_backend_calls_the_backend_one_time_and_gives_the_results_of_Create_without_a_backend()
+    {
+        var table = new SourceTable();
+        var press = table.Declare("press", Cell.Event());
+        var onCell = table.Declare("on", Cell.StateBit());
+        var speedCell = table.Declare("speed", Cell.State(new NumericRange(0, 8), initial: 2));
+        var circuit = table.CreateCircuit();
+        var on = circuit.Select(press, onCell, circuit.Affine([(onCell, -1)], 1));
+        var speed = circuit.Affine([(speedCell, 2)]);
+        var shown = circuit.RoundAffine([(speedCell, 1.0 / 3), (onCell, -0.7)], -0.0);
+        table.Next(onCell, on);
+        table.Next(speedCell, speed);
+        var finished = table.Finish();
+        var output = new { on, speed, shown };
+        var calls = new List<(Circuit Circuit, TensorProgram Program)>();
+        CountingEvaluator? counting = null;
+        var withBackend = ProgramEvaluator.Create(finished, output, (backendCircuit, program) =>
+        {
+            calls.Add((backendCircuit, program));
+            return counting = new CountingEvaluator(backendCircuit.CreateTensorProgramEvaluator(program));
+        });
+        var plain = ProgramEvaluator.Create(finished, output);
+        var call = Assert.Single(calls);
+        Assert.Same(finished.Circuit, call.Circuit);
+        Assert.Same(withBackend.Program, call.Program);
+        Assert.Equal(plain.Program.Roots, withBackend.Program.Roots);
+        Assert.Equal<string>(plain.OutputPaths, withBackend.OutputPaths);
+
+        float[][] sources = [[1, 0, 2], [0, 1, 4], [1, 1, 0], [0, -0f, 3], [1, 0, 0.125f]];
+        foreach (var source in sources)
+        {
+            var expected = plain.Evaluate(source);
+            var expectedNext = expected.NextValues.ToArray();
+            var expectedOutputs = expected.Outputs.ToArray();
+            var actual = withBackend.Evaluate(source);
+            Js.AllIs(expectedNext.Select(value => (double)value), actual.NextValues.Select(value => (double)value));
+            Js.AllIs(expectedOutputs.Select(value => (double)value), actual.Outputs.Select(value => (double)value));
+        }
+        Assert.Equal(sources.Length, counting!.Calls);
+        // The checks after the evaluation use the values of the backend: speed 8 doubles to 16.
+        var failure = Assert.Throws<InvalidOperationException>(() => plain.Evaluate([0, 0, 8]));
+        Assert.Equal(failure.Message, Assert.Throws<InvalidOperationException>(() => withBackend.Evaluate([0, 0, 8])).Message);
+        Assert.Single(calls);
+    }
+
+    // Sharpwired case with no Handwired test (phase 5, task 4). A backend that is null, that returns
+    // null, or that returns an evaluator of another program is refused in Create.
+    [Fact]
+    public void Create_refuses_a_null_backend_and_a_backend_result_of_another_program()
+    {
+        var table = new SourceTable();
+        var countCell = table.Declare("count", Cell.State(new NumericRange(0, 100)));
+        var circuit = table.CreateCircuit();
+        var count = circuit.Affine([(countCell, 1)], 1);
+        table.Next(countCell, count);
+        var finished = table.Finish();
+        Assert.Throws<ArgumentNullException>(() => ProgramEvaluator.Create(finished, count, null!));
+        Js.Throws(() => ProgramEvaluator.Create(finished, count, (_, _) => null!), "the backend returned no root evaluator");
+        var other = circuit.CompileTensorProgram([count]);
+        Js.Throws(
+            () => ProgramEvaluator.Create(finished, count, (backendCircuit, _) => backendCircuit.CreateTensorProgramEvaluator(other)),
+            "the backend returned a root evaluator of another program");
+    }
+
+    // A root evaluator that counts its calls and passes each call to another root evaluator.
+    private sealed class CountingEvaluator(IRootEvaluator inner) : IRootEvaluator
+    {
+        public int Calls { get; private set; }
+
+        public TensorProgram Program => inner.Program;
+
+        public float[] Evaluate(ReadOnlySpan<float> source)
+        {
+            Calls++;
+            return inner.Evaluate(source);
+        }
+    }
 }
