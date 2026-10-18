@@ -34,7 +34,10 @@
 // - The first error kind of json-step.ts is one ReGLU, errorKindHere × relu(errorAfter - errorBefore). Here it
 //   is the bit `errorAfter && !errorBefore` and a select, 2 operations.
 // - The Handwired step is 37 operations and the end 17. Here the step is 40 and the end 18 live operations that
-//   compute (HighlighterTests pins them), because of the two items above.
+//   compute (HighlighterTests pins them). The two items above give 3 more operations in each stage: 1 for each
+//   error-state bit, and 1 for the first error kind. The end also has 2 fewer. Its affine form of
+//   firstErrorPosition composes errorFreeCount, which is a roundAffine of its own in json-step.ts. Its output
+//   truncated is the bit itself (rule 1), and json-step.ts writes a roundAffine of the bit.
 
 using Sharpwired.Annotations;
 

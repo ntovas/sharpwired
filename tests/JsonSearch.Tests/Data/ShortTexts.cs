@@ -30,7 +30,7 @@ internal static class ShortTexts
     // What comes after: the end of the text, a line feed, and one more token.
     private static readonly string[] TokenTails = ["", "\n", " 1"];
 
-    // One more character just after, which continues some tokens and breaks others.
+    // One more character immediately after, which continues some tokens and breaks others.
     private static readonly string[] NextCharacters = ["0", ".", "e", "+", "l", "u", "r", "s", "a", "\"", "\\", "{"];
 
     // Short texts that go in containers, some valid there and some not, for example a key without an object.

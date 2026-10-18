@@ -348,7 +348,7 @@ internal static class JsonReference
                     expected = token.Type == TokenType.OpenObject ? Expected.KeyOrClose : Expected.ValueOrClose;
                     break;
                 case TokenType.CloseObject or TokenType.CloseArray:
-                    // A container can close just after its opener, or after a value.
+                    // A container can close immediately after its opener, or after a value.
                     var mayClose = expected is Expected.CommaOrClose or Expected.KeyOrClose or Expected.ValueOrClose;
                     if (!mayClose) return (Error(Unexpected()), keys, expected);
                     if (stack.Count == 0 || stack.Peek() != (token.Type == TokenType.CloseObject)) return (Error(ErrorKind.MismatchedBracket), keys, expected);

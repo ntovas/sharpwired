@@ -13,8 +13,12 @@
 // of each document for All, or in each run of searched code points (the keys, or the string values with their
 // quotes) for the other scopes. The runs come from the display kinds of the highlighter and are found before the
 // time starts. The baseline counts each match of Regex, also an empty match, as plain-search.ts counts each match
-// of RegExp. Differences from Handwired: one total limit stops the count between documents, and the match timeout
-// of Regex stops one long match (Handwired ends the worker of RegExp after 10 s).
+// of RegExp. Differences from Handwired:
+// - One total limit stops the count between documents, and the match timeout of Regex stops one long match
+//   (Handwired ends the worker of RegExp after 10 s).
+// - Regex steps one UTF-16 unit after an empty match, and RegExp with the u flag steps one code point. So an
+//   empty match can also occur between the two units of a surrogate pair. For example, a* gives 3 matches over
+//   U+1F600 in Regex, and 2 in RegExp.
 
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -254,6 +258,7 @@ public static class DotNetBaseline
             var found = 0;
             try
             {
+                // An empty match between the two units of a surrogate pair also counts (see the header).
                 for (var run = firstRun[row]; run < firstRun[row + 1]; run++) found += regex.Count(runs[run]);
             }
             catch (RegexMatchTimeoutException)

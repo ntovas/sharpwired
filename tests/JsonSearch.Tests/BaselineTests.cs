@@ -167,6 +167,10 @@ public sealed class BaselineTests(ITestOutputHelper output)
         output.WriteLine(table);
         var lines = table.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
+            "The search of 2,000 documents: the program at the capacity that holds the pattern, on all cores for the CPU backend, "
+            + "and .NET Regex on one thread. Counts compares the totals; the tests compare the count of each document.",
+            lines[0]);
+        Assert.Equal(
             "| Pattern | Scope | Backend | States | Program ms | Program documents | Program matches | .NET Regex ms | .NET documents | .NET matches | Counts |",
             lines[1]);
         Assert.Equal(12, lines.Count(line => line.StartsWith("| `", StringComparison.Ordinal)));
@@ -227,6 +231,7 @@ public sealed class GpuBenchTests(GpuFixture fixture, ITestOutputHelper output)
                 Assert.Single(pair.Select(row => (row.ProgramDocuments, row.ProgramMatches)).Distinct());
             }
             output.WriteLine(SearchBench.Format(rows, texts.Length));
+            Assert.Equal(0, gpu.ReplayPasses);
         });
     }
 }

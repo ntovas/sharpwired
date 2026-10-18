@@ -113,7 +113,7 @@ internal static class TestPatterns
     }
 
     /// <summary>
-    /// A text of the code points just below, at and above each class boundary of the pattern, and 0 and U+10FFFF.
+    /// A text of the code points immediately below, at and above each class boundary of the pattern, and 0 and U+10FFFF.
     /// For example, for [a-c]+, a text over `, a, b, c, d, NUL and U+10FFFF.
     /// </summary>
     public static int[] BoundaryText(Func<double> random, CompiledPattern compiled, int length)

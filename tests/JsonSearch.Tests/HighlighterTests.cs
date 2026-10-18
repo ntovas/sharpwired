@@ -186,7 +186,9 @@ public sealed class HighlighterTests(ITestOutputHelper output)
         foreach (var line in lines) output.WriteLine(line);
         // Handwired search.test.ts: step 37 operations with 12 index reads, end 17 operations with 6 index reads.
         // Step has 3 more: the two error-state bits are 2 operations each (Handwired: 1 ReGLU each), and the first
-        // error bit is one operation more than the ReGLU of Handwired. End has 1 more: its error-state bit.
+        // error bit is one operation more than the ReGLU of Handwired. End has the same 3 more, and 2 fewer: the
+        // affine form of firstErrorPosition composes errorFreeCount (Handwired: its own roundAffine), and the
+        // output truncated is the bit itself (Handwired: a roundAffine of the bit). So End has 1 more.
         Assert.Equal(
             [
                 "Step: 103 operations, 40 live operations that compute, 12 live index reads, 24 layers",
