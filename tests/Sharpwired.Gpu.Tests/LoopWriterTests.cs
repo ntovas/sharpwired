@@ -18,7 +18,7 @@ internal static class LoopCases
 {
     public const int Positions = 32;
 
-    public static readonly string[] Names = ["Sum", "Leaders", "LeadersBits", "Lookup", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Search8"];
+    public static readonly string[] Names = ["Sum", "Leaders", "LeadersBits", "Lookup", "Overflow", "Switches", "OneByOne", "Mixed", "DeclaredField", "Fma", "Search8"];
 
     public static (LoopProgram Program, float[] Shared, float[] Documents) Case(string name, int count, int seed) => name switch
     {
@@ -35,6 +35,7 @@ internal static class LoopCases
         "Switches" => LoopWriterPrograms.Switches(),
         "OneByOne" => LoopWriterPrograms.OneByOne(),
         "Mixed" => LoopWriterPrograms.Mixed(),
+        "Fma" => LoopWriterPrograms.Fma(),
         "DeclaredField" => LoopWriterPrograms.DeclaredField(),
         "Search8" => LoopWriterPrograms.Search8(),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such program"),
@@ -195,6 +196,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         "Mixed Integer: 50 statements, rows 19/3/0, packed 0, lanes 0, tables 9",
         "DeclaredField Float32: 34 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
         "DeclaredField Integer: 32 statements, rows 1/1/0, packed 0, lanes 0, tables 0",
+        "Fma Float32: 17 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
+        "Fma Integer: 17 statements, rows 2/0/0, packed 0, lanes 0, tables 0",
         "Search8 Float32: 1001 statements, rows 503/0/0, packed 0, lanes 0, tables 0",
         "Search8 Integer: 635 statements, rows 30/99/309, packed 80, lanes 50, tables 0",
     ];

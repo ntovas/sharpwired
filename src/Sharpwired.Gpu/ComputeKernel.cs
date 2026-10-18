@@ -24,8 +24,8 @@ internal enum KernelBuffer
 /// <summary>One dispatch of a kernel: the workgroups in x.</summary>
 internal readonly record struct KernelDispatch(ComputeKernel Kernel, uint Workgroups);
 
-/// <summary>A copy of the first bytes of a storage buffer to the readback buffer.</summary>
-internal readonly record struct BufferRead(StorageBuffer Buffer, long Bytes);
+/// <summary>A copy of the bytes of a storage buffer from an offset (a multiple of 4) to the readback buffer.</summary>
+internal readonly record struct BufferRead(StorageBuffer Buffer, long Bytes, long Offset = 0);
 
 /// <summary>
 /// One storage buffer of a device. A kernel makes one for each binding, or binds a buffer that other
@@ -94,6 +94,28 @@ internal sealed unsafe class StorageBuffer : IDisposable
             fixed (T* source = data)
             {
                 Api.QueueWriteBuffer(Device.Queue, handle, 0, source, (nuint)bytes);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Write the data at the byte offset, inside the bytes that <see cref="Size"/> declares. The offset and the
+    /// length of the data in bytes must be multiples of 4.
+    /// </summary>
+    public void WriteAt<T>(long offset, ReadOnlySpan<T> data) where T : unmanaged
+    {
+        lock (Device.Sync)
+        {
+            ThrowIfUnusable();
+            var bytes = (long)data.Length * sizeof(T);
+            if (offset < 0 || offset % 4 != 0 || bytes % 4 != 0 || offset + bytes > Size)
+            {
+                throw new ArgumentException($"a write of {bytes} bytes at {offset} must lie inside the {Size} bytes of the buffer, at a multiple of 4", nameof(offset));
+            }
+            if (bytes == 0) return;
+            fixed (T* source = data)
+            {
+                Api.QueueWriteBuffer(Device.Queue, Handle(), (ulong)offset, source, (nuint)bytes);
             }
         }
     }
@@ -286,6 +308,24 @@ internal sealed unsafe class ComputeKernel : IDisposable
         }
     }
 
+    /// <summary>Bind the own buffer of the kernel to a binding again, in place of a buffer that Bind gave.</summary>
+    public void Unbind(int binding)
+    {
+        lock (device.Sync)
+        {
+            ThrowIfUnusable();
+            CheckBinding(binding);
+            bound[binding] = owned[binding];
+        }
+    }
+
+    /// <summary>The buffer that a binding holds now.</summary>
+    public StorageBuffer Buffer(int binding)
+    {
+        CheckBinding(binding);
+        return bound[binding];
+    }
+
     /// <summary>Make the buffer of a binding hold at least <paramref name="bytes"/> bytes. Its data stays.</summary>
     public void Reserve(int binding, long bytes)
     {
@@ -347,7 +387,7 @@ internal sealed unsafe class ComputeKernel : IDisposable
             foreach (var read in reads)
             {
                 if (!ReferenceEquals(read.Buffer.Device, device)) throw new ArgumentException("a read buffer belongs to another device", nameof(reads));
-                if (read.Bytes < 0 || read.Bytes % 4 != 0 || read.Bytes > read.Buffer.Size)
+                if (read.Bytes < 0 || read.Bytes % 4 != 0 || read.Offset < 0 || read.Offset % 4 != 0 || read.Offset + read.Bytes > read.Buffer.Size)
                 {
                     throw new ArgumentException($"a read of {read.Bytes} bytes from a buffer of {read.Buffer.Size} bytes", nameof(reads));
                 }
@@ -364,13 +404,15 @@ internal sealed unsafe class ComputeKernel : IDisposable
             }
             var sources = new nint[reads.Length];
             var sizes = new long[reads.Length];
+            var offsets = new long[reads.Length];
             for (var index = 0; index < reads.Length; index++)
             {
                 sources[index] = (nint)reads[index].Buffer.Handle();
                 sizes[index] = reads[index].Bytes;
+                offsets[index] = reads[index].Offset;
             }
             var target = total > 0 ? readback.Reserve(total) : null;
-            device.Checked("the dispatch", () => Encode(device, passes, sources, sizes, target));
+            device.Checked("the dispatch", () => Encode(device, passes, sources, sizes, offsets, target));
             if (total == 0) return;
             device.MapRead(target, total);
             try
@@ -399,7 +441,7 @@ internal sealed unsafe class ComputeKernel : IDisposable
 
     // Encode the passes and the copies, and submit them. Each object that this method creates is
     // released before it returns.
-    private static void Encode(GpuDevice device, KernelDispatch[] passes, nint[] sources, long[] sizes, WgpuBuffer* target)
+    private static void Encode(GpuDevice device, KernelDispatch[] passes, nint[] sources, long[] sizes, long[] offsets, WgpuBuffer* target)
     {
         var encoderDescriptor = new CommandEncoderDescriptor();
         var encoder = Api.DeviceCreateCommandEncoder(device.Handle, &encoderDescriptor);
@@ -416,7 +458,7 @@ internal sealed unsafe class ComputeKernel : IDisposable
         long offset = 0;
         for (var index = 0; index < sources.Length; index++)
         {
-            if (sizes[index] > 0) Api.CommandEncoderCopyBufferToBuffer(encoder, (WgpuBuffer*)sources[index], 0, target, (ulong)offset, (ulong)sizes[index]);
+            if (sizes[index] > 0) Api.CommandEncoderCopyBufferToBuffer(encoder, (WgpuBuffer*)sources[index], (ulong)offsets[index], target, (ulong)offset, (ulong)sizes[index]);
             offset += sizes[index];
         }
         var commandDescriptor = new CommandBufferDescriptor();

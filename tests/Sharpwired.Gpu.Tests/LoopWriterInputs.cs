@@ -10,6 +10,8 @@
 //   a constant table, and a whole bucket from a second constant table.
 // - DeclaredField: a field that the loop program declares as bits, from a cell within 0..1 that is not a
 //   bit, so nothing proves that the field holds bits.
+// - Fma: x * 1.0000001 - 1.0000002 at each position, for the keeps of the f32 writer (the inputs near 1 of
+//   WgslFormTests, as RoundingPointTests reads them).
 // - Search8: the Reverse8 and Forward8 steps of LoopInputs as a search of two passes, with a field of 8 bits.
 // Each program has its own seeded documents, with each item inside the declared range of its cell.
 
@@ -74,6 +76,10 @@ public static class LoopWriterInputs
         return (nextStreak, nextTotal, nextBucket, over);
     }
 
+    // A product and a sum that a GPU compiler can contract to a fused multiply-add when no keep stops it.
+    [Handwired]
+    public static float Fma([Range(0.5, 2)] float x) => (x * 1.0000001f) - 1.0000002f;
+
     [Handwired]
     public static (float Kept, float Opposite) DeclaredKeep([Range(0, 1)] float value) => (value, 1f - value);
 
@@ -86,6 +92,8 @@ public static class LoopWriterInputs
 internal static class LoopWriterPrograms
 {
     public const int Positions = 32;
+
+    private static readonly float[] NearOne = WgslFormTests.NearOne();
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TranslatedFunction> Functions = new();
 
@@ -143,6 +151,15 @@ internal static class LoopWriterPrograms
                 [("item1", new StageWrite.Register(0)), ("item2", new StageWrite.Register(1)), ("item3", new StageWrite.Register(2)), ("item4", new StageWrite.Position(0))]),
         ],
         1);
+
+    public static LoopProgram Fma() => LoopProgram.Create(
+        Positions,
+        [Documents(Positions)],
+        [],
+        [],
+        [new LoopOutputGroup("product", OutputGroupKind.Position, Positions, 0)],
+        [Stage("Fma", StageRepeat.Forward, Function(nameof(LoopWriterInputs.Fma)), [("x", new CellSource.Item(0))], [("", new StageWrite.Position(0))])],
+        0);
 
     public static LoopProgram DeclaredField() => LoopProgram.Create(
         Positions,
@@ -206,6 +223,7 @@ internal static class LoopWriterPrograms
                     "Switches" => (float)Math.Floor(random() * LoopWriterInputs.Rows),
                     "Mixed" => random() < 0.3 ? new[] { 0f, 12.5f, 12.25f, 50f, 50.5f, 99.75f, 100f }[(int)Math.Floor(random() * 7)] : MathF.Round((float)(random() * 100), 2),
                     "DeclaredField" => random() < 0.5 ? 0f : 1f,
+                    "Fma" => NearOne[((document * Positions) + position) % NearOne.Length],
                     "Search8" => position < length ? (random() < 0.1 ? (float)Math.Floor(random() * 0x110000) : 97 + (float)Math.Floor(random() * 5)) : -1f,
                     _ => position < length ? (float)Math.Floor(random() * 1000) : -1f,
                 };
