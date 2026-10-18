@@ -1,9 +1,9 @@
 // Handwired source: the header of lab/ui-exploration/codegen/wgsl.ts, which lists the FP32 failures
 // that Handwired measured on Metal through wgpu and Dawn. These tests run the hand-written WGSL forms of
 // question 2 of the phase 5 plan on each adapter. Each group has forms without keep and forms with keep.
-// The forms with keep must give the CPU bits for each input. The forms without keep are written to the
-// output with their counts of differences, and have no assertion, because a backend without fast math
-// gives no difference.
+// The forms with keep must give the CPU bits for each input. The test writes the forms without keep to
+// the output with their counts of differences. These forms have no assertion, because a backend without
+// fast math gives no difference.
 
 using Xunit.Abstractions;
 
@@ -68,8 +68,12 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
 
             foreach (var form in group.WithKeep)
             {
-                var differences = Differences(form, group.Inputs, Run(device, form, group.Inputs));
-                output.WriteLine($"with keep: {form.Name}: {differences.Count} of {Lanes} differ{Example(differences)}");
+                var all = Differences(form, group.Inputs, Run(device, form, group.Inputs));
+                // On a device that flushes subnormal values, the test does not compare a lane with a
+                // subnormal input or a subnormal CPU result. This is decision 4 of the phase 5 plan.
+                var differences = device.FlushesSubnormals ? all.Where(lane => !Subnormal(lane)).ToList() : all;
+                var skipped = device.FlushesSubnormals ? Enumerable.Range(0, Lanes).Count(i => Subnormal(group.Inputs, form, i)) : 0;
+                output.WriteLine($"with keep: {form.Name}: {differences.Count} of {Lanes} differ{Example(differences)}, {skipped} subnormal lanes not compared");
                 Assert.True(differences.Count == 0, $"{form.Name} on {device.Adapter.Name}: {differences.Count} of {Lanes} differ{Example(differences)}");
             }
         });
@@ -122,7 +126,17 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
 
     private static IEnumerable<Group> CreateGroups()
     {
-        var atomInputs = new Inputs(Fill([0f, -0f, 1f, 0.5f, 0.49999997f, 0.50000006f, 0.25f, 0.75f], 1, -2f, 3f), new float[Lanes], new float[Lanes]);
+        // The scores of the atom: the boundaries of 0..1, the ties 1.5 and -0.5, NaN, and the infinities.
+        // Also values near 2^23 and 2^24, where the sum with the atom constant changes its unit in the last
+        // place.
+        float[] atomScores =
+        [
+            0f, -0f, 1f, 0.5f, 0.49999997f, 0.50000006f, 0.25f, 0.75f, 1.5f, -0.5f,
+            float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+            8388607f, 8388607.5f, 8388608f, 8388609f, -8388607.5f, -8388608f, -8388609f,
+            16777215f, 16777216f, 16777218f, -16777215f, -16777216f, -16777218f,
+        ];
+        var atomInputs = new Inputs(Fill(atomScores, 1, -2f, 3f), new float[Lanes], new float[Lanes]);
         float Atom(float x, float y, float z) => (x + AtomConstant) - AtomConstant;
         yield return new Group("boolean atom", atomInputs,
         [
@@ -173,7 +187,14 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
             new Form("left fold with keep", $"r = k(k(k(k({L(Bias)}) + k(k({L(W1)}) * x)) + k(k({L(W2)}) * y)) + k(k({L(W3)}) * z));", Sum),
         ]);
 
-        var specialInputs = new Inputs(Fill([float.NaN, -float.NaN, float.PositiveInfinity, float.NegativeInfinity, 0f, -0f, 1f, -1f, float.MaxValue, float.MinValue, 1.1754944e-38f, -1.1754944e-38f], 5, -100f, 100f), new float[Lanes], new float[Lanes]);
+        // 1.1754944e-38 is 2^-126, the smallest normal value. 1e-40 and float.Epsilon (2^-149) are
+        // subnormal values. A device that flushes subnormal values does not compare them (decision 4).
+        float[] specials =
+        [
+            float.NaN, -float.NaN, float.PositiveInfinity, float.NegativeInfinity, 0f, -0f, 1f, -1f, float.MaxValue, float.MinValue,
+            1.1754944e-38f, -1.1754944e-38f, 1e-40f, -1e-40f, float.Epsilon, -float.Epsilon,
+        ];
+        var specialInputs = new Inputs(Fill(specials, 5, -100f, 100f), new float[Lanes], new float[Lanes]);
         yield return new Group("-0 product", specialInputs,
         [
             new Form("-abs(x) * 0.0", "r = -abs(x) * 0.0f;", (x, _, _) => -MathF.Abs(x) * 0f),
@@ -260,6 +281,14 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
         return differences;
     }
 
+    private static bool Subnormal((float X, float Expected, float Actual) lane) =>
+        float.IsSubnormal(lane.X) || float.IsSubnormal(lane.Expected);
+
+    // Lane i has a subnormal input or a subnormal CPU result.
+    private static bool Subnormal(Inputs inputs, Form form, int i) =>
+        float.IsSubnormal(inputs.X[i]) || float.IsSubnormal(inputs.Y[i]) || float.IsSubnormal(inputs.Z[i]) ||
+        float.IsSubnormal(form.Cpu(inputs.X[i], inputs.Y[i], inputs.Z[i]));
+
     private static string Example(List<(float X, float Expected, float Actual)> differences) =>
         differences.Count == 0 ? "" : $" (x = {differences[0].X:R}: CPU {differences[0].Expected:R}, GPU {differences[0].Actual:R})";
 
@@ -273,17 +302,20 @@ public sealed class WgslFormTests(GpuFixture fixture, ITestOutputHelper output)
         return values;
     }
 
-    // The ties 0.5, 1.5, 2.5, -0.5, -1.5, the values 1 ulp on each side of each tie, and seeded values
-    // within ±2^22.
+    // The ties 0.5, 1.5, 2.5, -0.5, -1.5, and the values 1 ulp (unit in the last place) on each side of
+    // each tie. Values near 2^22 and 2^23, where the sum with the round constant passes 2^24. Seeded
+    // values within ±2^22.
     private static float[] RoundValues()
     {
         var given = new List<float>();
-        foreach (var tie in new[] { 0.5f, 1.5f, 2.5f, -0.5f, -1.5f })
+        foreach (var tie in new[] { 0.5f, 1.5f, 2.5f, -0.5f, -1.5f, 4194303.5f, -4194303.5f })
         {
             given.Add(tie);
             given.Add(MathF.BitDecrement(tie));
             given.Add(MathF.BitIncrement(tie));
         }
+
+        given.AddRange([4194304f, 4194304.5f, 4194305f, 8388607f, 8388607.5f, 8388608f, 8388609f, 8388610f, -8388607.5f, -8388608f, -8388609f]);
 
         var values = Fill([.. given], 6, -4194304f, 4194304f);
         // Half of the seeded values get a fraction, so the chain rounds them.

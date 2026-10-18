@@ -208,7 +208,7 @@ public sealed class DeviceTests(GpuFixture fixture, ITestOutputHelper output)
         });
     }
 
-    // Review of task 1: a throw after a successful map left the readback buffer mapped, and the next run
+    // Review of task 1: a throw after a successful map left the readback buffer mapped. Then the next run
     // of the kernel failed, because a copy into a mapped buffer is a validation error.
     [Fact]
     public void A_failure_after_a_successful_map_unmaps_the_readback_buffer()
@@ -232,6 +232,108 @@ public sealed class DeviceTests(GpuFixture fixture, ITestOutputHelper output)
         });
     }
 
+    // An error that the uncaptured error callback puts in the queue makes the next call throw with the
+    // message. The call after it runs, because the throw empties the queue.
+    [Fact]
+    public void An_uncaptured_error_throws_at_the_next_call_one_time()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            using var kernel = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            device.ReportUncaptured("Validation: the first error");
+            device.ReportUncaptured("Validation: the second error");
+            var error = Assert.Throws<InvalidOperationException>(() => RunDouble(kernel, [1f]));
+            output.WriteLine(error.Message);
+            Assert.Contains("outside an error scope", error.Message);
+            Assert.Contains("Validation: the first error; Validation: the second error", error.Message);
+            Assert.Equal([4f], RunDouble(kernel, [2f]));
+        });
+    }
+
+    // The device-lost callback sets the flag, and each later call throws with the reason.
+    [Fact]
+    public void A_lost_device_throws_at_each_call()
+    {
+        fixture.ForEachDevice(output, shared =>
+        {
+            using var device = GpuDevice.Open(shared.Adapter);
+            using var kernel = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            Assert.Equal([2f], RunDouble(kernel, [1f]));
+            device.ReportLost("Unknown: a loss that the test reports");
+            for (var call = 0; call < 2; call++)
+            {
+                var error = Assert.Throws<InvalidOperationException>(() => RunDouble(kernel, [1f]));
+                Assert.Contains("the WebGPU device is lost: Unknown: a loss that the test reports", error.Message);
+            }
+        });
+    }
+
+    // Final review of phase 5: a map that did not complete in the poll limit stays pending in the
+    // native library. The next copy into the readback buffer then fails with a validation error that
+    // does not name the cause. The device must refuse each later call with the cause.
+    [Fact]
+    public void A_map_that_does_not_complete_makes_the_device_unusable()
+    {
+        fixture.ForEachDevice(output, shared =>
+        {
+            using var device = GpuDevice.Open(shared.Adapter);
+            using var kernel = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            Assert.Equal([2f], RunDouble(kernel, [1f]));
+            device.PollLimit = 0;
+            var first = Assert.Throws<InvalidOperationException>(() => RunDouble(kernel, [1f]));
+            output.WriteLine(first.Message);
+            Assert.Contains("the readback map did not complete", first.Message);
+            device.PollLimit = GpuDevice.DefaultPollLimit;
+            var next = Assert.Throws<InvalidOperationException>(() => RunDouble(kernel, [1f]));
+            output.WriteLine(next.Message);
+            Assert.Contains("the device is unusable", next.Message);
+            Assert.Contains("the readback map did not complete", next.Message);
+        });
+    }
+
+    // Final review of phase 5: when the body of an error scope throws, the scope pops. A pop that
+    // fails must not replace the exception of the body.
+    [Fact]
+    public void A_failed_scope_pop_keeps_the_exception_of_the_body()
+    {
+        fixture.ForEachDevice(output, shared =>
+        {
+            using var device = GpuDevice.Open(shared.Adapter);
+            device.BeforeScopePop = () => throw new InvalidOperationException("a pop failure that the test makes");
+            var error = Assert.Throws<FormatException>(() => device.Checked("the test body", () => throw new FormatException("the body failed")));
+            Assert.Equal("the body failed", error.Message);
+            device.BeforeScopePop = null;
+            var next = Assert.Throws<InvalidOperationException>(() => new ComputeKernel(device, DoubleKernel(64), ThreeBuffers));
+            Assert.Contains("the device is unusable", next.Message);
+            Assert.Contains("a pop failure that the test makes", next.Message);
+        });
+    }
+
+    // A wgpu-native log line at the warning level or above, during an error scope that holds an error,
+    // is in the message of the exception. A log line outside the scope is not.
+    [Fact]
+    public void A_log_line_during_a_failed_scope_is_in_the_message()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            GpuDevice.ReportLog("Warn", "a log line before the scope");
+            device.BeforeScopePop = () => GpuDevice.ReportLog("Warn", "a log line in the scope");
+            try
+            {
+                var exception = Assert.Throws<InvalidOperationException>(() =>
+                    new ComputeKernel(device, "@compute @workgroup_size(1) fn main( {", ThreeBuffers));
+                output.WriteLine(exception.Message);
+                Assert.Contains("Validation Error", exception.Message);
+                Assert.Contains("wgpu log: Warn: a log line in the scope", exception.Message);
+                Assert.DoesNotContain("a log line before the scope", exception.Message);
+            }
+            finally
+            {
+                device.BeforeScopePop = null;
+            }
+        });
+    }
+
     // Review of task 1: Reserve after Write made a new buffer and dropped the data of the old one.
     [Fact]
     public void Reserve_after_Write_keeps_the_data_of_the_buffer()
@@ -246,6 +348,43 @@ public sealed class DeviceTests(GpuFixture fixture, ITestOutputHelper output)
             var result = new float[3];
             kernel.Run(1, 1, result.AsSpan());
             Assert.Equal([2f, 4f, 6f], result);
+        });
+    }
+
+    // Final review of phase 5: wgpu-native gives a released buffer address to the next new buffer. Two
+    // grows between two runs gave the old address back, and the kernel kept the old bind group. Then
+    // the run read the data of the released buffer.
+    [Fact]
+    public void Two_grows_between_two_runs_give_a_new_bind_group()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            var copy = WgslText.Prelude + Bindings + """
+                @compute @workgroup_size(64)
+                fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+                    let i = id.x;
+                    if (i >= params.count) { return; }
+                    dst[i] = src[i];
+                }
+                """;
+            var failures = 0;
+            for (var trial = 0; trial < 50; trial++)
+            {
+                using var kernel = new ComputeKernel(device, copy, ThreeBuffers);
+                kernel.Reserve(1, 1024 * sizeof(float));
+                kernel.Write<uint>(2, [0u, 4u, 0u, 0u]);
+                kernel.Write<float>(0, [1f, 1f, 1f, 1f]);
+                var result = new float[4];
+                kernel.Run(1, 1, result.AsSpan());
+                Assert.Equal([1f, 1f, 1f, 1f], result);
+
+                kernel.Write<float>(0, new float[64]);
+                kernel.Write<float>(0, Enumerable.Repeat(9f, 1024).ToArray());
+                kernel.Run(1, 1, result.AsSpan());
+                if (result[0] != 9f) failures++;
+            }
+
+            Assert.Equal(0, failures);
         });
     }
 
@@ -336,6 +475,14 @@ public sealed class GpuPolicyTests
         Assert.Equal(GpuPolicyAction.Fail, result.Action);
         Assert.StartsWith(GpuPolicy.NoAdapterMessage, result.Message);
         Assert.Contains("DllNotFoundException: wgpu_native", result.Message);
+    }
+
+    [Fact]
+    public void A_list_error_with_a_reason_passes_and_writes_the_error_with_the_reason()
+    {
+        var result = GpuPolicy.Decide([], "CI machine with no GPU", "DllNotFoundException: wgpu_native");
+        Assert.Equal(GpuPolicyAction.PassWithReason, result.Action);
+        Assert.Equal("[gpu] no adapter: CI machine with no GPU (ListAdapters threw: DllNotFoundException: wgpu_native)", result.Message);
     }
 
     [Fact]

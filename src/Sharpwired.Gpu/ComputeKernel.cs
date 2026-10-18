@@ -54,6 +54,12 @@ internal sealed unsafe class StorageBuffer : IDisposable
     /// <summary>The bytes of the native buffer.</summary>
     public long Capacity { get; private set; }
 
+    /// <summary>
+    /// The count of native buffers that this object created. wgpu-native can give the address of a
+    /// released buffer to a new buffer, so a kernel compares this number and not the address.
+    /// </summary>
+    public long Generation { get; private set; }
+
     private static WebGPU Api => GpuDevice.Api;
 
     /// <summary>
@@ -155,6 +161,7 @@ internal sealed unsafe class StorageBuffer : IDisposable
         GpuDevice.ReleaseBuffer(handle);
         handle = buffer;
         Capacity = needed;
+        Generation++;
     }
 }
 
@@ -214,8 +221,10 @@ internal sealed unsafe class ComputeKernel : IDisposable
     private readonly StorageBuffer[] owned;
     private readonly StorageBuffer[] bound;
 
-    // The native buffers of the bind group, so that a grown buffer gives a new bind group.
-    private readonly nint[] groupBuffers;
+    // The buffers of the bind group and their generations, so that a grown buffer gives a new bind
+    // group. The native address is not enough, because wgpu-native gives a released address again.
+    private readonly StorageBuffer?[] groupBuffers;
+    private readonly long[] groupGenerations;
     private readonly ReadbackBuffer readback;
     private ShaderModule* module;
     private BindGroupLayout* bindGroupLayout;
@@ -240,7 +249,8 @@ internal sealed unsafe class ComputeKernel : IDisposable
         owned = new StorageBuffer[layout.Length];
         for (var binding = 0; binding < owned.Length; binding++) owned[binding] = new StorageBuffer(device);
         bound = [.. owned];
-        groupBuffers = new nint[layout.Length];
+        groupBuffers = new StorageBuffer?[layout.Length];
+        groupGenerations = new long[layout.Length];
         readback = new ReadbackBuffer(device);
         lock (device.Sync)
         {
@@ -320,10 +330,11 @@ internal sealed unsafe class ComputeKernel : IDisposable
     }
 
     /// <summary>
-    /// Encode one compute pass for each dispatch, in order, then the copies of <paramref name="reads"/> one
-    /// after the other into the readback buffer, and submit them as one command buffer. A dispatch sees
-    /// the writes of each earlier dispatch. Wait until the GPU is done, and copy the readback bytes into
-    /// <paramref name="destination"/>, which holds the sum of the bytes of the reads.
+    /// Encode one compute pass for each dispatch, in order. Then encode the copies of
+    /// <paramref name="reads"/> one after the other into the readback buffer. Submit all of them as one
+    /// command buffer. A dispatch sees the writes of each earlier dispatch. Wait until the GPU is done,
+    /// and copy the readback bytes into <paramref name="destination"/>, which holds the sum of the bytes
+    /// of the reads.
     /// </summary>
     public static void Submit(GpuDevice device, ReadOnlySpan<KernelDispatch> dispatches, ReadOnlySpan<BufferRead> reads, ReadbackBuffer readback, Span<byte> destination)
     {
@@ -484,18 +495,23 @@ internal sealed unsafe class ComputeKernel : IDisposable
         });
     }
 
-    // Create the bind group when it is absent, or when a binding holds another native buffer than the
-    // bind group holds (a bound buffer changed, or a buffer grew).
+    // Create the bind group when it is absent. Also create it when a binding holds another buffer, or
+    // another generation of a buffer, than the bind group holds. This occurs when a bound buffer
+    // changed or a buffer grew.
     private void EnsureBindGroup()
     {
         var handles = new nint[layout.Length];
         var capacities = new long[layout.Length];
+        var generations = new long[layout.Length];
+        var same = bindGroup != null;
         for (var i = 0; i < layout.Length; i++)
         {
             handles[i] = (nint)bound[i].Handle();
             capacities[i] = bound[i].Capacity;
+            generations[i] = bound[i].Generation;
+            same = same && ReferenceEquals(bound[i], groupBuffers[i]) && generations[i] == groupGenerations[i];
         }
-        if (bindGroup != null && handles.AsSpan().SequenceEqual(groupBuffers)) return;
+        if (same) return;
         ReleaseBindGroup();
         try
         {
@@ -517,7 +533,8 @@ internal sealed unsafe class ComputeKernel : IDisposable
                 bindGroup = Api.DeviceCreateBindGroup(device.Handle, &descriptor);
                 GpuDevice.Created(bindGroup);
             });
-            handles.CopyTo(groupBuffers, 0);
+            bound.CopyTo(groupBuffers, 0);
+            generations.CopyTo(groupGenerations, 0);
         }
         catch
         {
@@ -529,6 +546,7 @@ internal sealed unsafe class ComputeKernel : IDisposable
     private void ReleaseBindGroup()
     {
         Array.Clear(groupBuffers);
+        Array.Clear(groupGenerations);
         if (bindGroup == null) return;
         Api.BindGroupRelease(bindGroup);
         bindGroup = null;

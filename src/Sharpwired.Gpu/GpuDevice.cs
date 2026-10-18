@@ -1,6 +1,7 @@
 // Handwired source: src/json-search/gpu/host.ts (requestBatchDevice, and checked for the error scopes).
-// The adapters, the open of one device with the adapter maximum of the buffer limits, the uncaptured
-// error callback, the error scopes, the device-lost flag, the readback map, and the subnormal probe.
+// The adapters, and the open of one device with the adapter maximum of the buffer limits. The uncaptured
+// error callback, the error scopes, the device-lost flag and the readback map. The wgpu-native log lines
+// and the subnormal probe.
 // This file and ComputeKernel.cs are the only files that call the native API.
 
 using System.Collections.Concurrent;
@@ -38,8 +39,8 @@ public sealed unsafe class GpuDevice : IDisposable
         fn main() { dst[0] = k(src[0] * k(0x1p-10f)); }
         """;
 
-    // A callback that did not run after this count of polls is a fault of the native library.
-    private const int PollLimit = 10_000;
+    /// <summary>A callback that did not run after this count of polls is a fault of the native library.</summary>
+    internal const int DefaultPollLimit = 10_000;
 
     private static readonly Lazy<WebGPU> LazyApi = new(WebGPU.GetApi);
     private static readonly Lazy<Wgpu> LazyNative = new(() => new Wgpu(LazyApi.Value.Context));
@@ -63,6 +64,22 @@ public sealed unsafe class GpuDevice : IDisposable
     private static readonly PfnErrorCallback ScopePfn = new(ScopeCallback);
     private static readonly PfnDeviceLostCallback LostPfn = new(LostCallback);
     private static readonly PfnBufferMapCallback MapPfn = new(MapCallback);
+    private static readonly LogCallback LogFunction = OnLog;
+    private static readonly PfnLogCallback LogPfn = new(LogFunction);
+
+    // The log callback of wgpu-native is global. It is installed one time, before the first instance.
+    private static readonly Lazy<bool> LogInstalled = new(() =>
+    {
+        Native.SetLogCallback(LogPfn, null);
+        Native.SetLogLevel(LogLevel.Warn);
+        return true;
+    });
+
+    // The last log lines, each with its sequence number. An error scope that holds an error adds the
+    // lines that came after its push to its message.
+    private const int LogCapacity = 64;
+    private static readonly ConcurrentQueue<(long Sequence, string Line)> LogLines = new();
+    private static long logSequence;
 
     private static int liveObjects;
 
@@ -73,6 +90,10 @@ public sealed unsafe class GpuDevice : IDisposable
     private Device* device;
     private Queue* queue;
     private volatile string? lostMessage;
+
+    // The cause of a native fault that leaves the device in an unknown state: a map request or an error
+    // scope that did not complete. Each later call throws with it.
+    private volatile string? faultMessage;
     private bool disposed;
 
     // Takes the ownership of the instance and the adapter. On a failure, releases both and throws.
@@ -102,7 +123,7 @@ public sealed unsafe class GpuDevice : IDisposable
             try
             {
                 Api.AdapterRequestDevice(adapter, &descriptor, DevicePfn, (void*)key);
-                for (var i = 0; !reply.Done && i < PollLimit; i++) Api.InstanceProcessEvents(instance);
+                for (var i = 0; !reply.Done && i < DefaultPollLimit; i++) Api.InstanceProcessEvents(instance);
             }
             finally
             {
@@ -180,6 +201,22 @@ public sealed unsafe class GpuDevice : IDisposable
     /// <summary>Put an error in the queue of the uncaptured errors, as the uncaptured error callback does.</summary>
     internal void ReportUncaptured(string message) => uncaptured.Enqueue(message);
 
+    /// <summary>Set the device-lost flag, as the device-lost callback does.</summary>
+    internal void ReportLost(string message) => lostMessage = message;
+
+    /// <summary>The count of polls of this device that wait for one callback. A test lowers it.</summary>
+    internal int PollLimit { get; set; } = DefaultPollLimit;
+
+    /// <summary>An action that runs before each pop of an error scope. A test sets it.</summary>
+    internal Action? BeforeScopePop { get; set; }
+
+    /// <summary>Add a line to the wgpu-native log, as the log callback does.</summary>
+    internal static void ReportLog(string level, string message)
+    {
+        LogLines.Enqueue((Interlocked.Increment(ref logSequence), $"{level}: {message}"));
+        while (LogLines.Count > LogCapacity) LogLines.TryDequeue(out _);
+    }
+
     /// <summary>List the WebGPU adapters of this machine.</summary>
     public static IReadOnlyList<GpuAdapterInfo> ListAdapters()
     {
@@ -253,13 +290,14 @@ public sealed unsafe class GpuDevice : IDisposable
 
     /// <summary>
     /// Throw <see cref="ObjectDisposedException"/> after <see cref="Dispose"/>. Throw
-    /// <see cref="InvalidOperationException"/> when the device is lost, or when an error occurred
-    /// outside an error scope since the last call.
+    /// <see cref="InvalidOperationException"/> when the device is lost, after a native fault, or when an
+    /// error occurred outside an error scope since the last call.
     /// </summary>
     internal void ThrowIfUnusable()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (lostMessage is { } lost) throw new InvalidOperationException($"{Adapter.Name}: the WebGPU device is lost: {lost}");
+        if (faultMessage is { } fault) throw new InvalidOperationException($"{Adapter.Name}: the device is unusable: {fault}");
         if (uncaptured.TryDequeue(out var error))
         {
             while (uncaptured.TryDequeue(out var more)) error += "; " + more;
@@ -270,13 +308,15 @@ public sealed unsafe class GpuDevice : IDisposable
     /// <summary>
     /// Run <paramref name="body"/> inside a validation scope and an out-of-memory scope. Throw
     /// <see cref="InvalidOperationException"/> with the wgpu message when a scope holds an error. The
-    /// caller releases the objects that the body created, also on an error.
+    /// message also holds the wgpu-native log lines of the scope. The caller releases the objects that
+    /// the body created, also on an error. When the body throws, this method throws the same exception.
     /// </summary>
     internal void Checked(string action, Action body)
     {
         lock (Sync)
         {
             ThrowIfUnusable();
+            var logMark = Interlocked.Read(ref logSequence);
             Api.DevicePushErrorScope(device, ErrorFilter.Validation);
             Api.DevicePushErrorScope(device, ErrorFilter.OutOfMemory);
             try
@@ -285,15 +325,26 @@ public sealed unsafe class GpuDevice : IDisposable
             }
             catch
             {
-                PopScope();
-                PopScope();
+                // A pop that fails marks the device unusable. The exception of the body stays the
+                // exception of this call.
+                try
+                {
+                    PopScope();
+                    PopScope();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
                 throw;
             }
 
             var outOfMemory = PopScope();
             var validation = PopScope();
-            if (validation is not null) throw new InvalidOperationException($"{Adapter.Name}: {action} failed: {validation}");
-            if (outOfMemory is not null) throw new InvalidOperationException($"{Adapter.Name}: {action} failed: {outOfMemory}");
+            if ((validation ?? outOfMemory) is { } error)
+            {
+                throw new InvalidOperationException($"{Adapter.Name}: {action} failed: {error}{LogSince(logMark)}");
+            }
         }
     }
 
@@ -339,7 +390,9 @@ public sealed unsafe class GpuDevice : IDisposable
                 Unregister(key);
             }
 
-            if (!reply.Done) throw new InvalidOperationException($"{Adapter.Name}: the readback map did not complete");
+            // The map request stays pending in the native library, and a submit that uses a pending
+            // buffer aborts the process. So the device refuses each later call.
+            if (!reply.Done) throw Fault("the readback map did not complete");
             if (reply.Status != (int)BufferMapAsyncStatus.Success)
                 throw new InvalidOperationException($"{Adapter.Name}: the readback map failed: {(BufferMapAsyncStatus)reply.Status}");
             // The map succeeded, so a failure of the check must unmap the buffer. Else the next copy into
@@ -389,7 +442,13 @@ public sealed unsafe class GpuDevice : IDisposable
 
     private static void OnAdapter(RequestAdapterStatus status, Adapter* adapter, byte* message, void* userdata)
     {
-        if (Target<Reply>(userdata) is not { } reply) return;
+        // A callback after the wait stopped has no target. Its adapter has no owner, so release it here.
+        if (Target<Reply>(userdata) is not { } reply)
+        {
+            if (adapter != null) Api.AdapterRelease(adapter);
+            return;
+        }
+
         reply.Status = (int)status;
         reply.Handle = (nint)adapter;
         reply.Message = Text(message);
@@ -398,7 +457,13 @@ public sealed unsafe class GpuDevice : IDisposable
 
     private static void OnDevice(RequestDeviceStatus status, Device* device, byte* message, void* userdata)
     {
-        if (Target<Reply>(userdata) is not { } reply) return;
+        // A callback after the wait stopped has no target. Its device has no owner, so release it here.
+        if (Target<Reply>(userdata) is not { } reply)
+        {
+            if (device != null) Api.DeviceRelease(device);
+            return;
+        }
+
         reply.Status = (int)status;
         reply.Handle = (nint)device;
         reply.Message = Text(message);
@@ -425,6 +490,8 @@ public sealed unsafe class GpuDevice : IDisposable
         if (Target<GpuDevice>(userdata) is { } owner) owner.uncaptured.Enqueue($"{type}: {Text(message)}");
     }
 
+    private static void OnLog(LogLevel level, byte* message, void* userdata) => ReportLog(level.ToString(), Text(message));
+
     private static void OnLost(DeviceLostReason reason, byte* message, void* userdata)
     {
         // Dispose releases the device, and the release can report the reason Destroyed.
@@ -433,6 +500,7 @@ public sealed unsafe class GpuDevice : IDisposable
 
     private static Instance* CreateInstance()
     {
+        _ = LogInstalled.Value;
         InstanceDescriptor descriptor = default;
         var instance = Api.CreateInstance(&descriptor);
         if (instance == null) throw new InvalidOperationException("the WebGPU instance did not open");
@@ -509,7 +577,7 @@ public sealed unsafe class GpuDevice : IDisposable
         try
         {
             Api.InstanceRequestAdapter(instance, &options, AdapterPfn, (void*)key);
-            for (var i = 0; !reply.Done && i < PollLimit; i++) Api.InstanceProcessEvents(instance);
+            for (var i = 0; !reply.Done && i < DefaultPollLimit; i++) Api.InstanceProcessEvents(instance);
         }
         finally
         {
@@ -541,24 +609,41 @@ public sealed unsafe class GpuDevice : IDisposable
         }
     }
 
-    // The message of the error in the top scope, or null for no error. Pops the scope.
+    // The message of the error in the top scope, or null for no error. Pops the scope. A pop that does
+    // not complete leaves the scope stack in an unknown state, so it marks the device unusable.
     private string? PopScope()
     {
         var reply = new Reply();
         var key = Register(reply);
         try
         {
+            BeforeScopePop?.Invoke();
             Api.DevicePopErrorScope(device, ScopePfn, (void*)key);
             for (var i = 0; !reply.Done && i < PollLimit; i++) Native.DevicePoll(device, false, null);
+        }
+        catch (Exception error)
+        {
+            throw Fault($"an error scope did not pop: {error.Message}");
         }
         finally
         {
             Unregister(key);
         }
 
-        if (!reply.Done) throw new InvalidOperationException($"{Adapter.Name}: the error scope did not return");
+        if (!reply.Done) throw Fault("an error scope did not return");
         return reply.Status == (int)ErrorType.NoError ? null : $"WebGPU {(ErrorType)reply.Status} error: {reply.Message}";
     }
+
+    // Mark the device unusable with the cause, and return the exception of this call.
+    private InvalidOperationException Fault(string cause)
+    {
+        faultMessage ??= cause;
+        return new InvalidOperationException($"{Adapter.Name}: {cause}");
+    }
+
+    // The log lines after the mark, as a suffix of an error message. Empty when no line came.
+    private static string LogSince(long mark) =>
+        string.Concat(LogLines.Where(entry => entry.Sequence > mark).Select(entry => $"; wgpu log: {entry.Line}"));
 
     private bool MeasureSubnormalFlush()
     {

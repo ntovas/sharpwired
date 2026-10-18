@@ -32,9 +32,9 @@ internal static class GpuPolicy
     public static GpuPolicyResult Decide(IReadOnlyList<GpuAdapterInfo> adapters, string? reason, string? listError = null)
     {
         if (adapters.Count > 0) return new GpuPolicyResult(GpuPolicyAction.Run, "");
-        if (!string.IsNullOrWhiteSpace(reason)) return new GpuPolicyResult(GpuPolicyAction.PassWithReason, $"[gpu] no adapter: {reason.Trim()}");
-        var message = listError is null ? NoAdapterMessage : $"{NoAdapterMessage} (ListAdapters threw: {listError})";
-        return new GpuPolicyResult(GpuPolicyAction.Fail, message);
+        var error = listError is null ? "" : $" (ListAdapters threw: {listError})";
+        if (!string.IsNullOrWhiteSpace(reason)) return new GpuPolicyResult(GpuPolicyAction.PassWithReason, $"[gpu] no adapter: {reason.Trim()}{error}");
+        return new GpuPolicyResult(GpuPolicyAction.Fail, NoAdapterMessage + error);
     }
 }
 
