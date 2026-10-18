@@ -26,10 +26,13 @@
     <Compile Include="..\Sharpwired.Core.Tests\TensorChecks.cs" Link="TensorChecks.cs" />
     <Compile Include="..\Sharpwired.Core.Tests\RandomPrograms.cs" Link="RandomPrograms.cs" />
     <Compile Include="..\Toggle.Builder.Tests\ToggleTrace.cs" Link="ToggleTrace.cs" />
+    <Compile Include="..\Sharpwired.IL.Tests\Inputs\RecurrentInputs.cs" Link="Inputs\RecurrentInputs.cs" />
+    <Compile Include="..\Sharpwired.IL.Tests\SeededSources.cs" Link="SeededSources.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Annotations\Sharpwired.Annotations.csproj" />
     <ProjectReference Include="..\..\samples\Toggle.Builder\Toggle.Builder.csproj" />
   </ItemGroup>
 

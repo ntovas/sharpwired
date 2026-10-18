@@ -64,6 +64,22 @@ public sealed class CellValidator
     public int CellCount => names.Length;
 
     /// <summary>
+    /// The declaration of each cell that Validate checks: the name, the range, the exact bit and the
+    /// grid. The GPU runner of a step program runs the same checks in its kernel.
+    /// </summary>
+    internal IEnumerable<(string Name, double Minimum, double Maximum, bool ExactBit, double? Grid)> Cells()
+    {
+        for (var wire = 0; wire < names.Length; wire++)
+        {
+            var gridIndex = Array.IndexOf(gridWires, wire);
+            yield return (names[wire], minimums[wire], maximums[wire], Array.IndexOf(bitWires, wire) >= 0, gridIndex >= 0 ? gridSteps[gridIndex] : null);
+        }
+    }
+
+    /// <summary>The one-hot and at-most-one rules that Validate checks, in rule order.</summary>
+    internal IReadOnlyList<CellRule> Rules => rules;
+
+    /// <summary>
     /// Check the table. Throw <see cref="CellValueException"/> for a cell, and
     /// <see cref="ArgumentException"/> for the length or a rule.
     /// </summary>

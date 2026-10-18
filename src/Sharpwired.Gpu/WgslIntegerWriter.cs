@@ -47,22 +47,46 @@ internal sealed partial class IntegerBody
     private readonly IntegerPlan plan;
     private readonly int sourceSize;
     private readonly FloatBody body;
+    private readonly Func<int, string>? cellName;
 
     // True for a row whose f32 value has the name v<position>: an f32 row, also one that the writer
     // then converts to an integer.
     private readonly bool[] hasFloatName;
 
-    public IntegerBody(IntegerPlan plan, int sourceSize)
+    // cellName: the variable of a source cell in a step kernel (FloatBody), or null for a buffer read.
+    public IntegerBody(IntegerPlan plan, int sourceSize, Func<int, string>? cellName = null)
     {
         this.plan = plan;
         this.sourceSize = sourceSize;
+        this.cellName = cellName;
         hasFloatName = new bool[plan.Proofs.Length];
-        body = new FloatBody(sourceSize, FloatNameOf);
+        body = new FloatBody(sourceSize, FloatNameOf, cellName);
     }
+
+    /// <summary>The f32 body that holds the statements.</summary>
+    public FloatBody Body => body;
 
     private ImmutableArray<WholeProof> Proofs => plan.Proofs;
 
     public WgslModule Write(ImmutableArray<ShaderRow> rows, int[] rootPositions)
+    {
+        var (floatRows, wholeRows, bitRows) = WriteRows(rows);
+        return body.Finish(rootPositions, floatRows, wholeRows, bitRows);
+    }
+
+    /// <summary>
+    /// The integer value of a row that the writer holds as an i32 or a u32 and computes in integer
+    /// arithmetic, or null for an f32 value, a source cell, or a row that the writer converts from an
+    /// f32 statement.
+    /// </summary>
+    public (WholeKind Kind, string Text)? IntegerValue(int position)
+    {
+        if (position < sourceSize || !Proofs[position].IsProven || hasFloatName[position]) return null;
+        return (Proofs[position].Kind, Typed(position));
+    }
+
+    /// <summary>Write the needed rows. Return the counts of the f32, the i32 and the u32 rows.</summary>
+    public (int FloatRows, int WholeRows, int BitRows) WriteRows(ImmutableArray<ShaderRow> rows)
     {
         var (floatRows, wholeRows, bitRows) = (0, 0, 0);
         foreach (var row in rows)
@@ -82,7 +106,7 @@ internal sealed partial class IntegerBody
                 default: floatRows++; break;
             }
         }
-        return body.Finish(rootPositions, floatRows, wholeRows, bitRows);
+        return (floatRows, wholeRows, bitRows);
     }
 
     [GeneratedRegex(@"^\w+$")]
@@ -121,7 +145,7 @@ internal sealed partial class IntegerBody
         var name = $"{(proof.IsBit ? 'b' : 'w')}{position}";
         if (position < sourceSize)
         {
-            var read = $"sources[base + {WgslText.Uint(position)}]";
+            var read = body.SourceText(position);
             body.AddSourceRead(position, proof.IsBit ? $"let {name}: u32 = select(0u, 1u, {read} > 0.5f);" : $"let {name}: i32 = i32({read});");
         }
         return name;
@@ -301,24 +325,21 @@ internal sealed partial class IntegerBody
 
     // The candidate at the index, of the type of kind. Source cells are read from the buffer and
     // converted. A list of computed values is a select over first..final, the candidates that the
-    // index can reach.
+    // index can reach. In a step kernel, source cells become the same select over the cell variables.
     private string Candidate(ShaderCandidates candidates, string index, string arrayName, WholeKind kind, int first, int final)
     {
         if (candidates.Count == 1) return TextOf(candidates.PositionAt(0), kind);
         string Convert(string read) => kind == WholeKind.Float ? read : $"{TypeOf(kind)}({read})";
-        switch (candidates.Form)
+        if (cellName is null && candidates.Form == CandidateForm.Strided)
         {
-            case CandidateForm.Strided:
-                return Convert($"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]");
-            case CandidateForm.SourceList:
-                return Convert($"sources[base + {body.TableName(candidates)}[{index}]]");
-            default:
-                body.AddStatement($"var {arrayName}: {TypeOf(kind)} = {TextOf(candidates.Positions[first], kind)};");
-                for (var candidate = first + 1; candidate <= final; candidate++)
-                {
-                    body.AddStatement($"{arrayName} = select({arrayName}, {TextOf(candidates.Positions[candidate], kind)}, {index} == {WgslText.Int(candidate)});");
-                }
-                return arrayName;
+            return Convert($"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]");
         }
+        if (cellName is null && candidates.Form == CandidateForm.SourceList) return Convert($"sources[base + {body.TableName(candidates)}[{index}]]");
+        body.AddStatement($"var {arrayName}: {TypeOf(kind)} = {TextOf(candidates.PositionAt(first), kind)};");
+        for (var candidate = first + 1; candidate <= final; candidate++)
+        {
+            body.AddStatement($"{arrayName} = select({arrayName}, {TextOf(candidates.PositionAt(candidate), kind)}, {index} == {WgslText.Int(candidate)});");
+        }
+        return arrayName;
     }
 }

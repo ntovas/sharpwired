@@ -207,6 +207,105 @@ public sealed class DeviceTests(GpuFixture fixture, ITestOutputHelper output)
             Assert.Throws<ArgumentException>(() => kernel.Run(1, 1, new float[3].AsSpan()));
         });
     }
+
+    // Review of task 1: a throw after a successful map left the readback buffer mapped, and the next run
+    // of the kernel failed, because a copy into a mapped buffer is a validation error.
+    [Fact]
+    public void A_failure_after_a_successful_map_unmaps_the_readback_buffer()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            using var kernel = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            Assert.Equal([2f], RunDouble(kernel, [1f]));
+            device.MapCompleted = () => device.ReportUncaptured("an error that the test puts in the queue");
+            try
+            {
+                var error = Assert.Throws<InvalidOperationException>(() => RunDouble(kernel, [3f]));
+                Assert.Contains("an error that the test puts in the queue", error.Message);
+            }
+            finally
+            {
+                device.MapCompleted = null;
+            }
+
+            Assert.Equal([8f], RunDouble(kernel, [4f]));
+        });
+    }
+
+    // Review of task 1: Reserve after Write made a new buffer and dropped the data of the old one.
+    [Fact]
+    public void Reserve_after_Write_keeps_the_data_of_the_buffer()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            using var kernel = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            kernel.Write<float>(0, [1f, 2f, 3f]);
+            kernel.Reserve(0, 4096);
+            kernel.Write<uint>(2, [0u, 3u, 0u, 0u]);
+            kernel.Reserve(1, 3 * sizeof(float));
+            var result = new float[3];
+            kernel.Run(1, 1, result.AsSpan());
+            Assert.Equal([2f, 4f, 6f], result);
+        });
+    }
+
+    [Fact]
+    public void Two_kernels_share_a_buffer_and_run_in_one_command_buffer()
+    {
+        fixture.ForEachDevice(output, device =>
+        {
+            var addOne = WgslText.Prelude + Bindings + """
+                @compute @workgroup_size(64)
+                fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+                    let i = id.x;
+                    if (i >= params.count) { return; }
+                    dst[i] = k(src[i] + k(1.0f));
+                }
+                """;
+            using var input = new StorageBuffer(device);
+            using var doubled = new StorageBuffer(device);
+            using var final = new StorageBuffer(device);
+            using var parameters = new StorageBuffer(device);
+            using var readback = new ReadbackBuffer(device);
+            using var first = new ComputeKernel(device, DoubleKernel(64), ThreeBuffers);
+            using var second = new ComputeKernel(device, addOne, ThreeBuffers);
+            first.Bind(0, input);
+            first.Bind(1, doubled);
+            first.Bind(2, parameters);
+            second.Bind(0, doubled);
+            second.Bind(1, final);
+            second.Bind(2, parameters);
+
+            float[] Run(float[] values)
+            {
+                input.Write<float>(values);
+                parameters.Write<uint>([0u, (uint)values.Length, 0u, 0u]);
+                doubled.Reserve(values.Length * sizeof(float));
+                final.Reserve(values.Length * sizeof(float));
+                var bytes = new byte[2 * values.Length * sizeof(float)];
+                var workgroups = (uint)((values.Length + 63) / 64);
+                ComputeKernel.Submit(device, [new KernelDispatch(first, workgroups), new KernelDispatch(second, workgroups)],
+                    [new BufferRead(doubled, values.Length * sizeof(float)), new BufferRead(final, values.Length * sizeof(float))], readback, bytes);
+                return System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            }
+
+            Assert.Equal([2f, 4f, 6f, 3f, 5f, 7f], Run([1f, 2f, 3f]));
+
+            // A larger input grows the shared buffers, and both kernels bind the new buffers.
+            var values = SeededValues(1000, 11);
+            var result = Run(values);
+            for (var i = 0; i < values.Length; i++)
+            {
+                Js.Is(values[i] * 2f, result[i]);
+                Js.Is((values[i] * 2f) + 1f, result[values.Length + i]);
+            }
+
+            // A kernel of another device cannot share the buffer.
+            using var other = GpuDevice.Open(device.Adapter);
+            using var foreign = new ComputeKernel(other, DoubleKernel(64), ThreeBuffers);
+            Assert.Throws<ArgumentException>(() => foreign.Bind(0, input));
+        });
+    }
 }
 
 public sealed class GpuPolicyTests

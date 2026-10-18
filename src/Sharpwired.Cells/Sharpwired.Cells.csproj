@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sharpwired.Core\Sharpwired.Core.csproj" />
+    <!-- The GPU runner of a step program runs the checks of CellValidator in its kernel. -->
+    <InternalsVisibleTo Include="Sharpwired.Gpu" />
   </ItemGroup>
 
 </Project>

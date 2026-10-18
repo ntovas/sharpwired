@@ -70,8 +70,11 @@ public static class WgslFloatWriter
 }
 
 // The statements of the main function of an f32 shader. The integer writer passes floatName, which gives the
-// f32 text of a position that it holds as an integer, for example f32(w3), and null for an f32 position.
-internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floatName = null)
+// f32 text of a position that it holds as an integer, for example f32(w3), and null for an f32 position. The
+// step kernel of RecurrentKernelWriter passes cellName, which gives the variable of a source cell, for example
+// cell3. Then a read of a source cell reads the variable, and a read of a source cell at a computed index is a
+// select over the variables, as for a list of computed values.
+internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floatName = null, Func<int, string>? cellName = null)
 {
     // A sum of more terms continues in a new statement (emit.ts termsPerStatement).
     private const int TermsPerStatement = 32;
@@ -103,6 +106,27 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     /// <summary>Add the read of a source cell that the integer writer holds as an integer.</summary>
     public void AddSourceRead(int cell, string statement) => integerSourceReads.TryAdd(cell, statement);
 
+    /// <summary>The f32 text of the value of a source cell: a read of the buffer, or the variable of the cell.</summary>
+    public string SourceText(int cell) => cellName?.Invoke(cell) ?? $"sources[base + {WgslText.Uint(cell)}]";
+
+    /// <summary>
+    /// The statements so far: first the reads of the source cells in cell order, then the statements of
+    /// the rows. A call of <see cref="Name"/> after this call can add a read that this list does not hold.
+    /// </summary>
+    public List<string> BodyStatements() =>
+        [.. usedSources
+            .Select(cell => (Cell: cell, Statement: $"let s{cell}: f32 = {SourceText(cell)};"))
+            .Concat(integerSourceReads.Select(pair => (Cell: pair.Key, Statement: pair.Value)))
+            .OrderBy(read => read.Cell)
+            .Select(read => read.Statement)
+            .Concat(statements)];
+
+    /// <summary>The module declarations of the candidate tables, one for each stored list of source cells.</summary>
+    public IReadOnlyList<string> Tables => tables;
+
+    /// <summary>The number of calls of the keep function k in the text.</summary>
+    public static int CountKeeps(string text) => KeepCall().Count(text);
+
     public WgslModule Finish(int[] rootPositions, int floatRows, int wholeRows = 0, int bitRows = 0)
     {
         var stores = new List<string>(rootPositions.Length);
@@ -111,12 +135,7 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
             var value = rootPositions[root] < 0 ? NaN : Name(rootPositions[root]);
             stores.Add($"outputs[o + {WgslText.Uint(root)}] = {value};");
         }
-        var sourceReads = usedSources
-            .Select(cell => (Cell: cell, Statement: $"let s{cell}: f32 = sources[base + {WgslText.Uint(cell)}];"))
-            .Concat(integerSourceReads.Select(pair => (Cell: pair.Key, Statement: pair.Value)))
-            .OrderBy(read => read.Cell)
-            .Select(read => read.Statement)
-            .ToList();
+        var body = BodyStatements();
 
         var code = new StringBuilder();
         code.Append("@group(0) @binding(0) var<storage, read> sources: array<f32>;\n");
@@ -131,13 +150,13 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
         code.Append("    if (t >= params.count) {\n        return;\n    }\n");
         code.Append($"    let base: u32 = t * {WgslText.Uint(sourceSize)};\n");
         var keeps = 0;
-        foreach (var statement in sourceReads.Concat(statements).Append($"let o: u32 = t * {WgslText.Uint(rootPositions.Length)};").Concat(stores))
+        foreach (var statement in body.Append($"let o: u32 = t * {WgslText.Uint(rootPositions.Length)};").Concat(stores))
         {
             code.Append("    ").Append(statement).Append('\n');
             keeps += KeepCall().Count(statement);
         }
         code.Append("}\n");
-        var statistics = new WgslStatistics(sourceReads.Count + statements.Count + stores.Count, floatRows, wholeRows, bitRows, keeps);
+        var statistics = new WgslStatistics(body.Count + stores.Count, floatRows, wholeRows, bitRows, keeps);
         return new WgslModule(code.ToString(), sourceSize, rootPositions.Length, WgslFloatWriter.WorkgroupSize, statistics);
     }
 
@@ -187,27 +206,25 @@ internal sealed partial class FloatBody(int sourceSize, Func<int, string?>? floa
     }
 
     // The candidate at the index expression. A list of computed values becomes the variable arrayName
-    // and one select for each candidate after the first. A list of source cells becomes one module
+    // and one select for each candidate after the first. In a step kernel, source cells become the same
+    // select over the cell variables. Else a list of source cells becomes one module
     // array for each stored table. Two forms of the plan failed on the M5 Pro with this wgpu-native: a
     // const array with an index that is not a constant (shader module error), and a function array
     // of computed values in a shader with keep (pipeline error, with no detail in the message).
     private string Candidate(ShaderCandidates candidates, string index, string arrayName)
     {
         if (candidates.Count == 1) return Name(candidates.PositionAt(0));
-        switch (candidates.Form)
+        if (cellName is null && candidates.Form == CandidateForm.Strided)
         {
-            case CandidateForm.Strided:
-                return $"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]";
-            case CandidateForm.SourceList:
-                return $"sources[base + {TableName(candidates)}[{index}]]";
-            default:
-                statements.Add($"var {arrayName}: f32 = {Name(candidates.Positions[0])};");
-                for (var candidate = 1; candidate < candidates.Count; candidate++)
-                {
-                    statements.Add($"{arrayName} = select({arrayName}, {Name(candidates.Positions[candidate])}, {index} == {WgslText.Int(candidate)});");
-                }
-                return arrayName;
+            return $"sources[base + u32({WgslText.Int(candidates.Base)} + {index} * {WgslText.Int(candidates.Stride)})]";
         }
+        if (cellName is null && candidates.Form == CandidateForm.SourceList) return $"sources[base + {TableName(candidates)}[{index}]]";
+        statements.Add($"var {arrayName}: f32 = {Name(candidates.PositionAt(0))};");
+        for (var candidate = 1; candidate < candidates.Count; candidate++)
+        {
+            statements.Add($"{arrayName} = select({arrayName}, {Name(candidates.PositionAt(candidate))}, {index} == {WgslText.Int(candidate)});");
+        }
+        return arrayName;
     }
 
     public string TableName(ShaderCandidates candidates)

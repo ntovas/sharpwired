@@ -171,6 +171,15 @@ public sealed unsafe class GpuDevice : IDisposable
     /// </summary>
     internal static int LiveObjects => Volatile.Read(ref liveObjects);
 
+    /// <summary>
+    /// An action that runs after each successful map, before the error check of <see cref="MapRead"/>.
+    /// A test sets it to put an error in the queue between the map and the check.
+    /// </summary>
+    internal Action? MapCompleted { get; set; }
+
+    /// <summary>Put an error in the queue of the uncaptured errors, as the uncaptured error callback does.</summary>
+    internal void ReportUncaptured(string message) => uncaptured.Enqueue(message);
+
     /// <summary>List the WebGPU adapters of this machine.</summary>
     public static IReadOnlyList<GpuAdapterInfo> ListAdapters()
     {
@@ -310,7 +319,10 @@ public sealed unsafe class GpuDevice : IDisposable
         return buffer;
     }
 
-    /// <summary>Map the first bytes of a map-read buffer, and wait until the map is done.</summary>
+    /// <summary>
+    /// Map the first bytes of a map-read buffer, and wait until the map is done. When this method
+    /// returns, the buffer is mapped, and the caller unmaps it. When it throws, the buffer is not mapped.
+    /// </summary>
     internal void MapRead(WgpuBuffer* buffer, long bytes)
     {
         lock (Sync)
@@ -330,7 +342,18 @@ public sealed unsafe class GpuDevice : IDisposable
             if (!reply.Done) throw new InvalidOperationException($"{Adapter.Name}: the readback map did not complete");
             if (reply.Status != (int)BufferMapAsyncStatus.Success)
                 throw new InvalidOperationException($"{Adapter.Name}: the readback map failed: {(BufferMapAsyncStatus)reply.Status}");
-            ThrowIfUnusable();
+            // The map succeeded, so a failure of the check must unmap the buffer. Else the next copy into
+            // it is a validation error (review of task 1).
+            try
+            {
+                MapCompleted?.Invoke();
+                ThrowIfUnusable();
+            }
+            catch
+            {
+                Api.BufferUnmap(buffer);
+                throw;
+            }
         }
     }
 

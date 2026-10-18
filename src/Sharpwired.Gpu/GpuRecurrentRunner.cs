@@ -1,0 +1,315 @@
+// No Handwired source. The GPU runner of a step program (phase 5 plan, question 5, R5.4): the prefix, the
+// step kernel and the suffix of a RecurrentFunction in one command buffer, more dispatches while a lane
+// runs, the lane status, and the CPU replay of a failed lane for the message of the CPU runner.
+
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
+using Sharpwired.Core;
+using Sharpwired.IL;
+
+namespace Sharpwired.Gpu;
+
+/// <summary>
+/// The result of <see cref="GpuRecurrentRunner.Run(ReadOnlySpan{float}, int, int)"/>, lane after lane.
+/// Lane l output o is at <c>l * OutputCount + o</c> of <see cref="Outputs"/>.
+/// </summary>
+public sealed record GpuRecurrentBatch(ImmutableArray<float> Outputs, ImmutableArray<int> Steps, ImmutableArray<bool> Completed, int OutputCount)
+{
+    /// <summary>The result of one lane, as <see cref="RecurrentRunner.Run"/> gives it.</summary>
+    public RecurrentResult Lane(int lane)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)lane, (uint)Steps.Length, nameof(lane));
+        return new RecurrentResult([.. Outputs.AsSpan(lane * OutputCount, OutputCount)], Steps[lane], Completed[lane]);
+    }
+}
+
+/// <summary>
+/// The GPU runner of a <see cref="RecurrentFunction"/>. One lane is one argument table. Each lane gives
+/// the result of <see cref="RecurrentRunner.Run"/>: the same steps, the same Completed, and the same
+/// outputs, with the writer limits of <see cref="GpuEvaluator"/>.
+/// </summary>
+/// <remarks>
+/// <para>The runner checks each argument table on the CPU with the validator of the prefix. The prefix,
+/// the step kernel and the suffix run in one command buffer. The step kernel runs at most
+/// <see cref="StepsPerDispatch"/> evaluations of each lane in one dispatch, because a GPU command that
+/// runs too long stops on some systems. The runner submits more dispatches of the step kernel and the
+/// suffix while a lane runs. A lane that is done stays idle until the other lanes are done.</para>
+/// <para>The step kernel checks each cell with the declarations of the step table: at the first
+/// evaluation each cell, and then each next value of a state cell, before the done test. So a value past
+/// a cell range, also the range -2^23..2^23 of a wide int cell, stops the lane. It is never a silent wrong
+/// value. The kernel checks use is_finite and bit tests on computed values, which the WGSL specification
+/// does not guarantee. For the message, the runner replays the first failed lane on the CPU with
+/// <see cref="RecurrentRunner"/>, and throws <see cref="InvalidOperationException"/> with "lane n: " and
+/// the CPU message, with the CPU exception as the inner exception. When the CPU replay passes, the
+/// runner throws a message that names the GPU fault. The same replay gives the message of a nonzero loop
+/// overflow bit and of a suffix output that is not finite.</para>
+/// <para>The runner uses the lock of its device for the full call. Dispose the runner before its
+/// device.</para>
+/// </remarks>
+public sealed class GpuRecurrentRunner : IDisposable
+{
+    /// <summary>The largest count of step evaluations of one lane in one dispatch.</summary>
+    public const int StepsPerDispatch = 1024;
+
+    private static readonly KernelBuffer[] PassLayout = [KernelBuffer.ReadOnlyStorage, KernelBuffer.Storage, KernelBuffer.ReadOnlyStorage];
+
+    private static readonly KernelBuffer[] StepLayout =
+        [KernelBuffer.ReadOnlyStorage, KernelBuffer.Storage, KernelBuffer.ReadOnlyStorage, KernelBuffer.Storage, KernelBuffer.ReadOnlyStorage];
+
+    private readonly GpuDevice device;
+    private readonly RecurrentFunction function;
+    private readonly int argumentCount;
+    private readonly int cellCount;
+    private readonly int prefixStride;
+    private readonly int suffixStride;
+    private readonly int outputOffset;
+    private readonly int outputCount;
+    private readonly int suffixOverflowCount;
+    private readonly int workgroupSize;
+    private readonly List<IDisposable> owned = [];
+    private readonly ComputeKernel prefix;
+    private readonly ComputeKernel step;
+    private readonly ComputeKernel suffix;
+    private readonly StorageBuffer arguments;
+    private readonly StorageBuffer initial;
+    private readonly StorageBuffer state;
+    private readonly StorageBuffer parameters;
+    private readonly StorageBuffer lanes;
+    private readonly StorageBuffer run;
+    private readonly StorageBuffer suffixOutputs;
+    private readonly ReadbackBuffer readback;
+    private bool disposed;
+
+    private GpuRecurrentRunner(GpuDevice device, RecurrentFunction function, GpuWriter writer, int? maxLanesPerChunk)
+    {
+        this.device = device;
+        this.function = function;
+        var prefixProgram = function.Prefix.CreateEvaluator().Program;
+        var suffixProgram = function.Suffix.CreateEvaluator().Program;
+        var stepProgram = RecurrentKernelWriter.StepProgram(function.Step);
+        var layout = RecurrentKernelWriter.Initial(function, prefixProgram);
+        var kernelText = RecurrentKernelWriter.Write(function.Step, stepProgram, layout, writer);
+        var prefixModule = Module(writer, function.Prefix.Table.Circuit, prefixProgram);
+        var suffixModule = Module(writer, function.Suffix.Table.Circuit, suffixProgram);
+        argumentCount = prefixModule.SourceSize;
+        cellCount = kernelText.CellCount;
+        if (suffixModule.SourceSize != cellCount)
+        {
+            throw new ArgumentException($"the suffix has {suffixModule.SourceSize} cells, and the step has {cellCount}", nameof(function));
+        }
+        prefixStride = layout.Stride;
+        suffixStride = suffixModule.RootCount;
+        outputOffset = function.Suffix.Table.NextSource.Length;
+        outputCount = function.Suffix.Outputs.Length;
+        suffixOverflowCount = function.Suffix.LoopOverflowBits.Length;
+        workgroupSize = kernelText.WorkgroupSize;
+        LanesPerChunk = Math.Min(ChunkLimit(device), maxLanesPerChunk ?? int.MaxValue);
+        try
+        {
+            prefix = Own(new ComputeKernel(device, prefixModule.Code, PassLayout));
+            step = Own(new ComputeKernel(device, kernelText.Code, StepLayout));
+            suffix = Own(new ComputeKernel(device, suffixModule.Code, PassLayout));
+            arguments = Own(new StorageBuffer(device));
+            initial = Own(new StorageBuffer(device));
+            state = Own(new StorageBuffer(device));
+            parameters = Own(new StorageBuffer(device));
+            lanes = Own(new StorageBuffer(device));
+            run = Own(new StorageBuffer(device));
+            suffixOutputs = Own(new StorageBuffer(device));
+            readback = Own(new ReadbackBuffer(device));
+            prefix.Bind(0, arguments);
+            prefix.Bind(1, initial);
+            prefix.Bind(2, parameters);
+            step.Bind(0, initial);
+            step.Bind(1, state);
+            step.Bind(2, parameters);
+            step.Bind(3, lanes);
+            step.Bind(4, run);
+            suffix.Bind(0, state);
+            suffix.Bind(1, suffixOutputs);
+            suffix.Bind(2, parameters);
+        }
+        catch
+        {
+            ReleaseOwned();
+            throw;
+        }
+    }
+
+    /// <summary>The largest count of lanes of one chunk: the buffers of a chunk fit the device limits.</summary>
+    internal int LanesPerChunk { get; }
+
+    /// <summary>
+    /// Write the step kernel, the prefix shader and the suffix shader of the function, and create their
+    /// pipelines on the device.
+    /// </summary>
+    /// <exception cref="ArgumentException">The function has parts of other shapes.</exception>
+    /// <exception cref="InvalidOperationException">The device is lost, or a shader or a pipeline failed
+    /// (the message holds the wgpu message).</exception>
+    public static GpuRecurrentRunner Create(GpuDevice device, RecurrentFunction function, GpuWriter writer = GpuWriter.Integer) =>
+        Create(device, function, writer, null);
+
+    /// <summary>
+    /// <see cref="Create(GpuDevice, RecurrentFunction, GpuWriter)"/> with a lower chunk limit, so that a
+    /// test can split a small batch into chunks.
+    /// </summary>
+    internal static GpuRecurrentRunner Create(GpuDevice device, RecurrentFunction function, GpuWriter writer, int? maxLanesPerChunk)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(function);
+        if (writer is not (GpuWriter.Float32 or GpuWriter.Integer)) throw new ArgumentOutOfRangeException(nameof(writer), writer, "unknown writer");
+        if (maxLanesPerChunk is { } limit) ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1, nameof(maxLanesPerChunk));
+        return new GpuRecurrentRunner(device, function, writer, maxLanesPerChunk);
+    }
+
+    /// <summary>Run one lane. The result equals the result of <see cref="RecurrentRunner.Run"/>.</summary>
+    public RecurrentResult Run(ReadOnlySpan<float> arguments, int stepLimit) => Run(arguments, 1, stepLimit).Lane(0);
+
+    /// <summary>
+    /// Run the lanes. Lane l reads the argument table at <c>l * ArgumentCount</c> of
+    /// <paramref name="arguments"/>. Each lane runs at most <paramref name="stepLimit"/> evaluations of
+    /// the step.
+    /// </summary>
+    /// <exception cref="ArgumentException">The span has the wrong length, a count is negative, or an
+    /// argument table breaks a declaration of the prefix (the exception of its validator).</exception>
+    /// <exception cref="InvalidOperationException">A lane failed a check: the message is "lane n: " and the
+    /// message of the CPU runner. Or the device is lost.</exception>
+    public GpuRecurrentBatch Run(ReadOnlySpan<float> arguments, int laneCount, int stepLimit)
+    {
+        lock (device.Sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            device.ThrowIfUnusable();
+            ArgumentOutOfRangeException.ThrowIfNegative(laneCount);
+            ArgumentOutOfRangeException.ThrowIfNegative(stepLimit);
+            if ((long)laneCount * argumentCount != arguments.Length)
+            {
+                throw new ArgumentException($"arguments holds {arguments.Length} values, and {laneCount} lanes need {(long)laneCount * argumentCount}", nameof(arguments));
+            }
+            var validator = function.Prefix.Table.Validator;
+            for (var lane = 0; lane < laneCount; lane++) validator.Validate(arguments.Slice(lane * argumentCount, argumentCount));
+
+            var outputs = new float[checked(laneCount * outputCount)];
+            var steps = new int[laneCount];
+            var completed = new bool[laneCount];
+            for (var first = 0; first < laneCount; first += LanesPerChunk)
+            {
+                var count = Math.Min(LanesPerChunk, laneCount - first);
+                RunChunk(arguments.Slice(first * argumentCount, count * argumentCount), first, count, stepLimit, outputs, steps, completed);
+            }
+            return new GpuRecurrentBatch([.. outputs], [.. steps], [.. completed], outputCount);
+        }
+    }
+
+    /// <summary>Release the kernels and the buffers. A second call does nothing.</summary>
+    public void Dispose()
+    {
+        lock (device.Sync)
+        {
+            if (disposed) return;
+            disposed = true;
+            ReleaseOwned();
+        }
+    }
+
+    private static WgslModule Module(GpuWriter writer, Circuit circuit, TensorProgram program) =>
+        writer == GpuWriter.Float32 ? WgslFloatWriter.Write(circuit, program) : WgslIntegerWriter.Write(circuit, program);
+
+    private T Own<T>(T item) where T : IDisposable
+    {
+        owned.Add(item);
+        return item;
+    }
+
+    private void ReleaseOwned()
+    {
+        for (var index = owned.Count - 1; index >= 0; index--) owned[index].Dispose();
+        owned.Clear();
+    }
+
+    // The largest chunk: each buffer of a chunk fits one binding and one buffer, the readback of a
+    // chunk fits one buffer, and the workgroups fit one dispatch dimension.
+    private int ChunkLimit(GpuDevice gpu)
+    {
+        var binding = Math.Min(gpu.MaxStorageBufferBindingSize, gpu.MaxBufferSize);
+        long widest = Math.Max(Math.Max(argumentCount, prefixStride), Math.Max(Math.Max(cellCount, suffixStride), RecurrentKernelWriter.LaneWords));
+        var byBindings = binding / (4L * widest);
+        var byReadback = gpu.MaxBufferSize / (4L * (RecurrentKernelWriter.LaneWords + suffixStride));
+        var byWorkgroups = (long)workgroupSize * gpu.MaxWorkgroupsPerDimension;
+        return (int)Math.Max(1, Math.Min(Math.Min(byBindings, byReadback), Math.Min(byWorkgroups, int.MaxValue)));
+    }
+
+    // One chunk: the first round holds the prefix, one dispatch of the step kernel and the suffix. Each
+    // later round holds one dispatch of the step kernel and the suffix. Each round reads back the lane
+    // records and the suffix outputs. The rounds end when no lane is Fresh or Running.
+    private void RunChunk(ReadOnlySpan<float> chunkArguments, int first, int count, int stepLimit, float[] outputs, int[] steps, bool[] completed)
+    {
+        arguments.Write(chunkArguments);
+        parameters.Write<uint>([0u, (uint)count, 0u, 0u]);
+        run.Write<uint>([(uint)stepLimit, StepsPerDispatch, 0u, 0u]);
+        lanes.Write<uint>(new uint[count * RecurrentKernelWriter.LaneWords]);
+        initial.Reserve((long)count * prefixStride * sizeof(float));
+        state.Reserve((long)count * cellCount * sizeof(float));
+        suffixOutputs.Reserve((long)count * suffixStride * sizeof(float));
+        var workgroups = (uint)((count + workgroupSize - 1) / workgroupSize);
+        var laneBytes = (long)count * RecurrentKernelWriter.LaneWords * sizeof(uint);
+        var outputBytes = (long)count * suffixStride * sizeof(float);
+        var bytes = new byte[laneBytes + outputBytes];
+        BufferRead[] reads = [new(lanes, laneBytes), new(suffixOutputs, outputBytes)];
+        ComputeKernel.Submit(device, [new(prefix, workgroups), new(step, workgroups), new(suffix, workgroups)], reads, readback, bytes);
+        while (AnyRunning(MemoryMarshal.Cast<byte, uint>(bytes.AsSpan(0, (int)laneBytes))))
+        {
+            ComputeKernel.Submit(device, [new(step, workgroups), new(suffix, workgroups)], reads, readback, bytes);
+        }
+
+        var records = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan(0, (int)laneBytes));
+        var values = MemoryMarshal.Cast<byte, float>(bytes.AsSpan((int)laneBytes));
+        for (var index = 0; index < count; index++)
+        {
+            var lane = first + index;
+            var laneArguments = chunkArguments.Slice(index * argumentCount, argumentCount);
+            var status = (LaneStatus)records[index * RecurrentKernelWriter.LaneWords];
+            var laneSteps = records[(index * RecurrentKernelWriter.LaneWords) + 1];
+            if (status == LaneStatus.Invalid)
+            {
+                throw Replay(lane, laneArguments, (int)Math.Min(stepLimit, laneSteps + 1L), $"the GPU check failed at evaluation {laneSteps}");
+            }
+            if (status is not (LaneStatus.Completed or LaneStatus.Limit))
+            {
+                throw new InvalidOperationException($"lane {lane}: the step kernel ended with the status {status}");
+            }
+            var row = values.Slice(index * suffixStride, suffixStride);
+            var failed = false;
+            for (var output = 0; output < outputCount; output++) failed |= !float.IsFinite(row[outputOffset + output]);
+            for (var bit = 0; bit < suffixOverflowCount; bit++) failed |= row[outputOffset + outputCount + bit] != 0 || float.IsNaN(row[outputOffset + outputCount + bit]);
+            if (failed) throw Replay(lane, laneArguments, stepLimit, "the GPU suffix gave an overflow bit or an output that is not finite");
+            row.Slice(outputOffset, outputCount).CopyTo(outputs.AsSpan(lane * outputCount, outputCount));
+            steps[lane] = (int)laneSteps;
+            completed[lane] = status == LaneStatus.Completed;
+        }
+    }
+
+    private static bool AnyRunning(ReadOnlySpan<uint> records)
+    {
+        for (var index = 0; index < records.Length; index += RecurrentKernelWriter.LaneWords)
+        {
+            if ((LaneStatus)records[index] is LaneStatus.Fresh or LaneStatus.Running) return true;
+        }
+        return false;
+    }
+
+    // Run the lane on the CPU, which throws the message of the CPU runner. A CPU run that passes means
+    // that the GPU result is a backend fault.
+    private InvalidOperationException Replay(int lane, ReadOnlySpan<float> laneArguments, int stepLimit, string gpuFault)
+    {
+        try
+        {
+            new RecurrentRunner(function).Run(laneArguments, stepLimit);
+        }
+        catch (Exception error) when (error is InvalidOperationException or ArgumentException)
+        {
+            return new InvalidOperationException($"lane {lane}: {error.Message}", error);
+        }
+        return new InvalidOperationException($"lane {lane}: {gpuFault} and the CPU check passed");
+    }
+}
