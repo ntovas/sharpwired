@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/JsonSearch/JsonSearch.csproj" />
+    <Project Path="samples/JsonSearch.App/JsonSearch.App.csproj" />
     <Project Path="samples/Toggle.Builder/Toggle.Builder.csproj" />
     <Project Path="samples/Toggle.CSharp/Toggle.CSharp.csproj" />
     <Project Path="samples/Toggle.FSharp/Toggle.FSharp.fsproj" />

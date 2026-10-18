@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\samples\JsonSearch\JsonSearch.csproj" />
+    <ProjectReference Include="..\..\samples\JsonSearch.App\JsonSearch.App.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Core\Sharpwired.Core.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
     <ProjectReference Include="..\..\src\Sharpwired.IL\Sharpwired.IL.csproj" />

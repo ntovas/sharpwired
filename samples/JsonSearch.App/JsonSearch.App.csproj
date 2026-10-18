@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- No Handwired source. The executable of the JSON search sample. In phase 6 task 6 it has only the
+       bench mode. Program.cs gives the options. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="JsonSearch.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JsonSearch\JsonSearch.csproj" />
+    <ProjectReference Include="..\..\src\Sharpwired.Gpu\Sharpwired.Gpu.csproj" />
+  </ItemGroup>
+
+</Project>
