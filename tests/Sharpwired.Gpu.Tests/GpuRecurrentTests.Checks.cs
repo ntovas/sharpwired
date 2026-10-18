@@ -83,7 +83,7 @@ public sealed partial class GpuRecurrentTests
             kernel.Write<uint>(3, new uint[tables.Count * RecurrentKernelWriter.LaneWords]);
 
             // The step limit 0: the first evaluation checks the cells, and then the lane stops at the limit.
-            kernel.Write<uint>(4, [0u, (uint)GpuRecurrentRunner.StepsPerDispatch, 0u, 0u]);
+            kernel.Write<uint>(4, [0u, (uint)new GpuRecurrentOptions().StepsPerDispatch, 0u, 0u]);
             var lanes = new uint[tables.Count * RecurrentKernelWriter.LaneWords];
             kernel.Run((uint)((tables.Count + 63) / 64), 3, lanes.AsSpan());
             for (var table = 0; table < tables.Count; table++)

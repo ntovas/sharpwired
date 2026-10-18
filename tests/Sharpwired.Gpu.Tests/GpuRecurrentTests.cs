@@ -1,6 +1,7 @@
 // No Handwired source. R5.4: the recurrent step on the GPU (phase 5 plan, task 5, and question 6,
-// "Recurrent tests" and "Wide-cell test"). Each test runs on each adapter with both writers. It compares
-// each lane with RecurrentRunner.Run on the CPU. The steps and Completed must be the same. The outputs
+// "Recurrent tests" and "Wide-cell test"). Each test runs on each adapter with both writers, and on
+// CpuRecurrentRunner. Each runner runs through IRecurrentBatchRunner (phase 6 plan, task 7). The test
+// compares each lane with RecurrentRunner.Run on the CPU. The steps and Completed must be the same. The outputs
 // must agree by Js.ObjectIs (f32 writer) or Js.SameNumericValue (integer writer). The GPU and the CPU run
 // the same programs, so the f32 writer gives the same sign of zero.
 //
@@ -38,7 +39,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         return data;
     }
 
-    private static readonly Dictionary<string, float[][]> EdgeValues = new()
+    internal static readonly Dictionary<string, float[][]> EdgeValues = new()
     {
         [nameof(RecurrentInputs.Halve)] = [[1000000f], [1f], [0f], [-0f], [1.5f], [999999.94f]],
         [nameof(RecurrentInputs.CountDown)] = [[100f], [0f], [1f], [3f], [99f]],
@@ -61,9 +62,8 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     {
         var function = Translate(typeof(RecurrentInputs), name);
         var lanes = SeededSources.Create(function.Prefix.Table, SeededLanes, 5000 + name.Length).Concat(EdgeValues[name]).ToList();
-        fixture.ForEachDevice(output, device =>
+        ForEachRunner(function, writer, (runner, device) =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
             var watch = Stopwatch.StartNew();
             var batch = runner.Run(Flatten(lanes), lanes.Count, StepLimit);
             watch.Stop();
@@ -78,12 +78,11 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     {
         var function = Translate(typeof(RecurrentInputs), nameof(RecurrentInputs.Halve));
         var lanes = SeededSources.Create(function.Prefix.Table, 256, 5101).Concat(EdgeValues[nameof(RecurrentInputs.Halve)]).ToList();
-        fixture.ForEachDevice(output, device =>
+        ForEachRunner(function, writer, (runner, device) =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
             var batch = runner.Run(Flatten(lanes), lanes.Count, 3);
-            Assert.Contains(false, batch.Completed);
-            Assert.Contains(true, batch.Completed);
+            Assert.Contains(RecurrentLaneStatus.Limit, batch.Status);
+            Assert.Contains(RecurrentLaneStatus.Completed, batch.Status);
             Assert.Equal(3, batch.Steps.Max());
             AssertLanesEqualCpu(device, function, writer, lanes, batch, 3);
         });
@@ -99,28 +98,28 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         const int limit = 2500;
         var function = Translate(typeof(GpuRecurrentInputs), nameof(GpuRecurrentInputs.CountUp));
         var lanes = Enumerable.Range(0, limit + 1).Select(n => new[] { (float)n }).ToList();
-        fixture.ForEachDevice(output, device =>
+        ForEachRunner(function, writer, (runner, device) =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
             var watch = Stopwatch.StartNew();
             var batch = runner.Run(Flatten(lanes), lanes.Count, limit);
             watch.Stop();
             output.WriteLine($"CountUp, {writer}: {lanes.Count} lanes, limit {limit}, {watch.Elapsed.TotalMilliseconds:F1} ms");
-            Assert.True(limit > 2 * GpuRecurrentRunner.StepsPerDispatch);
+            if (runner is GpuRecurrentRunner gpu) Assert.True(limit > 2 * gpu.StepsPerDispatch);
             Assert.Equal(limit - 1, batch.Steps[limit - 1]);
-            Assert.True(batch.Completed[limit - 1]);
+            Assert.Equal(RecurrentLaneStatus.Completed, batch.Status[limit - 1]);
             Assert.Equal(limit, batch.Steps[limit]);
-            Assert.False(batch.Completed[limit]);
+            Assert.Equal(RecurrentLaneStatus.Limit, batch.Status[limit]);
             AssertLanesEqualCpu(device, function, writer, lanes, batch, limit);
         });
     }
 
-    // The wide-cell test of the plan (the phase 4 carried item). x has the wide int range -2^23..2^23.
-    // For n = 30, x is 2^24 after it doubles 24 times, and the cell check stops the lane. The GPU runner
-    // replays the lane on the CPU and throws its message. The other lanes are valid.
+    // The wide-cell test of the plan (the phase 4 carried item), and the invalid lane of the phase 6 plan.
+    // x has the wide int range -2^23..2^23. For n = 30 in lane 5, x is 2^24 after it doubles 24 times, and
+    // the cell check stops the lane. The GPU runner replays the lane on the CPU and keeps its message. The
+    // other lanes are valid and keep their results. ThrowIfInvalid throws the message of phase 5.
     [Theory]
     [MemberData(nameof(WriterData))]
-    public void A_wide_cell_past_its_range_throws_the_CPU_message_for_its_lane(GpuWriter writer)
+    public void A_wide_cell_past_its_range_gives_the_status_Invalid_and_the_CPU_message_for_its_lane(GpuWriter writer)
     {
         var function = Translate(typeof(GpuRecurrentInputs), nameof(GpuRecurrentInputs.DoubleUntil));
         var x = function.Step.State.Single(cell => cell.Path != "n" && function.Step.Table.Circuit.Ranges[cell.Wire.Position].Maximum == 8_388_608);
@@ -128,22 +127,26 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         var expected = Assert.Throws<InvalidOperationException>(() => new RecurrentRunner(function).Run([30f], StepLimit));
         output.WriteLine($"CPU: {expected.Message}");
 
-        var valid = Enumerable.Range(0, 24).Select(n => new[] { (float)n }).ToList();
-        var lanes = valid.Take(12).Append([30f]).Concat(valid.Skip(12)).ToList();
-        fixture.ForEachDevice(output, device =>
+        var lanes = InvalidLaneTables();
+        ForEachRunner(function, writer, (runner, device) =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
-            var error = Assert.Throws<InvalidOperationException>(() => runner.Run(Flatten(lanes), lanes.Count, StepLimit));
-            output.WriteLine($"GPU: {error.Message}");
-            Assert.Equal($"lane 12: {expected.Message}", error.Message);
-            Assert.IsType<InvalidOperationException>(error.InnerException);
-            Assert.Equal(expected.Message, error.InnerException!.Message);
-
-            // Without the lane of n = 30, each lane equals the CPU, and the largest value is 2^23.
-            var batch = runner.Run(Flatten(valid), valid.Count, StepLimit);
-            Assert.Equal(8_388_608f, batch.Lane(23).Outputs[0]);
-            AssertLanesEqualCpu(device, function, writer, valid, batch, StepLimit);
+            var batch = runner.Run(Flatten(lanes), lanes.Count, StepLimit);
+            Assert.Equal(RecurrentLaneStatus.Invalid, batch.Status[5]);
+            Assert.Equal(expected.Message, batch.Messages[5]);
+            Assert.Equal(1, batch.Status.Count(status => status == RecurrentLaneStatus.Invalid));
+            var error = Assert.Throws<InvalidOperationException>(batch.ThrowIfInvalid);
+            output.WriteLine($"{runner.GetType().Name}: {error.Message}");
+            Assert.Equal($"lane 5: {expected.Message}", error.Message);
+            Assert.Equal(8_388_608f, batch.Lane(24).Outputs[0]);
+            AssertLanesEqualCpu(device, function, writer, lanes, batch, StepLimit);
         });
+    }
+
+    /// <summary>The lanes of DoubleUntil for n = 0 to 23, with n = 30 at lane 5.</summary>
+    internal static List<float[]> InvalidLaneTables()
+    {
+        var valid = Enumerable.Range(0, 24).Select(n => new[] { (float)n }).ToList();
+        return [.. valid.Take(5), [30f], .. valid.Skip(5)];
     }
 
     [Theory]
@@ -153,11 +156,8 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         var function = Translate(typeof(GpuRecurrentInputs), nameof(GpuRecurrentInputs.FlipUntil));
         Assert.True(function.Step.Table.Circuit.ExactBits[function.Step.State.Single(cell => function.Step.Table.Circuit.ExactBits[cell.Wire.Position]).Wire.Position]);
         var lanes = Enumerable.Range(0, 41).Select(n => new[] { (float)n }).ToList();
-        fixture.ForEachDevice(output, device =>
-        {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
-            AssertLanesEqualCpu(device, function, writer, lanes, runner.Run(Flatten(lanes), lanes.Count, StepLimit), StepLimit);
-        });
+        ForEachRunner(function, writer, (runner, device) =>
+            AssertLanesEqualCpu(device, function, writer, lanes, runner.Run(Flatten(lanes), lanes.Count, StepLimit), StepLimit));
     }
 
     [Theory]
@@ -168,7 +168,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         var cpu = new RecurrentRunner(function);
         fixture.ForEachDevice(output, device =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer);
+            using var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: writer));
             foreach (var arguments in EdgeValues[nameof(RecurrentInputs.Invariant)])
             {
                 AssertLaneEquals(cpu.Run(arguments, StepLimit), runner.Run(arguments, StepLimit), writer, $"[{string.Join(", ", arguments)}]");
@@ -201,6 +201,13 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
             Assert.Equal(expected.Message, error.Message);
             Assert.Throws<ArgumentNullException>(() => GpuRecurrentRunner.Create(device, null!));
             Assert.Throws<ArgumentOutOfRangeException>(() => GpuRecurrentRunner.Create(device, function, (GpuWriter)7));
+            Assert.Throws<ArgumentOutOfRangeException>(() => GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: (GpuWriter)7)));
+            Assert.Same(function, runner.Function);
+            Assert.Equal(1024, runner.StepsPerDispatch);
+            using (var created = RecurrentRunners.Create(function, device, new GpuRecurrentOptions(7)))
+            {
+                Assert.Equal(7, Assert.IsType<GpuRecurrentRunner>(created).StepsPerDispatch);
+            }
 
             runner.Dispose();
             runner.Dispose();
@@ -217,7 +224,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
         var lanes = SeededSources.Create(function.Prefix.Table, 250, 5202).ToList();
         fixture.ForEachDevice(output, device =>
         {
-            using var runner = GpuRecurrentRunner.Create(device, function, writer, maxLanesPerChunk: 64);
+            using var runner = GpuRecurrentRunner.Create(device, function, new GpuRecurrentOptions(Writer: writer), maxLanesPerChunk: 64);
             Assert.Equal(64, runner.LanesPerChunk);
             AssertLanesEqualCpu(device, function, writer, lanes, runner.Run(Flatten(lanes), lanes.Count, StepLimit), StepLimit);
         });
@@ -225,16 +232,55 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
 
     public static TheoryData<GpuWriter> WriterData => [.. Writers];
 
-    private void AssertLanesEqualCpu(GpuDevice device, RecurrentFunction function, GpuWriter writer, IReadOnlyList<float[]> lanes, GpuRecurrentBatch batch, int stepLimit)
+    // Run the test on CpuRecurrentRunner, then on the GPU runner of the writer on each device. The device
+    // is null for the CPU runner.
+    private void ForEachRunner(RecurrentFunction function, GpuWriter writer, Action<IRecurrentBatchRunner, GpuDevice?> test, GpuRecurrentOptions? options = null)
     {
+        using (IRecurrentBatchRunner cpu = new CpuRecurrentRunner(function))
+        {
+            output.WriteLine("[cpu] CpuRecurrentRunner");
+            test(cpu, null);
+        }
+
+        fixture.ForEachDevice(output, device =>
+        {
+            using IRecurrentBatchRunner runner = GpuRecurrentRunner.Create(device, function, (options ?? new GpuRecurrentOptions()) with { Writer = writer });
+            test(runner, device);
+        });
+    }
+
+    // The CPU runner equals RecurrentRunner.Run exactly. A GPU lane equals it with the rules of the writer
+    // and the subnormal rule. A lane that RecurrentRunner.Run refuses has the status Invalid and the CPU
+    // message.
+    private void AssertLanesEqualCpu(GpuDevice? device, RecurrentFunction function, GpuWriter writer, IReadOnlyList<float[]> lanes, RecurrentBatch batch, int stepLimit)
+    {
+        if (device is null)
+        {
+            CpuRecurrentRunnerTests.AssertLanesEqualRecurrentRunner(function, lanes, batch, stepLimit);
+            return;
+        }
+
         Assert.Equal(lanes.Count, batch.Steps.Length);
-        Assert.Equal(lanes.Count, batch.Completed.Length);
+        Assert.Equal(lanes.Count, batch.Status.Length);
         Assert.Equal(lanes.Count * function.Suffix.Outputs.Length, batch.Outputs.Length);
         var cpu = new RecurrentRunner(function);
         var excluded = 0;
         for (var lane = 0; lane < lanes.Count; lane++)
         {
-            var expected = cpu.Run(lanes[lane], stepLimit);
+            var context = $"lane {lane} [{string.Join(", ", lanes[lane].Select(value => value.ToString("R")))}]";
+            RecurrentResult expected;
+            try
+            {
+                expected = cpu.Run(lanes[lane], stepLimit);
+            }
+            catch (InvalidOperationException error)
+            {
+                Assert.True(batch.Status[lane] == RecurrentLaneStatus.Invalid, $"{context}: status {batch.Status[lane]}, CPU {error.Message}");
+                Assert.Equal(error.Message, batch.Messages[lane]);
+                continue;
+            }
+
+            Assert.True(batch.Status[lane] != RecurrentLaneStatus.Invalid, $"{context}: status Invalid ({batch.Messages[lane]}), and the CPU run passed");
             var actual = batch.Lane(lane);
             if (LaneEquals(expected, actual, writer)) continue;
             if (device.FlushesSubnormals && SubnormalReplay.Holds(function, lanes[lane], stepLimit))
@@ -243,7 +289,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
                 continue;
             }
 
-            AssertLaneEquals(expected, actual, writer, $"lane {lane} [{string.Join(", ", lanes[lane].Select(value => value.ToString("R")))}]");
+            AssertLaneEquals(expected, actual, writer, context);
         }
 
         output.WriteLine($"compared {lanes.Count - excluded} lanes, excluded by the subnormal rule {excluded}");
