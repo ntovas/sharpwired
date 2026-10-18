@@ -30,6 +30,67 @@ public class FontCoverageTests
         Assert.Throws<ArgumentException>(() => FontCoverage.Covered(cut, ['A']));
     }
 
+    // No Handwired test. A table offset or a subtable offset above int.MaxValue, and each cut of the file, give an
+    // ArgumentException and no other exception.
+    [Fact]
+    public void An_offset_past_the_file_and_each_truncated_table_give_an_argument_exception()
+    {
+        // The probe file: 64 bytes, one table record "cmap" at offset 0x80000000.
+        var probe = new byte[64];
+        BinaryPrimitives.WriteUInt32BigEndian(probe.AsSpan(0), 0x00010000);
+        BinaryPrimitives.WriteUInt16BigEndian(probe.AsSpan(4), 1);
+        "cmap"u8.CopyTo(probe.AsSpan(12));
+        BinaryPrimitives.WriteUInt32BigEndian(probe.AsSpan(20), 0x80000000);
+        BinaryPrimitives.WriteUInt32BigEndian(probe.AsSpan(24), 4);
+        Assert.Throws<ArgumentException>(() => FontCoverage.Covered(probe, ['A']));
+
+        // A subtable offset of 0xFFFFFFF0 in the first encoding record.
+        var farSubtable = FontWithCmap();
+        BinaryPrimitives.WriteUInt32BigEndian(farSubtable.AsSpan(28 + 4 + 4), 0xfffffff0);
+        Assert.Throws<ArgumentException>(() => FontCoverage.Covered(farSubtable, ['A']));
+
+        // A format 12 group count that is past the end of the file.
+        var font = FontWithCmap();
+        var manyGroups = font.ToArray();
+        BinaryPrimitives.WriteUInt32BigEndian(manyGroups.AsSpan(font.Length - 28 + 12), 0xffffffff);
+        Assert.Throws<ArgumentException>(() => FontCoverage.Covered(manyGroups, [0x1f602]));
+
+        // Each cut of the file. The table record keeps the length of the full cmap table.
+        for (var length = 0; length < font.Length; length++)
+        {
+            var cut = font[..length];
+            Assert.Throws<ArgumentException>(() => FontCoverage.Covered(cut, ['A', 0x6771, 0x1f600, 0x1f602]));
+        }
+    }
+
+    // No Handwired test. The file reader gives the covered code points of a font file. A missing file, a directory,
+    // and a file that is not a font give null and a reason. The window then skips that font.
+    [Fact]
+    public void The_file_reader_gives_null_and_a_reason_for_each_file_that_it_cannot_read()
+    {
+        var directory = Directory.CreateTempSubdirectory("sharpwired-font-");
+        try
+        {
+            var good = Path.Combine(directory.FullName, "good.ttf");
+            File.WriteAllBytes(good, FontWithCmap());
+            Assert.Equal([(int)'A'], FontCoverage.CoveredInFile(good, ['A', 'D'], out var noError)!.Order());
+            Assert.Null(noError);
+
+            var bad = Path.Combine(directory.FullName, "bad.ttf");
+            File.WriteAllBytes(bad, [1, 2, 3]);
+            Assert.Null(FontCoverage.CoveredInFile(bad, ['A'], out var badError));
+            Assert.NotNull(badError);
+            Assert.Null(FontCoverage.CoveredInFile(Path.Combine(directory.FullName, "missing.ttf"), ['A'], out var missingError));
+            Assert.NotNull(missingError);
+            Assert.Null(FontCoverage.CoveredInFile(directory.FullName, ['A'], out var directoryError));
+            Assert.NotNull(directoryError);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     private static byte[] FontWithCmap()
     {
         var format4 = Format4();

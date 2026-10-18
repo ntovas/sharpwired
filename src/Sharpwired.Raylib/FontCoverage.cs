@@ -15,7 +15,9 @@ public static class FontCoverage
     private const uint CmapTag = 0x636d6170; // "cmap"
 
     /// <summary>The code points of the list that the font maps to a glyph other than glyph 0, the missing glyph.</summary>
-    /// <exception cref="ArgumentException">The bytes are not a font with a character map that the reader knows.</exception>
+    /// <exception cref="ArgumentException">
+    /// The bytes are not a font with a character map that the reader knows, or an offset or a length is past the end of the file.
+    /// </exception>
     public static HashSet<int> Covered(ReadOnlySpan<byte> font, IEnumerable<int> codePoints)
     {
         ArgumentNullException.ThrowIfNull(codePoints);
@@ -33,6 +35,27 @@ public static class FontCoverage
         return covered;
     }
 
+    /// <summary>
+    /// The covered code points of the font file at the path, or null when the reader cannot read the file. Then error
+    /// holds the reason: the file does not exist or cannot be read, or it is not a font that the reader knows.
+    /// </summary>
+    public static HashSet<int>? CoveredInFile(string path, IEnumerable<int> codePoints, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(codePoints);
+        try
+        {
+            var covered = Covered(File.ReadAllBytes(path), codePoints);
+            error = null;
+            return covered;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            error = exception.Message;
+            return null;
+        }
+    }
+
     // The offsets of the subtables of format 4 and 12 for Unicode, from the start of the file.
     private static List<int> Subtables(ReadOnlySpan<byte> font)
     {
@@ -43,12 +66,13 @@ public static class FontCoverage
         {
             var record = 12 + (table * 16);
             if (U32(font, record) != CmapTag) continue;
-            cmap = checked((int)U32(font, record + 8));
+            var offset = U32(font, record + 8);
             cmapLength = U32(font, record + 12);
+            if (offset + cmapLength > font.Length) throw new ArgumentException("the cmap table of the font is past the end of the file");
+            cmap = (int)offset;
             break;
         }
         if (cmap < 0) throw new ArgumentException("the font has no cmap table");
-        if (cmap + cmapLength > font.Length) throw new ArgumentException("the cmap table of the font is past the end of the file");
         var subtables = new List<int>();
         var encodingCount = U16(font, cmap + 2);
         for (var encoding = 0; encoding < encodingCount; encoding++)
@@ -57,7 +81,9 @@ public static class FontCoverage
             var platform = U16(font, record);
             var id = U16(font, record + 2);
             if (!(platform == 0 || (platform == 3 && (id == 1 || id == 10)))) continue;
-            var subtable = cmap + checked((int)U32(font, record + 4));
+            var subtableOffset = cmap + (long)U32(font, record + 4);
+            if (subtableOffset >= font.Length) throw new ArgumentException("a subtable of the cmap table is past the end of the file");
+            var subtable = (int)subtableOffset;
             var format = U16(font, subtable);
             if ((format == 4 || format == 12) && !subtables.Contains(subtable)) subtables.Add(subtable);
         }
@@ -96,9 +122,10 @@ public static class FontCoverage
     private static int Format12Glyph(ReadOnlySpan<byte> font, int subtable, int codePoint)
     {
         var groups = U32(font, subtable + 12);
-        for (var group = 0L; group < groups; group++)
+        if (subtable + 16 + (groups * 12L) > font.Length) throw new ArgumentException("the groups of a format 12 subtable are past the end of the file");
+        for (var group = 0; group < groups; group++)
         {
-            var at = checked(subtable + 16 + (int)(group * 12));
+            var at = subtable + 16 + (group * 12);
             var start = U32(font, at);
             var end = U32(font, at + 4);
             if (codePoint < start || codePoint > end) continue;

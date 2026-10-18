@@ -1,8 +1,9 @@
 // Handwired source: src/json-search/demo.ts (searchOnGpu, documentOnGpu, the CPU worker and the RegExp worker that the
 // page asks for work, and the answers that arrive between two frames) and demo-worker.ts. The search service of the
 // window: three worker threads, so that the window thread never waits for a search.
-// - The search thread runs the newest search on the GPU searcher or on the CPU searcher. The CPU searcher is made
-//   at the first CPU search when there is a GPU. A newer search cancels the token of the older one.
+// - The search thread runs the newest search on the GPU searcher or on the CPU searcher. A newer search cancels the
+//   token of the older one. When there is a GPU, the first CPU search makes the CPU searcher over the display kinds
+//   that the service holds, so it runs no highlighter. A cancellation also stops this build.
 // - The document thread gives the display kinds of one document, which the service read one time from the
 //   searcher, and its marks from the search program over that one document on a CPU backend of its own (the
 //   Handwired CPU searcher with documents: 'window'). The Searcher runs each search over each document, so a window
@@ -56,6 +57,9 @@ public interface ISearchService
     /// <summary>The .NET Regex time of the pattern and the scope. A newer timing replaces this one.</summary>
     void TimeDotNet(int id, string pattern, SearchScope scope);
 
+    /// <summary>Stop the .NET Regex timing in progress, for a pattern that the window does not time.</summary>
+    void CancelDotNet();
+
     /// <summary>The answers that arrived since the last call, in the order of arrival.</summary>
     IReadOnlyList<SearchAnswer> Poll();
 }
@@ -95,6 +99,9 @@ public sealed class SearchService : ISearchService, IDisposable
     public int DocumentCount => texts.Count;
 
     public bool HasGpu => gpuSearcher is not null;
+
+    /// <summary>The highlighter runs of the CPU searcher, or null before it exists, for tests.</summary>
+    internal int? CpuHighlighterRuns => Volatile.Read(ref cpuSearcher)?.HighlighterRuns;
 
     /// <summary>
     /// Make the searcher of the GPU backend, or of the CPU backend when there is no GPU, which runs the highlighter
@@ -152,6 +159,12 @@ public sealed class SearchService : ISearchService, IDisposable
         dotNetWorker.Post(new SearchJob(id, pattern, scope, SearchBackend.Cpu));
     }
 
+    public void CancelDotNet()
+    {
+        ThrowIfDisposed();
+        dotNetWorker.Cancel();
+    }
+
     public IReadOnlyList<SearchAnswer> Poll()
     {
         ThrowIfDisposed();
@@ -183,10 +196,11 @@ public sealed class SearchService : ISearchService, IDisposable
         {
             var searcher = job.Backend == SearchBackend.Gpu
                 ? gpuSearcher ?? throw new InvalidOperationException("this window has no GPU")
-                : cpuSearcher ??= Searcher.Create(texts, cpuBackend, documentsPerSlice);
+                : cpuSearcher ??= Searcher.CreateFromKinds(texts, cpuBackend, kinds, gpuSearcher!.Validation, documentsPerSlice, cancel);
+            // The progress of the last slice equals the result that Search returns, so only the result goes in the queue.
             var progress = new QueueProgress(result =>
             {
-                if (result is SearchResult.Searched searched) answers.Enqueue(new SearchAnswer.Found(job.Id, searched));
+                if (result is SearchResult.Searched searched && searched.DocumentsDone < texts.Count) answers.Enqueue(new SearchAnswer.Found(job.Id, searched));
             });
             switch (searcher.Search(new SearchRequest(job.Pattern, job.Scope, 0, 0), progress, cancel))
             {

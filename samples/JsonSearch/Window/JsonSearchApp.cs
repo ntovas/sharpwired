@@ -172,6 +172,7 @@ public sealed class JsonSearchApp : IWindowApp
                     break;
                 case SearchAnswer.DotNetTime timing when timing.Id == dotNetId && dotNetId != 0:
                     dotNet = (dotNetKey, timing.Time);
+                    dotNetId = 0;
                     break;
                 case SearchAnswer.Failed failed when failed.Id != 0 && (failed.Id == searchId || failed.Id == documentId || failed.Id == dotNetId):
                     failure = failed.Message;
@@ -268,6 +269,13 @@ public sealed class JsonSearchApp : IWindowApp
                 searchKey = key;
                 service.Search(searchId, pattern, scope, backend);
             }
+            else if (searchId != 0)
+            {
+                // Stop the search of the older key. Its answer must not replace the answer of this key.
+                searchId = 0;
+                searchKey = "";
+                service.CancelSearch();
+            }
         }
         else if (searchId != 0)
         {
@@ -278,11 +286,17 @@ public sealed class JsonSearchApp : IWindowApp
         var timingKey = fits ? $"{scope}\n{pattern}" : "";
         if (timingKey == dotNetKey) return;
         dotNetKey = timingKey;
+        var running = dotNetId != 0;
         dotNetId = 0;
         if (fits && (dotNet is not { } time || time.Key != timingKey))
         {
+            // The new timing cancels the timing in progress.
             dotNetId = ++nextId;
             service.TimeDotNet(dotNetId, pattern, scope);
+        }
+        else if (running)
+        {
+            service.CancelDotNet();
         }
     }
 

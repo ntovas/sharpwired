@@ -106,6 +106,31 @@ public sealed class SearcherTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_searcher_over_the_kinds_of_another_searcher_runs_no_highlighter_and_gives_its_results()
+    {
+        using var backend = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
+        using var whole = Searcher.Create(SmallTexts, backend);
+        Assert.Equal(1, whole.HighlighterRuns);
+        var flat = whole.Kinds(0, SmallTexts.Length);
+        var kinds = Enumerable.Range(0, SmallTexts.Length).Select(row => ImmutableArray.Create(flat.AsSpan(row * Kinds.Capacity, Kinds.Capacity))).ToArray();
+        using var reused = Searcher.CreateFromKinds(SmallTexts, backend, kinds, whole.Validation, 70, CancellationToken.None);
+        Assert.Equal(0, reused.HighlighterRuns);
+        Assert.Equal(whole.Validation, reused.Validation);
+        Assert.Equal(flat.ToArray(), reused.Kinds(0, SmallTexts.Length).ToArray());
+        var request = new SearchRequest("[a-z]+", SearchScope.StringValues, 60, 20);
+        var left = Assert.IsType<SearchResult.Searched>(reused.Search(request));
+        var right = Assert.IsType<SearchResult.Searched>(whole.Search(request));
+        Assert.Equal(right.MatchCounts, left.MatchCounts.ToArray());
+        Assert.Equal(right.WindowMarks, left.WindowMarks.ToArray());
+
+        // A cancelled token stops the build, and a count that is not the text count throws.
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => Searcher.CreateFromKinds(SmallTexts, backend, kinds, whole.Validation, 70, cancelled.Token));
+        Assert.Throws<ArgumentException>(() => Searcher.CreateFromKinds(SmallTexts, backend, kinds[1..], whole.Validation, 70, CancellationToken.None));
+    }
+
+    [Fact]
     public void A_search_over_slices_equals_one_slice_and_the_window_crosses_the_slices()
     {
         using var backend = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
@@ -173,6 +198,28 @@ public sealed class SearcherTests(ITestOutputHelper output)
         var result = Assert.IsType<SearchResult.Searched>(await waiting!);
         Assert.Equal(SmallTexts.Length, result.DocumentsDone);
         Assert.True(result.Matches > 0);
+    }
+
+    [Fact]
+    public async Task The_times_of_a_search_start_after_the_wait_for_the_search_in_progress()
+    {
+        using var backend = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
+        using var searcher = Searcher.Create(SmallTexts, backend, documentsPerSlice: 50);
+        // The first progress report of the older search holds the evaluation lock for 800 ms after the newer request starts.
+        Task<SearchResult?>? waiting = null;
+        searcher.Search(
+            new SearchRequest("[a-z]+", SearchScope.All, 0, 0),
+            new Callback(_ =>
+            {
+                if (waiting is not null) return;
+                var before = searcher.Requests;
+                waiting = Task.Run(() => searcher.Search(new SearchRequest("[0-9]+", SearchScope.All, 0, 0)));
+                Assert.True(SpinWait.SpinUntil(() => searcher.Requests > before, TimeSpan.FromSeconds(30)), "the newer request did not start");
+                Thread.Sleep(800);
+            }));
+        var result = Assert.IsType<SearchResult.Searched>(await waiting!);
+        Assert.True(result.Times.TotalMs < 400, $"TotalMs {result.Times.TotalMs}");
+        Assert.True(result.Times.WriteMs <= result.Times.TotalMs);
     }
 
     [Fact]
@@ -262,6 +309,8 @@ public sealed class GpuSearcherTests(GpuFixture fixture, ITestOutputHelper outpu
                     $"[gpu search] {pattern} in {scope}, {result.States} states: {result.DocumentsWithMatch} of {LargeRun.Count} documents match, {result.Matches} matches; "
                     + $"first search {first.Times.TotalMs:F1} ms, second {result.Times.TotalMs:F1} ms; the CPU {expected.Times.TotalMs:F0} ms");
             }
+            // A document that failed a kernel check and passed on the CPU gets the CPU values. No value is subnormal, so there must be none.
+            Assert.Equal(0, gpu.ReplayPasses);
         });
     }
 }

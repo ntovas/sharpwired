@@ -87,14 +87,12 @@ public sealed class SearchServiceTests
     }
 
     [Fact]
-    public void Dispose_cancels_the_search_in_progress_and_stops_the_workers()
+    public void Dispose_stops_the_workers_and_a_later_call_throws()
     {
         using var cpu = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
         var service = SearchService.Create(Texts, null, cpu, documentsPerSlice: 10);
         service.Search(1, "([a-z]+)+x", SearchScope.All, SearchBackend.Cpu);
-        var watch = Stopwatch.StartNew();
         service.Dispose();
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30));
         service.Dispose();
         Assert.Throws<ObjectDisposedException>(() => service.Search(2, "a", SearchScope.All, SearchBackend.Cpu));
         Assert.Throws<ObjectDisposedException>(() => service.Poll());
@@ -127,6 +125,59 @@ public sealed class SearchServiceTests
         }
         Assert.Equal([1, 3], ran);
         Assert.Equal([1], cancelled);
+    }
+
+    [Fact]
+    public void A_search_gives_one_progress_answer_for_each_slice_and_one_full_answer()
+    {
+        using var cpu = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
+        using var service = SearchService.Create(Texts, null, cpu, documentsPerSlice: 100);
+        service.Search(1, "[a-z]+Id", SearchScope.Keys, SearchBackend.Cpu);
+        var answers = new List<SearchAnswer.Found>();
+        var watch = Stopwatch.StartNew();
+        while (!answers.Any(answer => answer.Result.DocumentsDone == 300) && watch.Elapsed < TimeSpan.FromSeconds(60))
+        {
+            answers.AddRange(service.Poll().OfType<SearchAnswer.Found>());
+            Thread.Sleep(5);
+        }
+        Thread.Sleep(300);
+        answers.AddRange(service.Poll().OfType<SearchAnswer.Found>());
+        Assert.Equal([100, 200, 300], answers.Select(answer => answer.Result.DocumentsDone));
+    }
+
+    [Fact]
+    public void With_a_gpu_the_first_cpu_search_reuses_the_kinds_and_runs_no_highlighter()
+    {
+        // A second CPU backend takes the place of the GPU backend.
+        using var gpu = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
+        using var cpu = new CpuLoopBackend(new CpuLoopOptions(BlockSize: 16));
+        using var service = SearchService.Create(Texts, gpu, cpu, documentsPerSlice: 100);
+        Assert.True(service.HasGpu);
+        service.Search(1, "[a-z]+Id", SearchScope.Keys, SearchBackend.Gpu);
+        var onGpu = WaitFor<SearchAnswer.Found>(service, answer => answer.Id == 1 && answer.Result.DocumentsDone == 300);
+        service.Search(2, "[a-z]+Id", SearchScope.Keys, SearchBackend.Cpu);
+        var onCpu = WaitFor<SearchAnswer.Found>(service, answer => answer.Id == 2 && answer.Result.DocumentsDone == 300);
+        Assert.Equal(onGpu.Result.MatchCounts.ToArray(), onCpu.Result.MatchCounts.ToArray());
+        Assert.Equal(0, service.CpuHighlighterRuns);
+    }
+
+    [Fact]
+    public void Dispose_of_the_latest_job_worker_cancels_the_job_in_progress()
+    {
+        // The job runs until its token is cancelled, or for at most 10 s.
+        var started = new ManualResetEventSlim();
+        var sawCancel = false;
+        var worker = new LatestJobWorker<int>("test", (_, cancel) =>
+        {
+            started.Set();
+            sawCancel = cancel.WaitHandle.WaitOne(TimeSpan.FromSeconds(10));
+        });
+        worker.Post(1);
+        Assert.True(started.Wait(TimeSpan.FromSeconds(30)));
+        var watch = Stopwatch.StartNew();
+        worker.Dispose();
+        Assert.True(sawCancel);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Dispose took {watch.Elapsed}");
     }
 
     // Poll until an answer of the type passes the test. The other answers of the type go to the list.

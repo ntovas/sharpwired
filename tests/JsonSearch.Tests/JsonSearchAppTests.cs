@@ -202,6 +202,51 @@ public sealed class JsonSearchAppTests
     }
 
     [Fact]
+    public void Backspace_to_a_pattern_with_a_full_answer_drops_the_answer_of_the_longer_pattern()
+    {
+        var (app, service) = Start();
+        Frame(app);
+        Frame(app, Typed("ab"));
+        service.Release(new SearchAnswer.Found(service.Searches[^1].Id, Searched(Counts((2, 1)), 20, 1)));
+        Frame(app);
+        Frame(app, Typed("c"));
+        var longer = service.Searches[^1];
+        Assert.Equal("abc", longer.Pattern);
+        var cancels = service.Cancels;
+        var searches = service.Searches.Count;
+        // The answer of "ab" is here, so Backspace sends no search, and it cancels the search of "abc".
+        var commands = Frame(app, Idle() with { Keys = [new KeyPress(Key.Backspace, false, false)] });
+        Assert.Equal("1 of 20 documents matches. This program: 1.0 ms on the GPU.", Line(commands));
+        Assert.Equal(searches, service.Searches.Count);
+        Assert.Equal(cancels + 1, service.Cancels);
+        service.Release(new SearchAnswer.Found(longer.Id, Searched(Counts((4, 1), (9, 1)), 20, 2)));
+        // The frames past the 250 ms of a long search keep the answer of "ab".
+        for (var frame = 0; frame < 20; frame++) Assert.Equal("1 of 20 documents matches. This program: 1.0 ms on the GPU.", Line(Frame(app)));
+        Assert.Equal(Palette.CellMatch, CellPixel(Pixels(Frame(app)), 2));
+    }
+
+    [Fact]
+    public void A_pattern_with_no_search_cancels_the_dotnet_timing_in_progress()
+    {
+        var (app, service) = Start();
+        Frame(app);
+        Frame(app, Typed("ab"));
+        Assert.Equal("ab", service.DotNet[^1].Pattern);
+        Assert.Equal(0, service.DotNetCancels);
+        // The syntax error gives no .NET Regex timing, so the timing of "ab" stops.
+        Frame(app, Typed("("));
+        Assert.Equal(1, service.DotNetCancels);
+        // Backspace times "ab" again, because its timing did not arrive.
+        Frame(app, Idle() with { Keys = [new KeyPress(Key.Backspace, false, false)] });
+        Assert.Equal(["ab", "ab"], service.DotNet.Select(timing => timing.Pattern));
+        service.Release(new SearchAnswer.DotNetTime(service.DotNet[^1].Id, new DotNetTime(5, false)));
+        Frame(app);
+        // An empty field also stops no timing that is complete.
+        Frame(app, Idle() with { Keys = [new KeyPress(Key.Backspace, false, false), new KeyPress(Key.Backspace, false, false)] });
+        Assert.Equal(1, service.DotNetCancels);
+    }
+
+    [Fact]
     public void A_cpu_search_in_progress_shows_the_of_the_first_sentence_and_waiting_cells_past_its_front()
     {
         var (app, service) = Start();
@@ -399,6 +444,10 @@ internal sealed class FakeSearchService(int documentCount, bool hasGpu) : ISearc
     public void ShowDocument(int id, int index, string? pattern, SearchScope scope) => Documents.Add((id, index, pattern, scope));
 
     public void TimeDotNet(int id, string pattern, SearchScope scope) => DotNet.Add((id, pattern, scope));
+
+    public int DotNetCancels { get; private set; }
+
+    public void CancelDotNet() => DotNetCancels++;
 
     public IReadOnlyList<SearchAnswer> Poll()
     {

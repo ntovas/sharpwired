@@ -9,9 +9,10 @@
 // - The documents are in slices of documents, each with its own document buffer and kinds buffer. On the GPU one
 //   slice holds all documents. On the CPU a slice holds 16,384 documents, so that a search reports the counts of
 //   each slice as progress and stops at a cancellation between slices (and between blocks inside a slice).
-// - The times of a search are one LoopTimes: WriteMs is the pattern compile, the cell writes and the writes of the
-//   runs, SubmitMs, WaitMs and ReadMs are the sums over the slices, and TotalMs runs from the pattern compile to the
-//   copy of the last count. On the CPU, WaitMs is the sum of the block loops.
+// - The times of a search are one LoopTimes. WriteMs is the pattern compile, the write of the shared cells, and the
+//   write time of each run. SubmitMs, WaitMs and ReadMs are the sums over the slices. TotalMs is the pattern compile
+//   plus the time from the lock to the copy of the last count. The wait for the evaluation lock is not in a time. On
+//   the CPU, WaitMs is the sum of the block loops.
 
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -98,6 +99,9 @@ public sealed class Searcher : IDisposable
     /// <summary>The number of search runs on the backend, one for each slice of each search.</summary>
     internal int SearchRuns => Volatile.Read(ref searchRuns);
 
+    /// <summary>The number of highlighter runs of the build: one for each slice, or 0 for a searcher over given kinds.</summary>
+    internal int HighlighterRuns { get; private init; }
+
     /// <summary>The number of requests so far, with the requests that needed no search.</summary>
     internal long Requests => Interlocked.Read(ref latest);
 
@@ -110,7 +114,35 @@ public sealed class Searcher : IDisposable
     public static Searcher Create(IReadOnlyList<string> texts, ILoopBackend backend) => Create(texts, backend, null);
 
     /// <summary>Create with a chosen number of documents in each slice, for tests.</summary>
-    internal static Searcher Create(IReadOnlyList<string> texts, ILoopBackend backend, int? documentsPerSlice)
+    internal static Searcher Create(IReadOnlyList<string> texts, ILoopBackend backend, int? documentsPerSlice) =>
+        Build(texts, backend, documentsPerSlice, null, default, CancellationToken.None);
+
+    /// <summary>
+    /// Make a searcher over the display kinds and the validation of another searcher of the same texts. It runs no
+    /// highlighter. The window service uses it for its CPU searcher when the GPU searcher holds the kinds. A
+    /// cancellation stops the build between slices.
+    /// </summary>
+    /// <exception cref="ArgumentException">No text, a kinds count or a validation count that is not the text count, or a document with other than 512 kinds.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    internal static Searcher CreateFromKinds(
+        IReadOnlyList<string> texts, ILoopBackend backend, IReadOnlyList<ImmutableArray<byte>> kinds, ImmutableArray<DocumentSummary> validation, int? documentsPerSlice, CancellationToken cancel)
+    {
+        ArgumentNullException.ThrowIfNull(texts);
+        ArgumentNullException.ThrowIfNull(kinds);
+        if (kinds.Count != texts.Count || validation.IsDefault || validation.Length != texts.Count)
+        {
+            throw new ArgumentException($"the kinds and the validation must hold one entry for each of the {texts.Count} texts", nameof(kinds));
+        }
+        for (var row = 0; row < kinds.Count; row++)
+        {
+            if (kinds[row].Length != Positions) throw new ArgumentException($"the kinds of document {row} hold {kinds[row].Length} values, and a document has {Positions}", nameof(kinds));
+        }
+        return Build(texts, backend, documentsPerSlice, kinds, validation, cancel);
+    }
+
+    // Make the slices and the runners. With no kinds, run the highlighter over each slice. With kinds, upload them.
+    private static Searcher Build(
+        IReadOnlyList<string> texts, ILoopBackend backend, int? documentsPerSlice, IReadOnlyList<ImmutableArray<byte>>? givenKinds, ImmutableArray<DocumentSummary> givenValidation, CancellationToken cancel)
     {
         ArgumentNullException.ThrowIfNull(texts);
         ArgumentNullException.ThrowIfNull(backend);
@@ -120,22 +152,25 @@ public sealed class Searcher : IDisposable
 
         var slices = new List<Slice>();
         var runners = new List<ILoopRunner>();
+        var parallel = new ParallelOptions { CancellationToken = cancel };
         try
         {
             var highlighter = backend.CreateRunner(HighlighterLoop.Value);
             runners.Add(highlighter);
             foreach (var program in SearchPrograms) runners.Add(backend.CreateRunner(program.Value.Loop));
             var summaries = new float[texts.Count * SummaryValues];
+            var highlighterRuns = 0;
             for (var first = 0; first < texts.Count; first += sliceSize)
             {
+                cancel.ThrowIfCancellationRequested();
                 var count = Math.Min(sliceSize, texts.Count - first);
                 var cells = new float[count * DocumentCells.CellsPerDocument];
-                Parallel.For(0, count, row => DocumentCells.Write(cells.AsSpan(row * DocumentCells.CellsPerDocument, DocumentCells.CellsPerDocument), texts[first + row]));
+                Parallel.For(0, count, parallel, row => DocumentCells.Write(cells.AsSpan(row * DocumentCells.CellsPerDocument, DocumentCells.CellsPerDocument), texts[first + row]));
                 var documents = backend.Upload(cells, count, DocumentCells.CellsPerDocument);
                 IDocumentBuffer kinds;
                 try
                 {
-                    kinds = backend.Allocate(count, Positions, (float)DisplayKind.PastEnd);
+                    kinds = givenKinds is null ? backend.Allocate(count, Positions, (float)DisplayKind.PastEnd) : UploadKinds(backend, givenKinds, first, count, parallel);
                 }
                 catch
                 {
@@ -143,16 +178,18 @@ public sealed class Searcher : IDisposable
                     throw;
                 }
                 slices.Add(new Slice(first, count, documents, kinds));
+                if (givenKinds is not null) continue;
                 var run = highlighter.Run(new LoopRequest([documents], count, [kinds], 0, 0));
+                highlighterRuns++;
                 if (!run.Faults.IsEmpty) throw new InvalidOperationException($"the highlighter failed on document {first + run.Faults[0].Document}: {run.Faults[0].Message}");
                 run.DocumentValues.CopyTo(summaries.AsSpan(first * SummaryValues));
             }
-            var validation = Enumerable.Range(0, texts.Count).Select(row => new DocumentSummary(
+            var validation = givenKinds is not null ? givenValidation : Enumerable.Range(0, texts.Count).Select(row => new DocumentSummary(
                 summaries[row * SummaryValues] == 1,
                 (int)summaries[(row * SummaryValues) + 1],
                 (ErrorKind)(int)summaries[(row * SummaryValues) + 3],
                 summaries[(row * SummaryValues) + 2] == 1)).ToImmutableArray();
-            return new Searcher(backend, [.. slices], highlighter, [.. runners.Skip(1)], validation);
+            return new Searcher(backend, [.. slices], highlighter, [.. runners.Skip(1)], validation) { HighlighterRuns = highlighterRuns };
         }
         catch
         {
@@ -160,6 +197,19 @@ public sealed class Searcher : IDisposable
             foreach (var runner in runners) runner.Dispose();
             throw;
         }
+    }
+
+    // The kinds of the documents first..first + count - 1 as one buffer of 512 cells for each document.
+    private static IDocumentBuffer UploadKinds(ILoopBackend backend, IReadOnlyList<ImmutableArray<byte>> kinds, int first, int count, ParallelOptions parallel)
+    {
+        var cells = new float[count * Positions];
+        Parallel.For(0, count, parallel, row =>
+        {
+            var source = kinds[first + row];
+            var target = cells.AsSpan(row * Positions, Positions);
+            for (var position = 0; position < Positions; position++) target[position] = source[position];
+        });
+        return backend.Upload(cells, count, Positions);
     }
 
     /// <summary>
@@ -177,19 +227,22 @@ public sealed class Searcher : IDisposable
         {
             throw new ArgumentException($"the window {request.WindowFirst}, {request.WindowCount} documents must lie inside the {DocumentCount} documents", nameof(request));
         }
-        var total = Stopwatch.StartNew();
+        var compile = Stopwatch.StartNew();
         var resolved = Resolve(request.Pattern);
         if (resolved.Result is { } early)
         {
             Interlocked.Increment(ref latest);
             return early;
         }
+        var compileMs = compile.Elapsed.TotalMilliseconds;
         var token = Interlocked.Increment(ref latest);
         lock (evaluation)
         {
             ThrowIfDisposed();
             if (token != Interlocked.Read(ref latest)) return null;
-            var result = Evaluate(resolved.Compiled!, resolved.Index, request, total, () => token == Interlocked.Read(ref latest), progress, cancel);
+            // The time of the search starts here, after the wait for the lock, and adds the time of the pattern compile.
+            var total = Stopwatch.StartNew();
+            var result = Evaluate(resolved.Compiled!, resolved.Index, request, compileMs, total, () => token == Interlocked.Read(ref latest), progress, cancel);
             return token == Interlocked.Read(ref latest) ? result : null;
         }
     }
@@ -255,7 +308,7 @@ public sealed class Searcher : IDisposable
     }
 
     private SearchResult.Searched Evaluate(
-        CompiledPattern compiled, int capacityIndex, SearchRequest request, Stopwatch total, Func<bool> current, IProgress<SearchResult>? progress, CancellationToken cancel)
+        CompiledPattern compiled, int capacityIndex, SearchRequest request, double compileMs, Stopwatch total, Func<bool> current, IProgress<SearchResult>? progress, CancellationToken cancel)
     {
         var program = SearchPrograms[capacityIndex].Value;
         var runner = searchRunners[capacityIndex];
@@ -263,7 +316,7 @@ public sealed class Searcher : IDisposable
         program.WritePattern(shared, compiled);
         program.WriteScope(shared, request.Scope);
         runner.WriteShared(shared);
-        double writeMs = total.Elapsed.TotalMilliseconds, submitMs = 0, waitMs = 0, readMs = 0;
+        double writeMs = compileMs + total.Elapsed.TotalMilliseconds, submitMs = 0, waitMs = 0, readMs = 0;
         var counts = new float[DocumentCount];
         var marks = new float[request.WindowCount * Positions];
         var done = 0;
@@ -287,10 +340,10 @@ public sealed class Searcher : IDisposable
             if (run.DocumentsDone < slice.Count) break;
             if (progress is not null && done < DocumentCount && current())
             {
-                progress.Report(Result(program, counts, done, marks, new LoopTimes(writeMs, submitMs, waitMs, readMs, total.Elapsed.TotalMilliseconds)));
+                progress.Report(Result(program, counts, done, marks, new LoopTimes(writeMs, submitMs, waitMs, readMs, compileMs + total.Elapsed.TotalMilliseconds)));
             }
         }
-        var result = Result(program, counts, done, marks, new LoopTimes(writeMs, submitMs, waitMs, readMs, total.Elapsed.TotalMilliseconds));
+        var result = Result(program, counts, done, marks, new LoopTimes(writeMs, submitMs, waitMs, readMs, compileMs + total.Elapsed.TotalMilliseconds));
         if (progress is not null && done == DocumentCount && current()) progress.Report(result);
         return result;
     }

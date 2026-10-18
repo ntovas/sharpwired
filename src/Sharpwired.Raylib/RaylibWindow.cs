@@ -200,8 +200,23 @@ public static class RaylibWindow
         private bool disposed;
 
         // Load each font file of the app that exists, with the code points of the app that its character map has.
-        // Write to the error output the glyph count of each font and the code points that no font has.
+        // Skip a font file that the reader cannot read. Write to the error output the glyph count of each font and the
+        // code points that no font has. When the constructor throws, it unloads the fonts that it loaded.
         public WindowResources(IWindowApp app)
+        {
+            try
+            {
+                (fonts, choice) = LoadFonts(app);
+            }
+            catch
+            {
+                foreach (var font in loadedFonts) Raylib_cs.Raylib.UnloadFont(font);
+                loadedFonts.Clear();
+                throw;
+            }
+        }
+
+        private (Font[] Fonts, GlyphFonts Choice) LoadFonts(IWindowApp app)
         {
             var codePoints = GlyphFonts.CodePointsToLoad(app.FontCodePoints);
             var sets = new List<IReadOnlySet<int>>();
@@ -209,14 +224,9 @@ public static class RaylibWindow
             foreach (var path in app.FontPaths)
             {
                 if (!File.Exists(path)) continue;
-                HashSet<int> covered;
-                try
+                if (FontCoverage.CoveredInFile(path, codePoints, out var error) is not { } covered)
                 {
-                    covered = FontCoverage.Covered(File.ReadAllBytes(path), codePoints);
-                }
-                catch (ArgumentException error)
-                {
-                    Console.Error.WriteLine($"[window] the font {path} was not loaded: {error.Message}");
+                    Console.Error.WriteLine($"[window] the font {path} was not loaded: {error}");
                     continue;
                 }
                 var own = codePoints.Where(covered.Contains).ToArray();
@@ -227,27 +237,28 @@ public static class RaylibWindow
                     Console.Error.WriteLine($"[window] Raylib did not load the font {path}");
                     continue;
                 }
-                Raylib_cs.Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
                 loadedFonts.Add(font);
+                Raylib_cs.Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
                 drawn.Add(font);
                 sets.Add(covered);
                 Console.Error.WriteLine($"[window] the font {path} has {covered.Count} of the {codePoints.Length} code points, and Raylib loaded {font.GlyphCount} glyphs");
             }
+            GlyphFonts fontChoice;
             if (drawn.Count == 0)
             {
                 drawn.Add(Raylib_cs.Raylib.GetFontDefault());
-                choice = GlyphFonts.DefaultOnly();
+                fontChoice = GlyphFonts.DefaultOnly();
                 Console.Error.WriteLine("[window] no font file of the app exists, so the Raylib default font draws ASCII");
             }
             else
             {
-                choice = new GlyphFonts(sets);
+                fontChoice = new GlyphFonts(sets);
             }
-            fonts = [.. drawn];
-            var missing = choice.Missing(codePoints);
+            var missing = fontChoice.Missing(codePoints);
             Console.Error.WriteLine(missing.Count == 0
                 ? $"[window] the fonts have each of the {codePoints.Length} code points of the app"
                 : $"[window] no font has these {missing.Count} code points, so they show as '?': {string.Join(" ", missing.Take(40).Select(codePoint => $"U+{codePoint:X4}"))}");
+            return ([.. drawn], fontChoice);
         }
 
         public void DrawText(DrawText text)
