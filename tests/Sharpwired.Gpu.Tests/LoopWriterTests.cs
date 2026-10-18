@@ -1,8 +1,9 @@
-// Handwired source: tests/json-search/bit-emit.test.ts (the rules that fire on small loop programs, and the
-// values of both shaders through the strict WGSL interpreter) and writer-probes.test.ts (the near misses). The
-// kernels of both loop writers run in LoopRowInterpreter and equal the CPU runner on the loop inputs: the
-// values of each valid document (Object.is for the f32 writer, sameNumericValue for the integer writer, which
-// has no -0), and the status of each document (1 exactly where the CPU runner gives a fault). The rules of the
+// Handwired source: tests/json-search/bit-emit.test.ts and writer-probes.test.ts (the near misses). The first
+// file holds the rules that fire on small loop programs, and the values of both shaders through the strict
+// WGSL interpreter. The kernels of both loop writers run in LoopRowInterpreter and equal the CPU runner on the
+// loop inputs. They equal the values of each valid document (Object.is for the f32 writer, sameNumericValue
+// for the integer writer, which has no -0). They also equal the status of each document (1 exactly where the
+// CPU runner gives a fault). The rules of the
 // integer writer fire on their programs and not on their near misses, and the statement counts are pinned.
 // These tests need no adapter.
 
@@ -50,7 +51,7 @@ internal static class LoopCases
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such program"),
     };
 
-    // The Lookup documents, with an item past the declared range 0..1000 in each 50th document, so that a program
+    // The Lookup documents, with an item past the declared range 0..1000 in each 50th document. Thus a program
     // with a document group of 2 values has faults.
     private static float[] LookupFaultDocuments(int count, int seed)
     {
@@ -73,7 +74,7 @@ internal static class LoopCases
         }
     }
 
-    // The Leaders program with a field of bits that gets the largest item: each document whose largest item is
+    // The Leaders program with a field of bits that gets the largest item. Each document whose largest item is
     // not 0 or 1 gets a fault.
     public static LoopProgram LeadersBits() => LoopProgram.Create(Positions, [Documents(Positions)], LeadersRegisters(),
         [new LoopField("largest", 1, true), new LoopField("flags", 2, true)], LeadersGroups(Positions),
@@ -248,8 +249,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         "OneHot Integer: 30 statements, rows 0/0/3, packed 0, lanes 0, tables 0",
     ];
 
-    // Switches: the six gates of one form are one word operation, over the word of the six registers, the packed
-    // word of the six reads and the word of the six shared cells. "No switch is on" is one comparison of a word
+    // Switches: the six gates of one form are one word operation. The operation reads the word of the six
+    // registers, the packed word of the six reads and the word of the six shared cells. "No switch is on" is one comparison of a word
     // with 0.
     [Fact]
     public void The_lanes_and_the_packed_reads_fire_on_the_switches()
@@ -282,8 +283,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
         Assert.Equal(6, lines.Count(line => line.StartsWith("var r", StringComparison.Ordinal) && line.EndsWith(": u32 = 1u;", StringComparison.Ordinal)));
     }
 
-    // Mixed: the sign cascade and the f32 total stay f32 statements, the streak and the bucket are i32 registers,
-    // and each constant table is one read of shared_values after the shared cell.
+    // Mixed: the sign cascade and the f32 total stay f32 statements, and the streak and the bucket are i32
+    // registers. Each constant table is one read of shared_values after the shared cell.
     [Fact]
     public void The_constant_tables_of_a_stage_are_reads_of_the_shared_buffer()
     {
@@ -340,8 +341,8 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
     }
 
     // A check that a proof makes true is not written: the six registers of the switches are proven bits. The
-    // count is proven within 0..65 only, past its declared 0..64 in the stage Rows, so it keeps its check there,
-    // and so does the item row, which comes from the documents. The stage End reads the count as a cell of
+    // count is proven within 0..65 only, past its declared 0..64 in the stage Rows, so it keeps its check there.
+    // The item row, which comes from the documents, also keeps its check there. The stage End reads the count as a cell of
     // 0..4096, which the proof holds, so it checks only its length cell.
     [Fact]
     public void A_register_whose_writes_are_proven_inside_its_declaration_gets_no_check()
@@ -357,7 +358,7 @@ public sealed class LoopWriterTests(ITestOutputHelper output)
     }
 
     // DelayBits: the word of b0 and b1 gets the old word of a0 and a1. So the writer copies the old word into a let
-    // before the first register write, and the write of the b word reads the let (the rw branch of WriteOutputs).
+    // before the first register write. The write of the b word reads the let (the rw branch of WriteOutputs).
     [Fact]
     public void A_word_of_registers_that_gets_the_old_value_of_another_word_reads_a_let()
     {

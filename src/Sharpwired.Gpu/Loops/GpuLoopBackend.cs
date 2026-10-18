@@ -1,15 +1,16 @@
-// Handwired source: src/json-search/gpu/host.ts (createLoopRunner on the device: the document buffers that stay on
-// the GPU, the shared buffer and the packed words of each upload, the dispatches, and the readback of the
-// document values and of the window). The GPU loop backend. A document buffer is one storage buffer, which a run
-// binds whole: an invocation reads document params.first + t. A run splits the documents into chunks of at most
-// 65,535 workgroups of 64 invocations, with one dispatch for each chunk, and reads back the status of each
-// document, the document values and the window values in one copy at the end. A document whose status is 1 failed
-// a check in the kernel: the runner replays it on the CPU runner, which gives the message of the fault, or the
-// values when the CPU finds no fault (phase 5 carried item "a status for each lane").
+// Handwired source: src/json-search/gpu/host.ts, createLoopRunner on the device. It holds the document buffers
+// that stay on the GPU, the shared buffer and the packed words of each upload. It also holds the dispatches, and
+// the readback of the document values and of the window. The GPU loop backend. A document buffer is one storage
+// buffer, which a run binds whole: an invocation reads document params.first + t. A run splits the documents into
+// chunks of at most 65,535 workgroups of 64 invocations, with one dispatch for each chunk. At the end, the run
+// reads back the status of each document, the document values and the window values in one copy. A document whose
+// status is 1 failed a check in the kernel. The runner replays it on the CPU runner, which gives the message of
+// the fault. When the CPU finds no fault, the CPU runner gives the values (phase 5 carried item "a status for each
+// lane").
 // Differences from Handwired:
 // - The kernel runs each position, also past the length of the text.
-// - A document buffer must fit one storage binding of the device. Handwired splits a batch by the binding limit;
-//   here the documents stay on the GPU, so a buffer past the limit is refused when it is made.
+// - A document buffer must fit one storage binding of the device. Handwired splits a batch by the binding limit.
+//   Here the documents stay on the GPU, so a buffer past the limit is refused when it is made.
 
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -17,7 +18,10 @@ using System.Runtime.InteropServices;
 
 namespace Sharpwired.Gpu;
 
-/// <summary>The options of the GPU loop backend: the writer of the kernels, and a salt that makes each shader text new (a cold compile for a bench).</summary>
+/// <summary>
+/// The options of the GPU loop backend: the writer of the kernels, and a salt. The salt makes each shader text
+/// new (a cold compile for a bench).
+/// </summary>
 public sealed record GpuLoopOptions(GpuWriter Writer = GpuWriter.Integer, uint Salt = 0);
 
 /// <summary>The GPU loop backend: document buffers on a WebGPU device, and runners of loop kernels.</summary>
@@ -458,8 +462,8 @@ internal sealed class GpuLoopRunner : ILoopRunner
         }
     }
 
-    // The outputs of one run on the host, and the writes of the values of one document: NaN, or the values of
-    // one document of a CPU run.
+    // The outputs of one run on the host, and the writes of the values of one document. The class writes NaN,
+    // or the values of one document of a CPU run.
     private sealed class RunResults(GpuLoopRunner runner, LoopRequest request, GpuDocumentBuffer?[] targets, float[] documentValues, float[] windowValues)
     {
         // Write NaN for the documents first..first + count - 1, which the run did not reach. Each output and each

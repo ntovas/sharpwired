@@ -1,8 +1,8 @@
 // Handwired source: $REF/src/json-search/json-step.ts (the reads depthClass[depth], levelWeight[depth - 1]
 // and classTable[codePoint + 1] with the clamp rule, objectWeight[depth × eventCount + event] with the
-// zero rule) and $REF/src/json-search/regex/data-program.ts (createStepAnd: transitions[class][from][to]
+// zero rule). Also $REF/src/json-search/regex/data-program.ts (createStepAnd: transitions[class][from][to]
 // && bit as one read at class + classes × (1 - bit)). C# inputs for the rules 2 to 5 of the phase 6
-// plan, task 1 (question 4), and for the counterexamples that the rules must not change.
+// plan, task 1 (question 4). Also inputs for the counterexamples that the rules must not change.
 
 using Sharpwired.Annotations;
 

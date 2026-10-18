@@ -1,11 +1,11 @@
 // Handwired source: src/json-search/json-step.ts (the LoopProgram of buildJsonLoop). The highlighter as a loop
 // program over the 512 positions of a document: buffer 0 holds the document cells (512 code points and the length).
 // The registers are the lexer state, the depth, the container code, the grammar state, the error count and the
-// first error kind, each with the initial value 0. The stage Step runs forward and writes the display kind of each
+// first error kind. Each register has the initial value 0. The stage Step runs forward and writes the display kind of each
 // position to the position group displayKinds (fill: PastEnd). The stage End runs one time, reads the length cell
 // (column 512), and writes valid, firstErrorPosition, truncated and firstErrorKind to the document group summary.
-// The program has no length cell, as in Handwired: the step keeps its registers after the text only when the
-// error count does not grow, so the loops must run each position (see HighlighterStep.cs).
+// The program has no length cell, as in Handwired. The step keeps its registers after the text only when the
+// error count does not grow. So the loops must run each position (see HighlighterStep.cs).
 
 using System.Collections.Immutable;
 using Sharpwired.Gpu;

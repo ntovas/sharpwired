@@ -1,6 +1,6 @@
 // No Handwired source. The phase 5 carried item "the integer evaluator CPU declaration checks cost time"
-// (task 3 of the phase 6 plan): the source checks of GpuEvaluator run in parallel and before the device
-// lock, and give the message of the first bad table, as the checks in order give. The test output gives
+// (task 3 of the phase 6 plan). The source checks of GpuEvaluator run in parallel and before the device
+// lock. They give the message of the first bad table, as the checks in order give. The test output gives
 // the check time in order (the phase 5 form) and in parallel. Also the constant tables of the storage
 // buffer on the device.
 
@@ -35,7 +35,7 @@ public sealed partial class BatchEvaluatorTests
         var inParallel = Measure(parallel: true);
         output.WriteLine($"[checks] {TableCount} tables of {program.SourceSize} cells, ranges and declarations: in order {inOrder:F1} ms, in parallel {inParallel:F1} ms on {Environment.ProcessorCount} processors");
 
-        // A declaration fault at table 10 and a range fault at table 1,500,000: the checks in order check
+        // A declaration fault at table 10 and a range fault at table 1,500,000. The checks in order check
         // the ranges of each table first, so both paths give the range fault.
         var bad = (float[])sources.Clone();
         bad[(10 * 6) + 3] = 0.5f;

@@ -1,12 +1,13 @@
-// Handwired source: tests/json-search/wgsl-interpreter.ts (a strict interpreter of the WGSL subset that
-// loop-emit.ts and bit-emit.ts write) and tests/json-search/interpreted-gpu.ts (a run of a loop shader over
-// documents on the CPU). LoopRowInterpreter parses the text of a loop kernel of LoopFloatWriter or
-// LoopIntegerWriter and runs it in C# for each document. Each f32 operation rounds on its own, as WGSL
-// does when no compiler fuses or regroups an operation. i32 and u32 operations wrap, as in WGSL. The
-// helper functions of the prelude (k, relu, is_nan, is_finite, ordered, is_bit, ones, is_nonzero, on_grid)
-// are built-in functions with the meaning of their WGSL bodies. The interpreter is strict: it refuses an
-// operand of the wrong type, a mix of two bit operators without parentheses, a conversion of NaN or of a
-// value out of the range of the target type, and an index outside an array or a buffer. Such a case is a
+// Handwired source: tests/json-search/wgsl-interpreter.ts and tests/json-search/interpreted-gpu.ts. The
+// first file is a strict interpreter of the WGSL subset that loop-emit.ts and bit-emit.ts write. The second
+// file is a run of a loop shader over documents on the CPU. LoopRowInterpreter parses the text of a loop
+// kernel of LoopFloatWriter or LoopIntegerWriter and runs it in C# for each document. Each f32 operation
+// rounds on its own, as WGSL does when no compiler fuses or regroups an operation. Each i32 and u32
+// operation wraps, as in WGSL. The helper functions of the prelude (k, relu, is_nan, is_finite, ordered,
+// is_bit, ones, is_nonzero, on_grid) are built-in functions with the meaning of their WGSL bodies. The
+// interpreter is strict. It refuses an operand of the wrong type, and a mix of two bit operators without
+// parentheses. It refuses a conversion of NaN or of a value out of the range of the target type. It
+// refuses an index outside an array or a buffer. Such a case is a
 // writer fault, which a GPU can hide. It says nothing about what a GPU compiler does; GpuLoopRunnerTests
 // checks that on each adapter.
 

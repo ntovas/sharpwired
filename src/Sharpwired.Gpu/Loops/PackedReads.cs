@@ -1,13 +1,13 @@
 // Handwired source: src/json-search/bit-emit.ts, the rule "Packed reads" (gatedRead, maximumGatingBits,
 // neverBothOne, openText, packedWord, opensOf, zeroTest, zeroTests, gateText) and packWords. A gated read is
-// an index read of bits whose index form is base + gate, where the gate sums the bits whose weight is at least
-// the length of the table. For each combination of those bits, either the gate is one fixed number, and the
-// read is table[base], or the index lies past a side of the table that reads +0. So the read is
-// table[base] && open, with open a function of the gating bits. In a gate, two or more gated reads of one
-// base that must all be 0 are one read of a packed word: (word[base] & opens) == 0u, where bit k of the word
-// is table k and bit k of opens is the open bit of read k. The runner fills the words from the shared cells
-// with PackedWords.Pack. Two gating bits are an OR only when they are never both 1: the proof takes both as 1
-// and follows what each gate then says about its own operands, until one value must be both 0 and 1.
+// an index read of bits whose index form is base + gate. The gate sums the bits whose weight is at least the
+// length of the table. For each combination of those bits, one of two cases is true. Either the gate is one
+// fixed number, and the read is table[base], or the index lies past a side of the table that reads +0. So the
+// read is table[base] && open, with open a function of the gating bits. In a gate, some gated reads of one
+// base must all be 0. Two or more such reads are one read of a packed word: (word[base] & opens) == 0u. Bit k of the word is
+// table k, and bit k of opens is the open bit of read k. The runner fills the words from the shared cells
+// with PackedWords.Pack. Two gating bits are an OR only when they are never both 1. The proof takes both as 1
+// and follows what each gate then says about its own operands. It stops when one value must be both 0 and 1.
 // Differences from Handwired:
 // - The forms of IntegerPlan give the negated bits and the conjunctions. A term of weight 0 gets no test.
 // - The candidates of a gated read must be shared cells that are proven bits. A constant is not packed.
@@ -41,9 +41,9 @@ public static class PackedWords
 }
 
 /// <summary>
-/// A gated read: the base terms and the base bias of the index when the read is open, the range of that index,
-/// the gating bits, the open bit of each combination of the gating bits (bit c for combination c, gating bit 0
-/// first), and the key of the reads that share one packed word.
+/// A gated read: the base terms and the base bias of the index when the read is open, and the range of that
+/// index. It also holds the gating bits. Then it holds the open bit of each combination of the gating bits (bit
+/// c for combination c, gating bit 0 first). The last part is the key of the reads that share one packed word.
 /// </summary>
 internal sealed record GatedRead(ImmutableArray<ShaderTerm> BaseTerms, int BaseBias, long Minimum, long Maximum, ImmutableArray<int> Gating, uint Open, string Key)
 {
@@ -109,7 +109,7 @@ internal sealed class StageRules
 
     /// <summary>
     /// True when the two bits are never both 1. Both are taken as 1, and each gate that is then 1 says what its
-    /// own operands are, until one value must be both 0 and 1.
+    /// own operands are. The proof stops when one value must be both 0 and 1.
     /// </summary>
     public bool NeverBothOne(int first, int second)
     {
@@ -200,8 +200,8 @@ internal sealed class StageRules
     }
 
     /// <summary>
-    /// How the gate tests that a value with a negative weight is 0: a gated read goes into a packed word, a bit is
-    /// tested as a bit. The comparisons and the numbers of the form are tested on their own.
+    /// How the gate tests that a value with a negative weight is 0. A gated read goes into a packed word. A bit
+    /// is tested as a bit. The comparisons and the numbers of the form are tested on their own.
     /// </summary>
     public bool IsGatedReadOfBits(int position) => RowAt(position) is IndexRow read && proofs[position].IsBit && Gated(read) is not null;
 }
@@ -210,8 +210,8 @@ internal sealed partial class LoopStageWriter
 {
     private enum OpenKind { Always, Not, Any, Each }
 
-    // bit-emit.ts gateText: the bits that must be 1, the comparisons and the numbers, the packed words, then
-    // "none of these bits is 1" as one comparison of a word with 0 or an OR of the bits.
+    // bit-emit.ts gateText: the bits that must be 1, the comparisons and the numbers, and the packed words. Then
+    // the text "none of these bits is 1" as one comparison of a word with 0 or an OR of the bits.
     private string GateText(ConjunctionForm form)
     {
         var factors = form.All.Select(BitText).ToList();
@@ -267,10 +267,10 @@ internal sealed partial class LoopStageWriter
         return (packs, bitLists);
     }
 
-    // The kind of the word of the open bits of some gated reads: no word when each read is always open, the
-    // gating bits as a word negated (each read is open when its one gating bit is 0), the gating bits with the
-    // further bits of each read in its lane (each read is open when one of its gating bits is 1), or each open
-    // bit written into its lane.
+    // The kind of the word of the open bits of some gated reads. Always: no word, because each read is always
+    // open. Not: the gating bits as a word negated (each read is open when its one gating bit is 0). Any: the
+    // gating bits with the further bits of each read in its lane. Each read is open when one of its gating
+    // bits is 1. Each: each open bit written into its lane.
     private OpenKind OpensOf(IReadOnlyList<IndexRow> reads, out List<GatedRead> gateds)
     {
         gateds = [.. reads.Select(read => rules!.Gated(read)!)];
@@ -290,8 +290,8 @@ internal sealed partial class LoopStageWriter
         return $"(({read.Open.ToString(CultureInfo.InvariantCulture)}u >> ({InLanes(bits)})) & 1u)";
     }
 
-    // bit-emit.ts packedWord: the word whose bit k is gated read k, for reads that share a key: one read of a
-    // packed word, and one AND with the word of the open bits of the reads. A word of zeros before or after the
+    // bit-emit.ts packedWord: the word whose bit k is gated read k, for reads that share a key. It is one read
+    // of a packed word, and one AND with the word of the open bits of the reads. A word of zeros before or after the
     // table stands for a side that reads +0.
     private string PackedWord(GatedRead gatedRead, List<IndexRow> reads)
     {

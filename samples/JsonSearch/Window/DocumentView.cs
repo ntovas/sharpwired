@@ -1,9 +1,10 @@
-// Handwired source: src/json-search/demo-text.ts (documentRuns, runClassName: a document as runs of one display kind
-// and one match, with the two washes in turn from match to match), assets/tool.css (the color of each display kind)
-// and assets/json-search.css (white-space: pre-wrap and tab-size: 2 of the document text). The page lets the
-// browser lay out the runs. The window has no font metrics, so it puts each code point in the cells of a fixed grid
-// of 80 columns: a line feed starts a new row, a tab goes to the next stop of 2 columns, a code point of East Asian
-// width "wide" or "fullwidth" takes two cells, and a code point that does not fit the row starts the next row.
+// Handwired source: src/json-search/demo-text.ts, assets/tool.css and assets/json-search.css. In demo-text.ts,
+// documentRuns and runClassName give a document as runs of one display kind and one match. The two washes go in
+// turn from match to match. The file tool.css gives the color of each display kind. The file json-search.css gives
+// white-space: pre-wrap and tab-size: 2 of the document text. The page lets the browser lay out the runs.
+// The window has no font metrics, so it puts each code point in the cells of a fixed grid of 80 columns. A line
+// feed starts a new row, and a tab goes to the next stop of 2 columns. A code point of East Asian width "wide" or
+// "fullwidth" takes two cells. A code point that does not fit the row starts the next row.
 
 using System.Collections.Immutable;
 using Sharpwired.Raylib;
@@ -17,8 +18,8 @@ namespace JsonSearch;
 public readonly record struct MarkSpan(int Column, int Row, int Width, int Match);
 
 /// <summary>
-/// A document on the glyph grid: one glyph for each code point that is not whitespace, the mark spans, the row count,
-/// and the row of the first match (-1 with no match).
+/// A document on the glyph grid: one glyph for each code point that is not whitespace, and the mark spans. It also
+/// holds the row count and the row of the first match (-1 with no match).
 /// </summary>
 public sealed record DocumentLayout(ImmutableArray<Glyph> Glyphs, ImmutableArray<MarkSpan> Marks, int Rows, int FirstMatchRow);
 
@@ -32,8 +33,8 @@ public static class DocumentView
     public const int TabSize = 2;
 
     // The ranges of East Asian width W and F of Unicode EastAsianWidth.txt that the documents and the patterns can
-    // hold: Hangul Jamo, the CJK blocks, Hangul syllables, the compatibility forms, the fullwidth forms, the emoji
-    // blocks and the CJK planes. It is not the full table.
+    // hold. They are Hangul Jamo, the CJK blocks, Hangul syllables, the compatibility forms and the fullwidth forms.
+    // They are also the emoji blocks and the CJK planes. It is not the full table.
     private static readonly (int Low, int High)[] WideRanges =
     [
         (0x1100, 0x115f), (0x231a, 0x231b), (0x2329, 0x232a), (0x23e9, 0x23ec), (0x23f0, 0x23f0), (0x23f3, 0x23f3),

@@ -146,8 +146,8 @@ internal static class BatchArguments
         }
         // A span cannot go into the lambda of the parallel loop, so the loop reads a copy. A read from the span of
         // the caller needs a pointer, and the project keeps pointer code to three files (phase 6 plan,
-        // "Verification"). So the check holds one copy of the batch while it runs: 4 bytes for each cell, for
-        // example 205 MB for 100,000 tables of 512 cells.
+        // "Verification"). So the check holds one copy of the batch while it runs. The copy takes 4 bytes for
+        // each cell, for example 205 MB for 100,000 tables of 512 cells.
         var cells = sources.ToArray();
         var range = FirstFailure(tableCount, table => circuit.ValidateSourceRanges(cells.AsSpan(table * sourceSize, sourceSize)));
         // The check of the first bad table again, on this thread, throws its exception.

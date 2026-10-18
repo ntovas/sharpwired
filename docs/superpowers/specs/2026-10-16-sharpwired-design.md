@@ -68,7 +68,7 @@ This checklist is the definition of done. Each phase owns the items under it.
 ### All phases
 
 - [x] RA.1 The `NOTICE` file keeps the Handwired MIT notice.
-- [ ] RA.2 Docs and code comments use ASD-STE100.
+- [x] RA.2 Docs and code comments use ASD-STE100.
 - [x] RA.3 Each phase ends with a green `dotnet test` run.
 
 ## Conventions

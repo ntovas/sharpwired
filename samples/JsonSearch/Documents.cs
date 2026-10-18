@@ -1,14 +1,14 @@
 // Handwired source: src/json-search/documents.ts (documentAt, generateDocuments, codePointLength, validDocument,
-// the hash lowbias32 and createRandom). Many small JSON documents for the batch measurements and the window:
-// package manifests, user records, log events, editor settings, orders, map features and sensor readings, each
-// at most 512 code points, the capacity of the highlighter. A known fraction has a defect on purpose, in one of
-// 16 ways, for example a missing quote, a trailing comma, a bad escape, nesting past depth 16, or a text longer
-// than 512 code points.
+// the hash lowbias32 and createRandom). Many small JSON documents for the batch measurements and the window.
+// They are package manifests, user records, log events, editor settings, orders, map features and sensor
+// readings. Each is at most 512 code points, the capacity of the highlighter. A known fraction has a defect on
+// purpose, in one of 16 ways. Examples are a missing quote, a trailing comma, a bad escape, nesting past depth
+// 16, or a text longer than 512 code points.
 //
-// DocumentAt(seed, index) is a pure function: each choice is a hash of the seed, the index of the document and
+// DocumentAt(seed, index) is a pure function. Each choice is a hash of the seed, the index of the document and
 // a counter (lowbias32, never a shared random generator). So a caller can make document 73,512 without the
 // documents before it, and two runs time the same texts. The builders (DocumentBuilders.cs) and the defects
-// (DocumentDefects.cs) make the same choices in the same order as documents.ts, and the serializer writes the
+// (DocumentDefects.cs) make the same choices in the same order as documents.ts. The serializer writes the
 // text of JSON.stringify, so the C# texts are the Handwired texts (DocumentTests pins the Handwired hash).
 // Difference from Handwired: GeneratedDocument also gives the style of the text, for the test of R6.1 that each
 // style occurs.
@@ -28,9 +28,9 @@ public enum DocumentShape
 }
 
 /// <summary>
-/// The ways a document is broken. System.Text.Json refuses each one except TooDeep and TooLong, which are valid
-/// JSON that the highlighter does not hold: it reports TooDeep at the 17th nested opener and TooLong at code
-/// point 512.
+/// The ways a document is broken. System.Text.Json refuses each one except TooDeep and TooLong. These two are
+/// valid JSON that the highlighter does not hold. The highlighter reports TooDeep at the 17th nested opener and
+/// TooLong at code point 512.
 /// </summary>
 public enum DocumentDefect
 {

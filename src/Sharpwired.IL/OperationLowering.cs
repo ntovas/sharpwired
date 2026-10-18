@@ -590,7 +590,7 @@ internal sealed partial class OperationLowering
             if (known is ClampValue clamp && !soleIndexOperands.Contains(operation))
             {
                 // A Math.Clamp result emits at the call, as in phase 4, unless its only reader is an
-                // array read, which can give the clamp read (IndexReads.cs).
+                // array read. That array read can give the clamp read (IndexReads.cs).
                 Emit(clamp, offset);
             }
 

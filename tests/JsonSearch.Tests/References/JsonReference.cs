@@ -1,12 +1,12 @@
 // Handwired source: tests/json-search/highlighter/reference.ts. The highlighter in plain C#: a scanner, written
-// by hand, that reads one token at a time, and a parser with a real stack, written from the grammar of JSON
-// (RFC 8259) and the rules in Kinds.cs. It does not read Tables.cs, the step methods or the loop program.
+// by hand, that reads one token at a time, and a parser with a real stack. The parser comes from the grammar of
+// JSON (RFC 8259) and the rules in Kinds.cs. It does not read Tables.cs, the step methods or the loop program.
 //
-// The rules past the grammar of JSON:
+// These are the rules past the grammar of JSON.
 // - The first error position is the first code point at which the text stops being the start of a valid JSON
-//   text, or the length of the text when the text is such a start but is not complete, for example 3 for
-//   [1 2] and 2 for [1.
-// - After a lexer error, for example the x of [x], the rest of the line shows as an error, and the scan starts
+//   text. When the text is such a start but is not complete, the position is the length of the text. For
+//   example, it is 3 for [1 2] and 2 for [1.
+// - After a lexer error, for example the x of [x], the rest of the line shows as an error. The scan starts
 //   again after the next line feed. A line feed that is itself the error, for example in a string, starts the
 //   scan again at once.
 // - A string shows as a key when the parser accepts it in a key position before the first error.
@@ -245,7 +245,7 @@ internal static class JsonReference
             token.End = index;
         }
 
-        // -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)? from start. Gives the end of the number, and the
+        // -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)? from start. Gives the end of the number. Also gives the
         // position of a missing digit (after -, . or e) or of a digit after a leading zero, or null.
         private (int End, int? MissingDigitAt) ScanNumber(int start)
         {

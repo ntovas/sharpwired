@@ -1,13 +1,13 @@
 // Handwired source: src/json-search/bit-emit.ts (emitBitLoopWgsl and writeStages: hold, loadSource, intSum,
 // atMostZero, writeFloat, writeRow, the writes of a stage). The integer loop writer, and the statements of
 // one stage, which the f32 loop writer shares. A statement is written when a later statement or an output
-// first needs it, so a row that only feeds a packed read, a comparison or a word operation gets no statement.
+// first needs it. So a row that only feeds a packed read, a comparison or a word operation gets no statement.
 // The rules of the rows are the forms of IntegerPlan (Sum, Gate, Comparison, Read, and the product, the gate
-// and the score of phase 5), with the packed reads (PackedReads.cs) and the lanes (LoopLanes.cs). Each other
-// row is the statement of the f32 writer (FloatBody). In the f32 writer, each row is that statement.
+// and the score of phase 5). The packed reads (PackedReads.cs) and the lanes (LoopLanes.cs) are rules too.
+// Each other row is the statement of the f32 writer (FloatBody). In the f32 writer, each row is that statement.
 // Differences from Handwired:
-// - Each cell that is not a shared cell is checked before each evaluation, with the messages of the CPU
-//   runner on a replay. A check that a proof makes true is not written.
+// - Each cell that is not a shared cell is checked before each evaluation. The check uses the messages of
+//   the CPU runner on a replay. A check that a proof makes true is not written.
 // - The proofs come from the declarations of the cells, which the checks hold. Handwired proves a register
 //   only from its writes, because it has no checks.
 // - An i32 value that an f32 statement reads is k(f32(w)), as in the integer writer of phase 5.
@@ -20,8 +20,8 @@ using Sharpwired.Core;
 namespace Sharpwired.Gpu;
 
 /// <summary>
-/// The integer loop writer (bit-emit.ts): a proven whole value is an i32 and a proven bit a u32, with the rules
-/// Sum, Gate, Comparison, Read, Packed reads and Lanes. Each other row is an f32 statement with keep.
+/// The integer loop writer (bit-emit.ts): a proven whole value is an i32 and a proven bit a u32. It uses the
+/// rules Sum, Gate, Comparison, Read, Packed reads and Lanes. Each other row is an f32 statement with keep.
 /// </summary>
 public static class LoopIntegerWriter
 {
@@ -426,7 +426,7 @@ internal sealed partial class LoopStageWriter
         return new Held(name, kind);
     }
 
-    // The candidate at the index, of the type of kind: a read of shared_values, or a select over the
+    // The candidate at the index, of the type of kind. It is a read of shared_values, or a select over the
     // candidates first..final that the index can reach.
     private string Candidate(ShaderCandidates candidates, string index, string arrayName, WholeKind kind, int first, int final)
     {
@@ -502,8 +502,8 @@ internal sealed partial class LoopStageWriter
         return $"{IntSum(MathF.Max(bias, 0), added)} <= {IntSum(MathF.Max(-bias, 0), subtracted)}";
     }
 
-    // A sum or a word as one operand of a larger expression: a name as it is, another text as a let that
-    // later statements with the same text read too.
+    // A sum or a word as one operand of a larger expression. A name stays as it is. Another text becomes a
+    // let, and later statements with the same text read that let too.
     private string SharedLet(string type, string text)
     {
         if (PlainName().IsMatch(text)) return text;
@@ -515,9 +515,9 @@ internal sealed partial class LoopStageWriter
     }
 
     // The writes of the outputs, after the statements of the rows. The registers come last, so that each
-    // statement above reads the registers of the previous position. A register value that reads a register,
-    // for example a register that gets the old value of another register, is copied into a let before the
-    // first register write, so that it also reads the value of the previous position.
+    // statement above reads the registers of the previous position. An example of a register value that
+    // reads a register is a register that gets the old value of another register. Such a value is copied
+    // into a let before the first register write, so that it also reads the value of the previous position.
     private List<string> WriteOutputs()
     {
         var (positionIndex, documentStart, _) = kernel.Shape.GroupLayout();
@@ -597,8 +597,8 @@ internal sealed partial class LoopStageWriter
         return [.. fieldLines, .. windowLines, .. documentLines, .. registerLines];
     }
 
-    // The write of one component of a field. A value of a field of bits that no proof makes a bit is
-    // checked to be exactly 0 or 1 (or -0), as the CPU runner checks it.
+    // The write of one component of a field. Some values of a field of bits have no proof that makes them
+    // bits. The kernel checks that such a value is exactly 0 or 1 (or -0), as the CPU runner checks it.
     private void WriteField(
         StageWrite.Field field, int position, List<string> lines, Dictionary<int, int[]> fieldLanes,
         Dictionary<int, (string[] Bits, string[] Signs)> fieldBits, Func<string, string> outputLet)

@@ -1,7 +1,7 @@
 // No Handwired source. Handwired has no translator. The emit of a symbolic value follows the plan,
 // section "Emission rules". It uses the C#-equal rule of an affine form (exact form, one C# operation,
 // or a RoundAffine chain in C# order). It also follows the bit forms and the gate rules 5 to 7 of section
-// "Decisions", question 4. The bit forms follow $REF/docs/expressions.md, row "NOT, AND and OR": NOT
+// "Decisions", question 4. The bit forms follow $REF/docs/expressions.md, row "NOT, AND and OR". NOT
 // is 1 - bit, AND of N bits is relu(sum - (N - 1)), OR is 1 - relu(1 - sum). XOR is
 // relu(a - b) + relu(b - a). A gate follows the row "condition ? on : off". The emitter also keeps
 // the overflow bits of the loops with [MaxIterations] (LoopForms.cs), because the inlined methods
@@ -13,8 +13,8 @@
 // (review of task 5, round 2, finding A). A cell holds a finite value (the cell validator checks it).
 // An emitted gate holds one of its checked sides. So the emitter accepts these sides.
 //
-// The phase 6 plan, task 1, adds three parts: a bit that the program reads as a number gets the grid 1
-// (rule 1, BitAsNumber), a gate of two bits gets the grid 1 (phase 4 carried item a), and an AND with a
+// The phase 6 plan, task 1, adds three parts. A bit that the program reads as a number gets the grid 1
+// (rule 1, BitAsNumber). A gate of two bits gets the grid 1 (phase 4 carried item a). An AND with a
 // read of a bool table gives the gated read of rule 4 (EmitAnd).
 
 using System.Collections.Immutable;
@@ -161,13 +161,13 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     /// Emits a bit that the program reads as a number, for example b ? 1 : 0 in an int sum (phase 6
     /// plan, task 1, rule 1). The bit wire is the number, with no operation. A bit is 0 or 1, so the
     /// emitter declares the grid 1 on its wire. An affine reader composes a small affine producer
-    /// into its own form (Circuit.Affine), so the emitter also declares the grid 1 on each wire that
+    /// into its own form (Circuit.Affine). So the emitter also declares the grid 1 on each wire that
     /// a reader reads in place of the bit. The value is 0 or 1, so the emitter also declares the bit
-    /// fact (AssumeBit). The bit forms of the translator compose only into wires
-    /// that hold 0 or 1: NOT (1 - b) into the bit b, OR (1 - none) into none = relu(1 - Σ literals),
-    /// XOR into relu(a - b) and relu(b - a), and a gate of two bits into on × relu(c) and
-    /// off × relu(1 - c). A composed wire with a range outside 0..1 gets no grid, and then an int
-    /// form that reads it is refused (plan, "Emission rules", step 5).
+    /// fact (AssumeBit). The bit forms of the translator compose only into wires that hold 0 or 1.
+    /// NOT (1 - b) composes into the bit b, and OR (1 - none) into none = relu(1 - Σ literals). XOR
+    /// composes into relu(a - b) and relu(b - a). A gate of two bits composes into on × relu(c) and
+    /// off × relu(1 - c). A composed wire with a range outside 0..1 gets no grid. Then the emitter
+    /// refuses an int form that reads it (plan, "Emission rules", step 5).
     /// </summary>
     public Wire BitAsNumber(ScalarValue bit)
     {
@@ -369,7 +369,7 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     // A side of a gate of numbers. A bit side is a number on the grid 1 (rule 1 of the phase 6 plan,
-    // task 1), so the gate gets the grid 1 when its other side has it (phase 4 carried item a).
+    // task 1). So the gate gets the grid 1 when its other side has it (phase 4 carried item a).
     private Wire SideWire(ScalarValue side) => side.Kind == ScalarKind.Bit ? BitAsNumber(side) : Emit(side);
 
     // The range and the grid of a gate side. Null is the constant 0 of rule 6: range 0..0 and no
@@ -420,8 +420,8 @@ internal sealed class Emitter(Circuit circuit, bool recognizePatterns = true)
     }
 
     // AND of literals l1..ln: Reglu([], 1, [(l1, 1), ..., (ln, 1)], 1 - n). Each literal emits first, in order.
-    // A literal that is a read of a bool table with no wire gives the gated read of rule 4 of the
-    // phase 6 plan, task 1 (createStepAnd of data-program.ts): the AND of the other literals is the gate.
+    // A literal that is a read of a bool table with no wire gives the gated read of rule 4. Rule 4 is in
+    // the phase 6 plan, task 1, and is createStepAnd of data-program.ts. The AND of the other literals is the gate.
     private Wire EmitAnd(ImmutableArray<ScalarValue> literals)
     {
         if (RecognizePatterns && literals.Length >= 2 && literals.OfType<TableReadValue>().FirstOrDefault(read => read.Wire is null) is { } gated)

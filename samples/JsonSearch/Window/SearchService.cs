@@ -1,16 +1,17 @@
-// Handwired source: src/json-search/demo.ts (searchOnGpu, documentOnGpu, the CPU worker and the RegExp worker that the
-// page asks for work, and the answers that arrive between two frames) and demo-worker.ts. The search service of the
-// window: three worker threads, so that the window thread never waits for a search.
+// Handwired source: src/json-search/demo.ts and demo-worker.ts. The parts of demo.ts are searchOnGpu, documentOnGpu,
+// and the CPU worker and the RegExp worker that the page asks for work. They also include the answers that arrive
+// between two frames. The search service of the window: three worker threads, so that the window thread never waits
+// for a search.
 // - The search thread runs the newest search on the GPU searcher or on the CPU searcher. A newer search cancels the
 //   token of the older one. When there is a GPU, the first CPU search makes the CPU searcher over the display kinds
-//   that the service holds, so it runs no highlighter. A cancellation also stops this build.
+//   that the service holds. So it runs no highlighter. A cancellation also stops this build.
 // - The document thread gives the display kinds of one document, which the service read one time from the
-//   searcher, and its marks from the search program over that one document on a CPU backend of its own (the
-//   Handwired CPU searcher with documents: 'window'). The Searcher runs each search over each document, so a window
-//   search of one document on the CPU searcher takes as long as a full search.
+//   searcher. It also gives the marks of the document from the search program over that one document. The
+//   program runs on a CPU backend of its own (the Handwired CPU searcher with documents: 'window'). The Searcher runs each search over
+//   each document. So a window search of one document on the CPU searcher takes as long as a full search.
 // - The .NET Regex thread times the newest pattern and scope with the limit of 10 s. A newer timing cancels it.
 // Each answer carries the ID of its request, and the window drops the answers of the requests that it replaced. The
-// progress of a search goes into the queue of answers and does not call the window thread, so no thread waits for
+// progress of a search goes into the queue of answers and does not call the window thread. So no thread waits for
 // another one while it holds the evaluation lock of the searcher. Each exception of a request becomes a Failed
 // answer with a sentence.
 
@@ -269,8 +270,8 @@ public sealed class SearchService : ISearchService, IDisposable
 }
 
 /// <summary>
-/// The marks of one document: the search program at the smallest capacity that holds the pattern, over that one
-/// document, on a CPU backend of its own. The runners are made at the first use of each capacity.
+/// The marks of one document from the search program at the smallest capacity that holds the pattern. The
+/// program runs over that one document, on a CPU backend of its own. The runners are made at the first use of each capacity.
 /// </summary>
 internal sealed class DocumentMarks : IDisposable
 {

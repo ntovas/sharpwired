@@ -1,16 +1,16 @@
 // Handwired source: src/json-search/bit-emit.ts, the rule "Lanes" (the words of registers, storedLane,
 // originOf, wordLists, wordPlan, isWhole, wordOf, wordOfBits). Bits that are stored together are one u32
-// word, each bit at its own lane: a field of bits, and registers of bits that the same stages write. When the
-// same gate or negation is computed for each bit of such a list, one word operation computes all of them,
-// because AND, OR and XOR work on each bit of a word on its own: continuing[s] = reached[s] && !notReach[s]
-// for 8 states is reached & (notReach ^ 255u). "None of these bits is 1" over such a word is word == 0u. A
-// list of gated reads with the same base is the packed word itself, and a list of shared cells is packed into
-// a word one time for each document. Another list of bits is written into its lanes one by one. A word holds
-// 32 bits, and a longer list is taken 32 bits at a time.
+// word, each bit at its own lane. Such bits are a field of bits, or registers of bits that the same stages
+// write. When the same gate or negation is computed for each bit of such a list, one word operation computes
+// all of them. AND, OR and XOR work on each bit of a word on its own. For example, continuing[s] =
+// reached[s] && !notReach[s] for 8 states is reached & (notReach ^ 255u). "None of these bits is 1" over
+// such a word is word == 0u. A list of gated reads with the same base is the packed word itself. A list of
+// shared cells is packed into a word one time for each document. Another list of bits is written into its
+// lanes one by one. A word holds 32 bits, and a longer list is taken 32 bits at a time.
 // The words of registers: the stages are written with a first choice of words. A word of which half the
-// registers or more were read one by one is replaced, and the stages are written again: first the registers
-// that the same stages write, then of those the registers that each stage writes with one kind of operation,
-// then each register on its own.
+// registers or more were read one by one is replaced, and the stages are written again. The new words hold
+// first the registers that the same stages write. Then they hold, of those, the registers that each stage
+// writes with one kind of operation. Then they hold each register on its own.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -19,9 +19,9 @@ using Sharpwired.Core;
 namespace Sharpwired.Gpu;
 
 /// <summary>
-/// The plan of one word of bits, bit k at lane k: neighbor lanes of a stored word, shared cells, gated reads
-/// with one key, the negations of the bits of a word, the gates of the bits of words, or bits built lane by
-/// lane.
+/// The plan of one word of bits, bit k at lane k. The bits are neighbor lanes of a stored word, shared cells,
+/// or gated reads with one key. Or they are the negations of the bits of a word, the gates of the bits of
+/// words, or bits built lane by lane.
 /// </summary>
 internal abstract record WordPlan(ImmutableArray<int> Positions);
 
@@ -91,8 +91,8 @@ internal sealed partial class LoopKernelWriter
         return [.. words.Where(word => word.Length > 1)];
     }
 
-    // What the stages write into a register: for each stage, "written", or with form the kind of the row and
-    // how many of its weights are positive.
+    // What the stages write into a register: for each stage, "written". With form, the text gives the kind
+    // of the row and how many of its weights are positive.
     private string WritesOf(int register, bool form) => string.Join(",", Stages.Select(stage =>
     {
         var output = Enumerable.Range(0, stage.Writes.Length).FirstOrDefault(index => stage.Writes[index] is StageWrite.Register target && target.Index == register, -1);
@@ -133,8 +133,8 @@ internal sealed partial class LoopStageWriter
         }
     }
 
-    // The stored lane that a bit is computed from: its own, or that of the first operand that has one, through
-    // negations, gates of the Gate rule and the gating bits of gated reads.
+    // The stored lane that a bit is computed from: its own, or that of the first operand that has one. The
+    // search goes through negations, gates of the Gate rule and the gating bits of gated reads.
     private (string Key, int Lane)? OriginOf(int position)
     {
         if (origins.TryGetValue(position, out var known)) return known;
@@ -156,8 +156,8 @@ internal sealed partial class LoopStageWriter
         return origin;
     }
 
-    // A list of bits whose order is free, as lists of at most 32 bits that can each be one word: the bits that
-    // come from one stored word, in the order of its lanes, and the other bits in the given order.
+    // A list of bits whose order is free, as lists of at most 32 bits that can each be one word. The bits that
+    // come from one stored word are in the order of its lanes, and the other bits are in the given order.
     private List<List<T>> WordLists<T>(IReadOnlyList<T> items, Func<T, int> positionOf)
     {
         var byWord = new List<(string Key, List<(T Item, int Lane)> Entries)>();
@@ -206,8 +206,8 @@ internal sealed partial class LoopStageWriter
         // statement each.
         if (!gates.All(gate => gate!.All.Length == shape.All.Length && gate.Tests.Length == 0 && gate.ZeroBits.Length == shape.ZeroBits.Length)) return null;
         var none = Enumerable.Range(0, shape.ZeroBits.Length).Select(index => SlotOf([.. gates.Select(gate => gate!.ZeroBits[index])])).ToImmutableArray();
-        // The values that must be 0 are taken lane by lane when each of those lists is a word that is not built
-        // lane by lane. When one is not, a gate that tests its own values as a word keeps them.
+        // The values that must be 0 are taken lane by lane when each of those lists is a word not built lane by
+        // lane. When one is not, a gate that tests its own values as a word keeps them.
         if (!none.All(IsWhole) && gates.Any(gate => TestsWords(gate!.ZeroBits))) return null;
         var all = Enumerable.Range(0, shape.All.Length).Select(index => SlotOf([.. gates.Select(gate => gate!.All[index])])).ToImmutableArray();
         return new GateWord(list, all, none);

@@ -1,21 +1,21 @@
 // Handwired source: src/json-search/plain-search.ts (the baseline with the built-in regular expressions: the
 // pattern goes to RegExp with the u flag). DotNetPattern translates a pattern of the language for .NET Regex, so
 // that Regex reads code points as the programs do. The Handwired baseline gives the pattern to RegExp as it is.
-// .NET Regex reads UTF-16 units, its \d and \w read Unicode classes, and its . excludes only \n. So the
-// translation writes each set of code points of the pattern as .NET text:
+// The .NET Regex reads UTF-16 units, its \d and \w read Unicode classes, and its . excludes only \n. So the
+// translation writes each set of code points of the pattern as .NET text in three forms.
 // - The code points of the basic plane, except the surrogates, as one .NET class, for example [a-z].
 // - A code point past U+FFFF as its surrogate pair, a range of them as ranges of pairs.
-// - A lone surrogate as its own code point: a high surrogate that no low surrogate follows, or a low surrogate
-//   that no high surrogate comes before.
+// - A lone surrogate as its own code point. A lone surrogate is a high surrogate that no low surrogate
+//   follows, or a low surrogate that no high surrogate comes before.
 // Groups become (?: ), and |, ?, * and + stay. The translation reads the pattern text itself. It calls the
 // compiler first only to throw the same PatternSyntaxException for a pattern outside the language.
-// DotNetBaseline counts the matches of the translated pattern as plain-search.ts does: in the first 512 code points
-// of each document for All, or in each run of searched code points (the keys, or the string values with their
-// quotes) for the other scopes. The runs come from the display kinds of the highlighter and are found before the
-// time starts. The baseline counts each match of Regex, also an empty match, as plain-search.ts counts each match
-// of RegExp. Differences from Handwired:
-// - One total limit stops the count between documents, and the match timeout of Regex stops one long match
-//   (Handwired ends the worker of RegExp after 10 s).
+// DotNetBaseline counts the matches of the translated pattern as plain-search.ts does. For All, it counts in the
+// first 512 code points of each document. For the other scopes, it counts in each run of searched code points (the
+// keys, or the string values with their quotes). The runs come from the display kinds of the highlighter and are
+// found before the time starts. The baseline counts each match of Regex, also an empty match, as plain-search.ts
+// counts each match of RegExp. Differences from Handwired:
+// - One total limit stops the count between documents. The match timeout of Regex stops one long match (Handwired
+//   ends the worker of RegExp after 10 s).
 // - Regex steps one UTF-16 unit after an empty match, and RegExp with the u flag steps one code point. So an
 //   empty match can also occur between the two units of a surrogate pair. For example, a* gives 3 matches over
 //   U+1F600 in Regex, and 2 in RegExp.

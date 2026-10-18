@@ -1,7 +1,8 @@
-// Handwired source: tests/json-search/demo.test.ts ("splits a document into runs by display kind and match") and the
-// CSS of the document panel (assets/tool.css: the color of each display kind; assets/json-search.css: tab-size 2,
-// the wash of a match, light and deep in turn). The window draws the document on a fixed grid of 80 columns:
-// DocumentView gives the cell of each code point, its color, and the mark spans under the matches.
+// Handwired source: tests/json-search/demo.test.ts ("splits a document into runs by display kind and match"), and
+// the CSS of the document panel. The file assets/tool.css gives the color of each display kind. The file
+// assets/json-search.css gives tab-size 2 and the wash of a match, light and deep in turn. The window draws the
+// document on a fixed grid of 80 columns. DocumentView gives the cell of each code point, its color, and the mark
+// spans under the matches.
 
 using Sharpwired.Raylib;
 
@@ -18,8 +19,9 @@ public sealed class DocumentViewTests
     [Fact]
     public void The_glyphs_take_rows_and_columns_with_line_feeds_tabs_a_wide_code_point_and_a_surrogate_pair()
     {
-        // {\n\t"東":"😀a"\n}: a line feed starts a row, a tab goes to the next stop of 2, 東 takes two cells, and 😀
-        // is one code point (a surrogate pair) of East Asian width "wide", so it also takes two cells.
+        // {\n\t"東":"😀a"\n}: a line feed starts a row, a tab goes to the next stop of 2, and 東 takes two cells.
+        // The emoji 😀 is one code point (a surrogate pair) of East Asian width "wide", so it also takes two
+        // cells.
         const string text = "{\n\t\"東\":\"😀a\"\n}";
         byte[] kinds = [Punctuation, Whitespace, Whitespace, Key, Key, Key, Punctuation, String, String, String, String, Whitespace, Punctuation];
         var layout = DocumentView.Lay(text, kinds, []);

@@ -36,8 +36,8 @@ public static class Hw
 
     /// <summary>
     /// Macros.AnimatedObject with one spring, the default thresholds 0.01 and 0.01, and a snap bit.
-    /// matrix has length 4: displacement from displacement, displacement from velocity, velocity from
-    /// displacement, velocity from velocity.
+    /// The array matrix has length 4: displacement from displacement, displacement from velocity, velocity
+    /// from displacement, velocity from velocity.
     /// </summary>
     /// <remarks>
     /// The body always rebases the displacement from destinationDuringSteps to destination. The macro

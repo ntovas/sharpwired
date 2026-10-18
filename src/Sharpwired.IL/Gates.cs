@@ -239,7 +239,8 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
     }
 
     // value(B) for the blocks of the region from the dominator to the merge (-1: a merge after the
-    // ret blocks). operandOf gives the phi operand of a predecessor of the merge, or the return value
+    // ret blocks). Here operandOf gives the phi operand of a predecessor of the merge, or the return
+    // value
     // of a ret block. An edge that does not reach the merge gives missing. Each block gets its value
     // one time. A back edge reaches only a merge that is its target. A loop header other than the
     // dominator, in a loop that does not hold the merge, continues at the exit edge of its loop.
@@ -414,8 +415,8 @@ internal sealed class Gates(OperationLowering lowering, SsaMethod ssa)
     // brtrue and brfalse read a bit: a bool value, a comparison or the constant 0 or 1. On an int
     // they read x != 0, as Roslyn writes the branch form of x != 0 (final fix wave, item D). An int
     // constant k gives the constant bit k != 0. Release writes "if (Mode != 0)" with a constant Mode
-    // as "ldc.i4 Mode; brtrue", and Debug writes "s == 0 ? a : b" in a constant loop as "brfalse" on
-    // the constant s (phase 4 carried item c).
+    // as "ldc.i4 Mode; brtrue". Debug writes "s == 0 ? a : b" in a constant loop as "brfalse" on the
+    // constant s (phase 4 carried item c).
     private ScalarValue Bit(SsaValue operand, int offset)
     {
         var value = lowering.Scalar(operand, offset);

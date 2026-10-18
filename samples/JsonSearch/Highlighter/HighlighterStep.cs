@@ -10,21 +10,21 @@
 // 3. The depth after the character, a running total of +1 and -1.
 // 4. The container kinds as one integer, the container code: a running total of ±2^depth for braces. Whether the
 //    innermost container is an object is one comparison of the code with 2^(depth - 1). Before the first error
-//    each container is open at its depth, so the bits of the code below the depth are the kinds of the open
+//    each container is open at its depth. So the bits of the code below the depth are the kinds of the open
 //    containers, and the comparison reads the top bit. After the first error the code can be wrong, and the
 //    grammar stays in its error state for each result of the comparison.
 // 5. The grammar between tokens, a state machine of 8 states over (token, depth class, container kind), one read.
-// 6. The display kind, one read at (event, grammar state), and the error kind of this position: the error kind
-//    of the event plus the error kind of the grammar step.
+// 6. The display kind, one read at (event, grammar state), and the error kind of this position. The error kind
+//    of this position is the error kind of the event plus the error kind of the grammar step.
 //
-// The stages (HighlighterProgram.cs): Step runs at the positions 0 to 511, and End runs one time for position 512,
-// the end of the text or the 513th code point of a longer text. The first error position is a count: the error
-// state of the grammar never goes back, so the positions before it are 513 minus the positions in it. The first
-// error kind is carried: the step adds the error kind of the position where the grammar goes into the error
-// state, which occurs at most one time.
+// The stages (HighlighterProgram.cs): Step runs at the positions 0 to 511, and End runs one time for position 512.
+// Position 512 is the end of the text or the 513th code point of a longer text. The first error position is a
+// count. The error state of the grammar never goes back, so the positions before it are 513 minus the positions
+// in it. The first error kind is carried. The step adds the error kind of the position where the grammar goes
+// into the error state, which occurs at most one time.
 //
 // A cell after the text holds -1, the class End. After the text the tokenizer stays in Between with the event
-// End, and the grammar stays in End or in Error, so each position after the text gives PastEnd and keeps the
+// End, and the grammar stays in End or in Error. So each position after the text gives PastEnd and keeps the
 // registers. The GPU runs each position, and the CPU runner gives the same values (the program has no length cell).
 //
 // Differences from Handwired:
@@ -44,9 +44,9 @@ using Sharpwired.Annotations;
 namespace JsonSearch;
 
 /// <summary>
-/// The registers of the highlighter, each with the range that its value has after any number of positions:
-/// the tokenizer state, the depth, the container code, the grammar state, the number of positions in the error
-/// state, and the kind of the first error.
+/// The registers of the highlighter, each with the range that its value has after any number of positions.
+/// The registers are the tokenizer state, the depth, the container code and the grammar state. They are also
+/// the number of positions in the error state, and the kind of the first error.
 /// </summary>
 public readonly record struct HighlighterState(
     [Range(0, Tables.LexerStateCount - 1)] int LexerState,
@@ -90,8 +90,8 @@ public static class HighlighterStep
     }
 
     /// <summary>
-    /// The work of position 512, the end of the text or the 513th code point of a longer text: the last event and
-    /// grammar step, then Valid, FirstErrorPosition (-1 for a valid text), Truncated and FirstErrorKind.
+    /// The work of position 512, the end of the text or the 513th code point of a longer text. It gives the last
+    /// event and grammar step, then Valid, FirstErrorPosition (-1 for a valid text), Truncated and FirstErrorKind.
     /// </summary>
     [Handwired]
     public static (int Valid, int FirstErrorPosition, int Truncated, int FirstErrorKind) End(

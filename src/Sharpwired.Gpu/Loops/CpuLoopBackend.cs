@@ -1,9 +1,10 @@
 // Handwired source: src/json-search/loop-program.ts (createLoopRunner: setShared and run). The CPU runner
 // of a loop program. Parallel.For runs blocks of documents. Each worker thread has its own registers,
-// fields and stage evaluators: a copy of the CompiledStage of each stage (the delegates are shared), or a
-// TensorEvaluator of each stage for tests. For one document, the runner sets the registers to their
-// initial values and runs the stages in order. A looped stage runs the positions 0..limit - 1 forward or
-// backward, where limit is the number of positions, or the length of the text with StopAtLength. Before
+// fields and stage evaluators. The evaluators are a copy of the CompiledStage of each stage (the
+// delegates are shared), or a TensorEvaluator of each stage for tests. For one document, the runner sets
+// the registers to their initial values and runs the stages in order. A looped stage runs the positions
+// 0..limit - 1 forward or backward. The limit is the number of positions, or the length of the text with
+// StopAtLength. Before
 // each evaluation, the runner checks each cell that is not a shared cell against the declaration of the
 // stage, with the messages of CellValidator. The shared cells are checked one time in WriteShared. A
 // document that fails a check gets a LaneFault and NaN outputs, and the other documents continue (phase 5
@@ -120,8 +121,9 @@ internal sealed class CpuDocumentBuffer(CpuLoopBackend owner, float[] cells, int
 }
 
 // The declarations of the cells of one stage, and the checks of the runner. The order of the checks and
-// the messages are those of CellValidator.Validate: the range of each cell, then each exact bit, then each
-// grid, then each rule. A source table whose shared cells passed WriteShared gives the first message of
+// the messages are those of CellValidator.Validate. The order is the range of each cell, then each exact
+// bit, then each grid, then each rule. A source table whose shared cells passed WriteShared gives the
+// first message of
 // CellValidator.Validate on the full table.
 internal sealed class StageCells
 {

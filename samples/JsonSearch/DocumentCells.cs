@@ -1,8 +1,8 @@
 // Handwired source: src/json-search/program.ts (writeDocumentCells). The cells of one document, as both programs
-// read them: the first 512 code points, -1 after the text, and the length of the text in code points. That is
-// 513 FP32 values, 2,052 bytes. A surrogate pair is one code point, and a lone surrogate is its own code point.
-// Each value is a whole number in -1..1,114,111 or a length in 0..1,048,576, so each cell holds its
-// declared range, and the runners do not check the document cells again.
+// read them. The cells hold the first 512 code points, -1 after the text, and the length of the text in code
+// points. That is 513 FP32 values, 2,052 bytes. A surrogate pair is one code point, and a lone surrogate is its
+// own code point. Each value is a whole number in -1..1,114,111 or a length in 0..1,048,576. So each cell holds
+// its declared range, and the runners do not check the document cells again.
 
 namespace JsonSearch;
 

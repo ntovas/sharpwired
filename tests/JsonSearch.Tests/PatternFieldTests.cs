@@ -1,6 +1,6 @@
 // Handwired source: the pattern field of src/json-search/assets/json-search.html, an input element that the browser
-// edits. The window has no input element, so PatternField edits the text: typed text at the caret, the edit keys,
-// and a surrogate pair as one code point.
+// edits. The window has no input element, so PatternField edits the text. It handles typed text at the caret, the
+// edit keys, and a surrogate pair as one code point.
 
 using Sharpwired.Raylib;
 

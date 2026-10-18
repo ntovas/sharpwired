@@ -114,7 +114,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     }
 
     // The wide-cell test of the plan (the phase 4 carried item), and the invalid lane of the phase 6 plan.
-    // x has the wide int range -2^23..2^23. For n = 30 in lane 5, x is 2^24 after it doubles 24 times, and
+    // The value x has the wide int range -2^23..2^23. For n = 30 in lane 5, x is 2^24 after it doubles 24 times, and
     // the cell check stops the lane. The GPU runner replays the lane on the CPU and keeps its message. The
     // other lanes are valid and keep their results. ThrowIfInvalid throws the message of phase 5.
     [Theory]
@@ -258,7 +258,7 @@ public sealed partial class GpuRecurrentTests(GpuFixture fixture, ITestOutputHel
     // The lanes of the last GPU compare, for AssertNoReplayPass.
     private (RecurrentFunction Function, IReadOnlyList<float[]> Lanes, int StepLimit)? lastCompare;
 
-    // A lane that the kernel marked failed and whose CPU replay passed gets the CPU result, so the compare of
+    // A lane that the kernel marked failed and whose CPU replay passed gets the CPU result. Thus the compare of
     // the lanes cannot see a false kernel check. The replay passes of the runner must be 0, apart from the lanes
     // of the last compare that the subnormal rule excludes.
     private void AssertNoReplayPass(GpuRecurrentRunner runner, GpuDevice device)

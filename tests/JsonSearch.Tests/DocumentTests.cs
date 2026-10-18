@@ -1,9 +1,9 @@
 // Handwired source: tests/json-search/json-search.test.ts ("the generated documents"). The generator (R6.1):
-// DocumentAt is a pure function of the seed and the index; the valid documents parse with System.Text.Json, fit
-// the capacity and have each shape and each style; each defect occurs, and each defect text fails
-// System.Text.Json except TooDeep and TooLong, which the reference reports. The SHA-256 hash of the first 2,000
-// texts is pinned. The Handwired test pins a lowbias32 hash of the same texts and the statistics of the first
-// 20,000 documents; the C# texts give the same values, so the C# generator writes the Handwired texts.
+// DocumentAt is a pure function of the seed and the index. The valid documents parse with System.Text.Json, fit
+// the capacity and have each shape and each style. Each defect occurs. Each defect text fails System.Text.Json
+// except TooDeep and TooLong, which the reference reports. The SHA-256 hash of the first 2,000 texts is pinned.
+// The Handwired test pins a lowbias32 hash of the same texts and the statistics of the first 20,000 documents.
+// The C# texts give the same values, so the C# generator writes the Handwired texts.
 
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
@@ -17,8 +17,9 @@ public sealed class DocumentTests(ITestOutputHelper output)
 {
     private const int Capacity = Kinds.Capacity;
 
-    // The SHA-256 hash of the first 2,000 texts with the default seed and the default fraction: for each text,
-    // its length in UTF-16 code units as a little-endian int32, then its UTF-16 code units, little-endian.
+    // The SHA-256 hash of the first 2,000 texts with the default seed and the default fraction. For each text,
+    // the hash reads its length in UTF-16 code units as a little-endian int32. Then it reads its UTF-16 code
+    // units, little-endian.
     private const string PinnedSha256 = "E33D69F4D4D2784641E7D9B9B2C423F1BE612265AB70B8FA1B0E8076D239896E";
 
     // json-search.test.ts pinnedDocumentsHash: hash = lowbias32(hash ^ unit) over each UTF-16 code unit of the first 2,000 texts.
@@ -130,7 +131,7 @@ public sealed class DocumentTests(ITestOutputHelper output)
     }
 
     // json-search.test.ts: "every shape and every defect appears, about 1 document in 10 is broken, and the
-    // lengths spread up to the capacity", with the Handwired values.
+    // lengths spread up to the capacity". The test uses the Handwired values.
     [Fact]
     public void The_first_20000_documents_have_the_handwired_statistics()
     {

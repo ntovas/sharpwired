@@ -1,5 +1,5 @@
 // No Handwired source. These tests cover FontCoverage, which reads the character map (cmap) of a TrueType font
-// file, so that the window knows which code points a font has before it draws them. The font bytes are written
+// file. With the map, the window knows which code points a font has before it draws them. The font bytes are written
 // here: one cmap table with a format 4 and a format 12 subtable.
 
 using System.Buffers.Binary;
@@ -122,9 +122,8 @@ public class FontCoverageTests
         BinaryPrimitives.WriteUInt32BigEndian(record[4..], (uint)offset);
     }
 
-    // Three segments: 'A'..'C' with idDelta 1 - 'A', U+6771..U+6772 through the glyph array with idDelta 5 (glyph 7
-    // gives 12, and glyph 0 stays the missing glyph), and
-    // the last segment 0xFFFF.
+    // Three segments: 'A'..'C' with idDelta 1 - 'A', U+6771..U+6772, and the last segment 0xFFFF. The second
+    // segment goes through the glyph array with idDelta 5 (glyph 7 gives 12, and glyph 0 stays the missing glyph).
     private static byte[] Format4()
     {
         ushort[] ends = ['C', 0x6772, 0xffff];

@@ -1,9 +1,10 @@
 // Handwired source: tests/json-search/bit-emit.test.ts (the "flags" programs and their variants, the near
 // misses that hold values that the rule would get wrong, and packWords). PackedWords.Pack gives the bits of
 // the cells for 1, 31, 32 and 33 bits. The proof of the packed reads (StageRules) runs on the circuits of
-// bit-emit.test.ts, which the builder makes directly: each read that the rule takes as a gated read is
-// table[base] && open for each source table (a check against the reference evaluator over each combination
-// of the gating bits), and each near miss is not a gated read. Two bits that are never both 1 are proven,
+// bit-emit.test.ts, which the builder makes directly. Each read that the rule takes as a gated read is
+// table[base] && open for each source table. The test checks this against the reference evaluator over
+// each combination of the gating bits. Each near miss is not a gated read. Two bits that are never both 1
+// are proven,
 // and two free bits are not. These tests need no adapter.
 
 using System.Collections.Immutable;
@@ -179,8 +180,9 @@ public sealed class PackedWordTests
         return (float)Value(row.Candidates.PositionAt((int)Math.Clamp(index, 0, last)));
     }
 
-    // p && !q and p && q are never both 1. The proof finds this when it sets both to 1. p and q can both be 1, and
-    // the proof does not claim a different result. The reference evaluator agrees on each of the four inputs.
+    // p && !q and p && q are never both 1. The proof finds this when it sets both to 1. The bits p and q can both
+    // be 1, and the proof does not claim a different result. The reference evaluator agrees on each of the four
+    // inputs.
     [Fact]
     public void Two_bits_that_are_never_both_one_are_proven_and_two_free_bits_are_not()
     {

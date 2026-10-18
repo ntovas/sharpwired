@@ -2,9 +2,10 @@
 // gives the page its pointer events, its frames and its drawing. This class gives the same to an
 // IWindowApp with Raylib-cs. It is the only file that uses the namespace Raylib_cs.
 // Phase 6 task 8 (Handwired src/json-search/demo.ts, which reads input and keydown events, writes text nodes and
-// puts one ImageData on a canvas): the typed text and the key presses of each frame, the pixel scale, the fonts
-// of the app with the replacement glyph, the commands FillRectangle, DrawText, DrawGlyphs and DrawPixels, and one
-// texture for each DrawPixels command, which the window releases before it closes.
+// puts one ImageData on a canvas) adds these items. It adds the typed text and the key presses of each frame, the
+// pixel scale, and the fonts of the app with the replacement glyph. It adds the commands FillRectangle, DrawText,
+// DrawGlyphs and DrawPixels. It adds one texture for each DrawPixels command, which the window releases before it
+// closes.
 
 using System.Collections.Immutable;
 using System.Numerics;
@@ -20,8 +21,8 @@ public static class RaylibWindow
     // the radius in logical pixels, which gives a corner with visible edges on a 2 × display.
     private const int CornerSegments = 16;
 
-    // The pixel height at which the fonts load: more than twice the largest glyph of the apps, so that a glyph on
-    // a display with two device pixels for each screen pixel stays sharp.
+    // The pixel height at which the fonts load: more than twice the largest glyph of the apps. Thus a glyph on a
+    // display with two device pixels for each screen pixel stays sharp.
     private const int FontLoadSize = 36;
 
     private static readonly (Key Key, KeyboardKey[] RaylibKeys)[] KeyMap =
@@ -42,8 +43,8 @@ public static class RaylibWindow
     /// <summary>
     /// Open a window for the app and run it. The run stops when the person closes the window (the
     /// close button or the Esc key), or at the frame limit of the options. In each frame, read the
-    /// pointer, the left button edges, the focus loss edge, the screen size, the typed text, the key
-    /// presses and the pixel scale. Then read the clock one time, call <see cref="IWindowApp.Frame"/>,
+    /// pointer, the left button edges, the focus loss edge and the screen size. Also read the typed
+    /// text, the key presses and the pixel scale. Then read the clock one time, call <see cref="IWindowApp.Frame"/>,
     /// and draw the commands on the background. With a screenshot path, draw the last commands again
     /// and save them as an image before the window closes.
     /// </summary>
@@ -100,7 +101,7 @@ public static class RaylibWindow
     }
 
     // The characters of the frame. GetCharPressed gives a Unicode code point. A value that is not a Unicode scalar
-    // value, for example a lone surrogate, is left out, so that the app gets only whole code points.
+    // value, for example a lone surrogate, is left out. Thus the app gets only whole code points.
     private static string ReadText()
     {
         var text = new StringBuilder();

@@ -1,6 +1,6 @@
 // Handwired source: src/json-search/highlighter/kinds.ts. The names and the numbers that the highlighter, the
-// code that shows its outputs and the plain C# reference of the tests share: the capacity, the maximum depth,
-// the display kinds and the error kinds. This file holds only names and numbers. The tables of the program
+// code that shows its outputs and the plain C# reference of the tests share. They are the capacity, the maximum
+// depth, the display kinds and the error kinds. This file holds only names and numbers. The tables of the program
 // are in Tables.cs, which the reference does not read.
 
 namespace JsonSearch;

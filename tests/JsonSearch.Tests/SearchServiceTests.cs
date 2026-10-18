@@ -1,7 +1,7 @@
-// Handwired source: tests/json-search/demo.test.ts ("the page's worker": a search on the CPU answers in pieces, a
-// newer search replaces the one in progress, and the worker answers with the kinds and the marks of one document and
-// with the RegExp time). The search service of the window on the CPU: each answer carries the ID of its request, a
-// newer request cancels the older one, each exception becomes a Failed answer, and Dispose stops the workers.
+// Handwired source: tests/json-search/demo.test.ts ("the page's worker": a search on the CPU answers in pieces. A
+// newer search replaces the one in progress. The worker answers with the kinds and the marks of one document and
+// with the RegExp time). The search service of the window on the CPU: each answer carries the ID of its request,
+// and a newer request cancels the older one. Each exception becomes a Failed answer, and Dispose stops the workers.
 
 using System.Collections.Immutable;
 using System.Diagnostics;

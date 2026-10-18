@@ -8,8 +8,9 @@
 //   matches each code point. In a class, \- is a literal -, and a - first or last is literal.
 // - ?, * and + after a literal, a class or a group.
 // - | between alternatives, and ( ) groups.
-// A lazy quantifier such as *?, a counted repeat such as {2}, an anchor, another escape and a group such as (?:
-// throw a PatternSyntaxException with the position of the code point where the parser found the error.
+// The parser refuses these forms: a lazy quantifier such as *?, a counted repeat such as {2}, an anchor,
+// another escape, and a group such as (?:. For each one, it throws a PatternSyntaxException with the position
+// of the code point where it found the error.
 
 using System.Collections.Immutable;
 

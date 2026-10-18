@@ -1,14 +1,15 @@
-// Handwired source: src/json-search/searcher.ts (createGpuSearcher and createCpuSearcher: the cells of each document,
-// the highlighter one time at creation with the display kinds that stay on the backend, one search program for each
-// capacity, resolvePattern, summarize, validationOf, and the gate that gives a result only to the newest request).
+// Handwired source: src/json-search/searcher.ts (createGpuSearcher and createCpuSearcher). The source holds the cells
+// of each document, and the highlighter one time at creation with the display kinds that stay on the backend. It
+// holds one search program for each capacity, resolvePattern, summarize and validationOf. It also holds the gate
+// that gives a result only to the newest request.
 // One searcher for both backends: the runners come from an ILoopBackend.
 // Differences from Handwired:
 // - Search is synchronous. One evaluation runs at a time. A request that a newer request replaced, before or while
 //   it ran, returns null. A request that needs no search (a syntax error, a pattern that is too large) also
 //   replaces the requests before it.
 // - The documents are in slices of documents, each with its own document buffer and kinds buffer. On the GPU one
-//   slice holds all documents. On the CPU a slice holds 16,384 documents, so that a search reports the counts of
-//   each slice as progress and stops at a cancellation between slices (and between blocks inside a slice).
+//   slice holds all documents. On the CPU a slice holds 16,384 documents. Thus a search reports the counts of each
+//   slice as progress, and stops at a cancellation between slices (and between blocks inside a slice).
 // - The times of a search are one LoopTimes. WriteMs is the pattern compile, the write of the shared cells, and the
 //   write time of each run. SubmitMs, WaitMs and ReadMs are the sums over the slices. TotalMs is the pattern compile
 //   plus the time from the lock to the copy of the last count. The wait for the evaluation lock is not in a time. On
@@ -106,8 +107,8 @@ public sealed class Searcher : IDisposable
     internal long Requests => Interlocked.Read(ref latest);
 
     /// <summary>
-    /// Write the cells of the texts, upload them to the backend, make the highlighter runner and the three search
-    /// runners, and run the highlighter one time. The display kinds stay on the backend. The searcher does not own
+    /// Write the cells of the texts, and upload them to the backend. Make the highlighter runner and the three
+    /// search runners, and run the highlighter one time. The display kinds stay on the backend. The searcher does not own
     /// the backend.
     /// </summary>
     /// <exception cref="ArgumentException">No text.</exception>

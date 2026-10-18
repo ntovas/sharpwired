@@ -43,7 +43,7 @@ public sealed class CpuLoopRunnerTests
         var run = runner.Run(new LoopRequest([input], DocumentCount, targets, 0, DocumentCount));
 
         // The plain method and the program can differ in the sign of zero by the contract of the
-        // translator (ZeroSign.Loose of the IL tests: a sum with the bias 0 gives +0 where C# gives -0).
+        // translator (ZeroSign.Loose of the IL tests). A sum with the bias 0 gives +0 where C# gives -0.
         // So this comparison uses sameNumericValue. The two stage backends give the same bits (next test).
         var (documentValues, positionValues) = Plain(program, cells, DocumentCount, shared);
         Assert.Empty(run.Faults);
@@ -304,8 +304,8 @@ public sealed class CpuLoopRunnerTests
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such program"),
     };
 
-    // The values of EvaluatePlain in the layout of a LoopRun: the document groups, group after group and
-    // document after document, then the position groups in the same order.
+    // The values of EvaluatePlain in the layout of a LoopRun. First the document groups, group after group
+    // and document after document. Then the position groups in the same order.
     private static (float[] DocumentValues, float[] PositionValues) Plain(LoopProgram program, float[] cells, int count, float[] shared)
     {
         var cellsPerDocument = program.Buffers[0].CellsPerDocument;

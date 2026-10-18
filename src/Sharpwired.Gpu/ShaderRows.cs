@@ -1,9 +1,9 @@
 // Handwired source: src/json-search/emit.ts (Row, flattenProgram, positionsOfWires). The rows of a
-// compiled program, one for each operation, in an order that gives the values of TensorExecution. emit.ts
-// refuses gathers and index reads of computed candidates. These rows hold both. They have a gather
-// compute and the gather reads of a row. They have three candidate forms: evenly spaced source cells, a
-// list of source cells, and a list of computed values. ConstantTables finds the index reads whose
-// candidates are all constants (the probe of the phase 6 plan, question 1): a writer reads such a list from
+// compiled program, one for each operation, in an order that gives the values of TensorExecution. In
+// Handwired, emit.ts refuses gathers and index reads of computed candidates. These rows hold both. They have a
+// gather compute and the gather reads of a row. They have three candidate forms: evenly spaced source cells,
+// a list of source cells, and a list of computed values. ConstantTables finds the index reads whose
+// candidates are all constants (the probe of the phase 6 plan, question 1). A writer reads such a list from
 // a storage buffer of constant tables, and the constants get no statement. Needed gives the rows that the
 // roots need, with no row for a constant that only a constant table reads.
 
@@ -29,9 +29,9 @@ internal enum CandidateForm
 }
 
 /// <summary>
-/// The candidates of one read. <see cref="Positions"/> holds the packed positions of a list, and is
-/// empty for the strided form. <see cref="Table"/> is the stored array of the program, which reads
-/// of one table share. A writer uses it to write one constant for each shared list.
+/// The candidates of one read. For a list, <see cref="Positions"/> holds the packed positions, and it
+/// is empty for the strided form. The reads of one table share the stored array <see cref="Table"/>
+/// of the program. A writer uses it to write one constant for each shared list.
 /// </summary>
 internal sealed record ShaderCandidates(CandidateForm Form, int Count, int Base, int Stride, ImmutableArray<int> Positions, UnsignedIndices? Table)
 {
@@ -273,8 +273,8 @@ internal static class ShaderRows
 }
 
 /// <summary>
-/// The constant tables of a program: each list of computed candidates of an index read whose candidates
-/// are all constant rows (an affine row with no term and no gather). Two reads of the same values share
+/// The constant tables of a program. A table is a list of computed candidates of an index read. All the
+/// candidates of that read are constant rows (an affine row with no term and no gather). Two reads of the same values share
 /// one table. <see cref="Values"/> holds the tables one after the other, with the exact bits of each
 /// constant.
 /// </summary>

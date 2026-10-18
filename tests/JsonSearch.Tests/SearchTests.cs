@@ -1,8 +1,8 @@
 // Handwired source: tests/json-search/regex/regex-search.test.ts and tests/json-search/search.test.ts (the search
 // loop program against the automaton reference). The search programs at 8, 16 and 32 states on the CPU runner,
-// with both stage backends, against RegexReference.AutomatonMatches: the 26 hand-written cases, the seeded random
-// patterns with 6 texts each, patterns at the capacity over full texts of 512 code points, and each scope over 300
-// generated documents with the display kinds of the highlighter. Also StopAtLength, LoopProgram.EvaluatePlain,
+// with both stage backends, against RegexReference.AutomatonMatches. The inputs are the 26 hand-written cases, and the
+// seeded random patterns with 6 texts each. The inputs also include patterns at the capacity over full texts of
+// 512 code points. The inputs also include each scope over 300 generated documents with the display kinds of the highlighter. Also StopAtLength, LoopProgram.EvaluatePlain,
 // the declarations at each position on the reference evaluator, and the cells that WritePattern writes. The sizes
 // are in SearchTests.Sizes.cs, and the documents and searches at the limits in SearchTests.Edges.cs.
 
@@ -58,8 +58,8 @@ public sealed partial class SearchTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The reference of a masked search over the first 512 code points: AutomatonMatches with -1 in place of each
-    /// code point whose display kind the search does not read. With no kinds, the search reads each code point.
+    /// The reference of a masked search over the first 512 code points. It is AutomatonMatches with -1 in place of
+    /// each code point whose display kind the search does not read. With no kinds, the search reads each code point.
     /// </summary>
     internal static List<Match> ReferenceMatches(CompiledPattern compiled, int[] codePoints, ReadOnlySpan<float> kinds = default, IReadOnlyCollection<DisplayKind>? searched = null)
     {
@@ -274,7 +274,7 @@ public sealed partial class SearchTests(ITestOutputHelper output)
     public void The_plain_step_methods_in_a_loop_equal_the_cpu_runner(int states)
     {
         var program = Programs[states].Value;
-        // The plain step methods run each of the 512 positions, and a call of the plain Reverse at 32 states takes
+        // The plain step methods run each of the 512 positions. A call of the plain Reverse at 32 states takes
         // near 1 ms, so the larger programs run fewer documents.
         var generated = states == 8 ? 40 : states == 16 ? 12 : 4;
         var texts = Documents.Generate(generated).Select(document => document.Text).Concat(TestPatterns.HandWrittenCases.Take(generated / 2).Select(entry => entry.Text)).ToArray();

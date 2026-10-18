@@ -1,7 +1,7 @@
 // Handwired source: tests/json-search/edge-cases.test.ts and tests/json-search/searcher.test.ts (the highlighter of
-// a searcher on the GPU against the CPU and against the reference). On each adapter and with both writers: the
-// highlighter over the first 100,000 generated documents (invalid fraction 0) and over the 2,509 corpus texts
-// equals the CPU runner, and a sample of 2,000 of the documents equals JsonReference. The display kinds stay on
+// a searcher on the GPU against the CPU and against the reference). The highlighter runs on each adapter and with both
+// writers. Over the first 100,000 generated documents (invalid fraction 0) and over the 2,509 corpus texts, it
+// equals the CPU runner. A sample of 2,000 of the documents equals JsonReference. The display kinds stay on
 // the GPU in a position target, and the test reads them back in chunks. The shader create time and the run
 // times go to the test output. Each value is a whole number, so the subnormal rule excludes no document.
 

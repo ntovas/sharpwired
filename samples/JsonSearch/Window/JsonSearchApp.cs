@@ -1,8 +1,9 @@
-// Handwired source: src/json-search/demo.ts (mountJsonSearch and its render function: the answers that arrived since
-// the last frame, the pattern and the two toggles, the examples, the map and its pointer, the Enter steps, the
-// document that the panel shows, and the line of numbers) and src/json-search/assets/json-search.html. The window app
-// of the JSON search. Each frame takes in the answers of the search service, applies the input, decides what the
-// window shows, asks the service for the work that is due, and returns the draw commands. It makes no Raylib call.
+// Handwired source: src/json-search/demo.ts and src/json-search/assets/json-search.html. From demo.ts, the source is
+// mountJsonSearch and its render function. The render function covers the answers that arrived since the last
+// frame, the pattern and the two toggles, and the examples. It also covers the map and its pointer, the Enter steps,
+// the document that the panel shows, and the line of numbers. The window app of the JSON search. Each frame takes in
+// the answers of the search service, applies the input, and decides what the window shows. Then it asks the service
+// for the work that is due, and returns the draw commands. It makes no Raylib call.
 // Differences from Handwired:
 // - The window starts with an empty pattern (the page starts with "error"), as the manual check of the plan types it.
 // - A refused pattern keeps the last map (the plan, manual check step 9). The page shows the plain map.
@@ -117,8 +118,8 @@ public sealed class JsonSearchApp : IWindowApp
         var runsLong = searchPending && frameTimeMs - wantedSince >= LongSearchMs;
         var dotNetTime = fits && dotNet is { } time && time.Key == dotNetKey ? time.Time : (DotNetTime?)null;
 
-        // The map: the answer for the pattern, the plain map with no pattern, and the last answer while a search is in
-        // flight or the pattern is refused, until the search runs long.
+        // The map: the answer for the pattern, or the plain map with no pattern. While a search is in flight or the
+        // pattern is refused, the map is the last answer, until the search runs long.
         if (current is not null) (mapResult, mapWaiting) = (current, true);
         else if (analysis is PatternAnalysis.Empty) (mapResult, mapWaiting) = (null, false);
         else if (runsLong) (mapResult, mapWaiting) = (null, true);

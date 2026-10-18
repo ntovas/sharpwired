@@ -1,10 +1,10 @@
 // Handwired source: src/json-search/loop-program.ts (Binding, Write, Stage, LoopProgram, createStage). A
-// program as loops over the positions of one document. Each stage is one translated step method: it runs
+// program as loops over the positions of one document. Each stage is one translated step method. It runs
 // one time (Once), for the positions 0, 1, 2 and up (Forward), or from the last position down to 0
-// (Backward). Each input cell of a stage reads an item (the document cell at the position), one fixed
-// document cell, a register, a field or a shared cell. Each output of a stage writes a register, a field,
-// a document output or a position output. Handwired binds a source cell of a stage circuit to a source;
-// Sharpwired binds a cell path of the translated function, so the step method names the cells.
+// (Backward). Each input cell of a stage reads an item (the document cell at the position). Or it reads one
+// fixed document cell, a register, a field or a shared cell. Each output of a stage writes a register, a
+// field, a document output or a position output. Handwired binds a source cell of a stage circuit to a
+// source. Sharpwired binds a cell path of the translated function, so the step method names the cells.
 // Differences from Handwired:
 // - A cell with no source is refused. Handwired reads a cell with no binding as a shared cell at the
 //   offset of the stage; here each shared cell names its offset (CellSource.Shared).
@@ -91,8 +91,8 @@ public enum OutputGroupKind
 /// <summary>
 /// An output group. A document group holds ValuesPerDocument values for each document. A position group
 /// holds one value for each position, so ValuesPerDocument is the number of positions. Fill is the value
-/// before a stage writes the value, and the value of a position past the end of the text when the loops
-/// stop at the length.
+/// before a stage writes the value. Fill is also the value of a position past the end of the text when the
+/// loops stop at the length.
 /// </summary>
 public sealed record LoopOutputGroup(string Name, OutputGroupKind Kind, int ValuesPerDocument, float Fill);
 
@@ -120,8 +120,8 @@ public readonly record struct LengthCell(int Buffer, int Column);
 public sealed record LoopDocumentValues(ImmutableArray<float> DocumentOutputs, ImmutableArray<float> PositionOutputs);
 
 /// <summary>
-/// The resolved form of one stage: the compiled program of its outputs, the source of each cell in cell
-/// order, the write of each output leaf, and the root of each output leaf in the program.
+/// The resolved form of one stage: the compiled program of its outputs and the source of each cell in cell
+/// order. It also holds the write of each output leaf, and the root of each output leaf in the program.
 /// </summary>
 internal sealed record StagePlan(
     LoopStage Stage,
@@ -173,13 +173,14 @@ public sealed class LoopProgram
 
     /// <summary>
     /// Check and resolve the program, and compile each stage for its outputs. Throws ArgumentException for
-    /// a cell with no source, an output with no write, a path that the function does not have, a register
-    /// that no stage writes before or in the stage that reads it, a field component that no earlier stage
-    /// writes, an index, a column or an offset outside its part, an item or a field that a stage that runs
-    /// once reads, a field or a position output that a stage that runs once writes, a document output that
-    /// a looped stage writes, two outputs of one stage that write the same place, a stage that writes some
-    /// but not all components of a field of bits, two stages with the same name, a step method with a
-    /// loop overflow bit, or a size mismatch.
+    /// a cell with no source, an output with no write, or a path that the function does not have. It also
+    /// throws for a register that no stage writes before or in the stage that reads it. It also throws for
+    /// a field component that no earlier stage writes, or an index, a column or an offset outside its part.
+    /// It also throws for an item or a field that a stage that runs once reads. It also throws for a field
+    /// or a position output that a stage that runs once writes. It also throws for a document output that a
+    /// looped stage writes, or two outputs of one stage that write the same place. It also throws for a stage
+    /// that writes some but not all components of a field of bits. It also throws for two stages with the same name, a
+    /// step method with a loop overflow bit, or a size mismatch.
     /// </summary>
     public static LoopProgram Create(
         int positions, IReadOnlyList<LoopBuffer> buffers, IReadOnlyList<LoopRegister> registers,

@@ -1,9 +1,9 @@
 // Handwired source: lab/json-search (the tables of the search times only) and src/json-search/assets/json-search.html
-// (the four example patterns under the pattern field, each with its scope). The bench of JsonSearch.App --bench: for
-// each example pattern and each scope, the program on each backend at the capacity that holds the pattern, and .NET
-// Regex on one thread with its limit. One row for each pattern, scope and backend. The CPU backend runs on all
-// cores. The program time is the TotalMs of the search (the pattern compile, then the time from the evaluation lock
-// to the copy of the last count). As for .NET Regex, a program search under 100 ms runs two times, and the faster
+// (the four example patterns under the pattern field, each with its scope). The bench of JsonSearch.App --bench.
+// For each example pattern and each scope, it runs the program on each backend at the capacity that holds the
+// pattern. It also runs .NET Regex on one thread with its limit. One row for each pattern, scope and backend. The
+// CPU backend runs on all cores. The program time is the TotalMs of the search. It is the pattern compile, then
+// the time from the evaluation lock to the copy of the last count. As for .NET Regex, a program search under 100 ms runs two times, and the faster
 // search counts. So the table does not hold the first dispatch after the shader create for such a search. A first
 // search of 100 ms or more runs one time, and its time can hold that first dispatch.
 
@@ -32,8 +32,8 @@ public sealed record BenchRow(
     bool DotNetOverLimit)
 {
     /// <summary>
-    /// The count column: "equal" when the totals are equal (the matches and the documents with a match), "differ", or
-    /// "over limit" when the limit stopped .NET Regex. The column compares no single document. BaselineTests compares
+    /// The count column holds "equal", "differ" or "over limit". It is "equal" when the totals are equal (the matches
+    /// and the documents with a match). It is "over limit" when the limit stopped .NET Regex. The column compares no single document. BaselineTests compares
     /// the count of each document.
     /// </summary>
     public string Counts => DotNetOverLimit ? "over limit" : ProgramMatches == DotNetMatches && ProgramDocuments == DotNetDocuments ? "equal" : "differ";

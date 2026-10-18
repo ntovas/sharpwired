@@ -1,6 +1,6 @@
 // Handwired source: src/json-search/regex/pattern.ts (CompiledPattern, compilePattern, SearchCapacity,
 // CapacityError, capacityErrors). The compile of a pattern into an automaton with numbered states and a class
-// partition, which SearchProgram.WritePattern writes into the shared cells of a search program. The parser is in
+// partition. SearchProgram.WritePattern writes them into the shared cells of a search program. The parser is in
 // PatternParser.cs, and the automaton and the partition are in Automaton.cs.
 
 using System.Collections.Immutable;
@@ -18,10 +18,11 @@ public sealed record SearchCapacity(int States, int Classes = 16, int Boundaries
 public sealed record CapacityError(string Reason, int Needed, int Capacity, string Message);
 
 /// <summary>
-/// A compiled pattern. The automaton: StateCount states, the targets of each state (ascending), the set of code
-/// points that a step into each state reads (the set of state 0 is empty), and the accepting bit of each state.
-/// The partition: ClassCount classes, the boundaries where the class changes, the class of each region (-1 for a
-/// region that no step reads), and ClassReads[c][s], whether a step into state s reads class c.
+/// A compiled pattern. The automaton: StateCount states, the targets of each state (ascending), and the
+/// accepting bit of each state. It also holds the set of code points that a step into each state reads (the set
+/// of state 0 is empty). The partition: ClassCount classes, the boundaries where the class changes, and the
+/// class of each region (-1 for a region that no step reads). It also holds ClassReads[c][s], whether a step
+/// into state s reads class c.
 /// </summary>
 public sealed class CompiledPattern
 {
@@ -74,8 +75,8 @@ public static class PatternCompiler
     }
 
     /// <summary>
-    /// One error for each of the states, the classes and the boundaries that the pattern needs past the capacity,
-    /// for example "the pattern needs 33 states, and the program holds 32". Empty when the pattern fits.
+    /// One error for each of the states, the classes and the boundaries that the pattern needs past the capacity.
+    /// An example is "the pattern needs 33 states, and the program holds 32". Empty when the pattern fits.
     /// </summary>
     public static ImmutableArray<CapacityError> CapacityErrors(CompiledPattern compiled, SearchCapacity capacity)
     {

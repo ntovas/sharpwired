@@ -134,7 +134,7 @@ public sealed class GpuEvaluator : IBatchEvaluator, IRootEvaluator
 
     public void Evaluate(ReadOnlySpan<float> sources, int tableCount, Span<float> outputs)
     {
-        // The checks read only the circuit, the program and the arguments, so they run before the lock, on
+        // The checks read only the circuit, the program and the arguments. So they run before the lock, on
         // parallel threads (the phase 5 carried item "the integer evaluator CPU declaration checks").
         ObjectDisposedException.ThrowIf(disposed, this);
         BatchArguments.CheckLengths(Program, sources, tableCount, outputs.Length);

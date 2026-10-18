@@ -97,9 +97,10 @@ public static class Sentences
     public static string Failure(string message) => $"The search stopped with an error: {message}.";
 
     /// <summary>
-    /// What the window does with the pattern: nothing for an empty one, a sentence for one with a syntax error or one
-    /// that no search program holds, and otherwise a search on the smallest program that holds it. An exception of
-    /// the compiler other than a syntax error also gives a sentence, so that no pattern stops the window.
+    /// What the window does with the pattern. For an empty pattern, it does nothing. For a pattern with a syntax
+    /// error, or one that no search program holds, it gives a sentence. Otherwise, it runs a search on the smallest
+    /// program that holds the pattern. An exception of the compiler other than a syntax error also gives a sentence,
+    /// so that no pattern stops the window.
     /// </summary>
     public static PatternAnalysis Analyze(string pattern)
     {

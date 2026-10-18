@@ -3,12 +3,13 @@
 //
 // The automaton is the position automaton of Glushkov: state 0 is the initial state, and state p + 1 is the
 // p-th atom of the pattern. For example, (ab)*c has the states initial, a, b and c. Each step into a state reads
-// a code point of the set of that state, so the automaton has no empty steps, and one step for each code point
+// a code point of the set of that state. So the automaton has no empty steps, and one step for each code point
 // runs it.
 //
 // The partition: the code points that each step reads the same way share a class. For example, (the|an?) [a-z]+
 // has 7 classes: t, h, e, a, n, the space, and the other letters of a..z. The partition lists the code points
-// where the class changes (the boundaries), and the class of each region, or -1 for a region that no step reads.
+// where the class changes (the boundaries), and the class of each region. The class is -1 for a region that no
+// step reads.
 
 using System.Collections.Immutable;
 
@@ -87,8 +88,8 @@ internal sealed record Automaton(
 }
 
 /// <summary>
-/// The class partition: Boundaries ascending within 1..0x10FFFF. Region 0 is the code points below Boundaries[0],
-/// and region k the code points from Boundaries[k - 1] up to Boundaries[k] - 1, or up to 0x10FFFF for the last
+/// The class partition: Boundaries ascending within 1..0x10FFFF. Region 0 is the code points below Boundaries[0].
+/// Region k is the code points from Boundaries[k - 1] up to Boundaries[k] - 1, or up to 0x10FFFF for the last
 /// region. RegionClasses holds the class of each region, or -1. ClassReads[c][s] is whether a step into state s
 /// reads the code points of class c.
 /// </summary>
@@ -131,7 +132,7 @@ internal sealed record ClassPartition(
                 }
             }
             // A region starts where a set starts or stops. Each set is normalized, with a gap between neighbor
-            // ranges, so the set holds the code point on one side of the start and not the other. So neighbor
+            // ranges. So the set holds the code point on one side of the start and not the other. So neighbor
             // regions always have different classes, and each region start above 0 is a boundary.
             if (start > 0 && regionClasses[^1] == classIndex)
             {

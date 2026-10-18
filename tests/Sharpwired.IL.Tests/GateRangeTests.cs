@@ -73,7 +73,7 @@ public class GateRangeTests
         Assert.Equal(0d, translated.Table.Circuit.Constants[translated.Outputs[0].Wire.Position]);
     }
 
-    // Phase 4 carried item d (mutation B4 of the phase 4 re-review): the grid of a constant side is
+    // Phase 4 carried item d (mutation B4 of the phase 4 re-review). The grid of a constant side is
     // the lowest power of two of the constant, 0.25 for 0.75, and not 1.
     [Theory]
     [InlineData(nameof(GateRangeInputs.ConstantSide))]

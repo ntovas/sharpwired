@@ -55,8 +55,8 @@ internal sealed partial class IntegerBody
     // then converts to an integer.
     private readonly bool[] hasFloatName;
 
-    // cellName: the variable of a source cell in a step kernel (FloatBody), or null for a buffer read.
-    // candidateRead: the read of a constant table (FloatBody.TableRead), or null.
+    // The parameter cellName gives the variable of a source cell in a step kernel (FloatBody), or null for a
+    // buffer read. The parameter candidateRead gives the read of a constant table (FloatBody.TableRead), or null.
     public IntegerBody(IntegerPlan plan, int sourceSize, Func<int, string>? cellName = null, Func<ShaderCandidates, string, string?>? candidateRead = null)
     {
         this.plan = plan;

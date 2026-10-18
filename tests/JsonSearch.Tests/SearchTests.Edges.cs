@@ -1,8 +1,8 @@
 // Handwired source: tests/json-search/edge-cases.test.ts and tests/json-search/edge-cases.ts (createReferenceSearch,
-// compareWithReferences). The documents and the searches at the limits of the programs: the reference values of
-// chosen documents, the patterns that fill the states, the classes and the class boundaries of each capacity, and
-// the search of each capacity on the CPU runner over the hand-written documents, against the automaton over the
-// display kinds of JsonReference.
+// compareWithReferences). The documents and the searches at the limits of the programs. First, the reference values
+// of chosen documents. Then the patterns that fill the states, the classes and the class boundaries of each capacity.
+// Last, the search of each capacity on the CPU runner over the hand-written documents. The test compares it with the
+// automaton over the display kinds of JsonReference.
 
 using Sharpwired.Gpu;
 
@@ -101,8 +101,8 @@ public sealed partial class SearchTests
         }
         output.WriteLine($"{states} states: {searches.Count} searches over {texts.Length} documents, {withMatches} with matches, {matches} matches");
         Assert.True(matches > 1000, $"{matches} matches");
-        // The searches that find no match: the empty class, the empty pattern, a search of no kind, a scope with
-        // no match of the pattern, and at 32 states "connection reset", which no document holds.
+        // The searches that find no match: the empty class, the empty pattern and a search of no kind. Also a scope
+        // with no match of the pattern. At 32 states, also "connection reset", which no document holds.
         Assert.Equal(states switch { 8 => (36, 25), 16 => (10, 7), _ => (8, 4) }, (searches.Count, withMatches));
     }
 }

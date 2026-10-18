@@ -1,6 +1,6 @@
 // Handwired source: tests/json-search/json-search.test.ts ("a document's cells"). DocumentCells.Write gives the
-// first 512 code points, -1 after the text, a surrogate pair as one code point, a lone surrogate as its own
-// code point, and the length of the text in code points, at most 1,048,576.
+// first 512 code points, -1 after the text, and a surrogate pair as one code point. It gives a lone surrogate as
+// its own code point, and the length of the text in code points, at most 1,048,576.
 
 using JsonSearch;
 

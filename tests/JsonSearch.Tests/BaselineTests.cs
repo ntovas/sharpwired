@@ -1,8 +1,8 @@
-// Handwired source: src/json-search/plain-search.ts and src/json-search/README.md ("What the search finds": for the
-// page's own patterns, the RegExp counts equal the program counts for every document; a|abab finds 2 matches in
-// xabab where the program finds 1). The .NET Regex baseline: its counts equal the program counts for the four
-// example patterns over 100,000 documents, its runs of keys and string values, its code points past U+FFFF, its
-// limit, and the bench table of SearchBench and of JsonSearch.App --bench.
+// Handwired source: src/json-search/plain-search.ts and src/json-search/README.md ("What the search finds"). For the
+// page's own patterns, the RegExp counts equal the program counts for every document. But a|abab finds 2 matches in
+// xabab where the program finds 1. The tests cover the .NET Regex baseline. Its counts equal the program counts for
+// the four example patterns over 100,000 documents. The tests also cover its runs of keys and string values, its
+// code points past U+FFFF, and its limit. They also cover the bench table of SearchBench and of JsonSearch.App --bench.
 
 using System.Collections.Immutable;
 using Sharpwired.Gpu;

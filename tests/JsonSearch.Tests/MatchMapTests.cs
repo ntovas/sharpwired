@@ -1,6 +1,7 @@
-// Handwired source: tests/json-search/demo.test.ts ("the map of every document"). The map of the window: the layout
-// of the cells, the document under a point, the nearest document with a match, the picked document, the steps from
-// match to match, and the pixels of the cells, with the values of demo.test.ts.
+// Handwired source: tests/json-search/demo.test.ts ("the map of every document"). The tests cover the map of the
+// window: the layout of the cells, the document under a point, and the nearest document with a match. They also
+// cover the picked document, the steps from match to match, and the pixels of the cells. The tests use the values
+// of demo.test.ts.
 
 namespace JsonSearch.Tests;
 

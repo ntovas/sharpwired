@@ -1,9 +1,9 @@
-// Handwired source: src/json-search/gpu/host.ts (the document buffers that stay on the device, a run over
-// a batch of documents, the window of documents whose values for each position come back, and the
-// times). The contracts of a loop backend: the documents that a backend holds, the runner of one loop
+// Handwired source: src/json-search/gpu/host.ts (the document buffers that stay on the device, and a run
+// over a batch of documents). Also the window of documents whose values for each position come back, and
+// the times. The contracts of a loop backend: the documents that a backend holds, the runner of one loop
 // program, and the records of a run. CpuLoopBackend implements them on the CPU, and the GPU backend of
 // task 3 on a WebGPU device. The phase 5 carried item "one invalid lane throws and the batch loses the
-// other lanes" gives LaneFault: a run keeps the values of each valid document.
+// other lanes" gives LaneFault. A run keeps the values of each valid document.
 
 using System.Collections.Immutable;
 
@@ -23,8 +23,8 @@ public interface IDocumentBuffer : IDisposable
 public sealed record LaneFault(int Document, string Message);
 
 /// <summary>
-/// The times of one run in milliseconds: the writes before the run, the submission, the wait for the
-/// work, the reads of the results, and the total.
+/// The times of one run in milliseconds. They are the writes before the run, the submission, the wait for
+/// the work, the reads of the results, and the total.
 /// </summary>
 public sealed record LoopTimes(double WriteMs, double SubmitMs, double WaitMs, double ReadMs, double TotalMs);
 
@@ -32,8 +32,9 @@ public sealed record LoopTimes(double WriteMs, double SubmitMs, double WaitMs, d
 /// <param name="Inputs">One buffer for each <see cref="LoopBuffer"/> of the program, in buffer order.</param>
 /// <param name="DocumentCount">The number of documents to run, from document 0.</param>
 /// <param name="PositionTargets">
-/// One entry for each position group of the program, in group order: a buffer that keeps all values of the
-/// group, with one document for each document of the run and Positions cells for each document, or null.
+/// One entry for each position group of the program, in group order. Each entry is a buffer that keeps all
+/// values of the group, or null. The buffer has one document for each document of the run and Positions
+/// cells for each document.
 /// An empty list gives null for each group.
 /// </param>
 /// <param name="WindowFirst">The first document whose values for each position come back.</param>
@@ -52,8 +53,8 @@ public sealed record LoopRequest(
 /// holds NaN.
 /// </param>
 /// <param name="WindowPositionValues">
-/// The values of each position group for the window documents: group after group in group order, window
-/// document after window document, with Positions values for each document. A position past the end of
+/// The values of each position group for the window documents. The order is group after group in group
+/// order, then window document after window document, with Positions values for each document. A position past the end of
 /// the text holds the fill value of its group when the loops stop at the length.
 /// </param>
 /// <param name="Faults">One fault for each document that failed a check, in document order.</param>
@@ -122,8 +123,8 @@ public enum CpuStageBackend
 /// <param name="Stages">How each stage is evaluated.</param>
 /// <param name="StopAtLength">
 /// True: the looped stages stop at the end of the text, which the length cell of the program gives.
-/// This gives the same outputs only for steps that keep each register past the end and write the fill
-/// value of each position group there (Handwired stopAtLength).
+/// This gives the same outputs only for steps that keep each register past the end. These steps must
+/// also write the fill value of each position group there (Handwired stopAtLength).
 /// </param>
 /// <param name="MaxDegreeOfParallelism">The limit of the threads, or null for no limit.</param>
 /// <param name="BlockSize">The number of documents of one block of the parallel loop.</param>

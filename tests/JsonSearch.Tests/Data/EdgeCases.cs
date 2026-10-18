@@ -1,6 +1,6 @@
 // Handwired source: tests/json-search/edge-cases.ts (handWrittenDocuments). The documents at the limits of the
-// programs: each length around the capacity, nesting around the maximum depth, texts whose matches touch the
-// first and the last position, and characters past U+FFFF. Also the patterns at the limits of the search
+// programs: each length around the capacity and nesting around the maximum depth. Also texts whose matches touch
+// the first and the last position, and characters past U+FFFF. Also the patterns at the limits of the search
 // programs (edgePatterns) and the searches of each capacity (edgeSearches).
 
 using System.Globalization;
@@ -18,7 +18,7 @@ internal static class EdgeCases
     private const int Capacity = Kinds.Capacity;
     private const int MaximumDepth = Kinds.MaximumDepth;
 
-    // 16 letters with a letter between each two, so that a pattern that tells all 16 apart has 16 classes and 32
+    // 16 letters with a letter between each two. So a pattern that tells all 16 apart has 16 classes and 32
     // class boundaries, the capacities.
     public static readonly string[] IsolatedLetters = [.. "acegikmoqsuwyACE".Select(letter => letter.ToString())];
 
@@ -129,9 +129,9 @@ internal static class EdgeCases
         $"([{LettersOfBit(0)}]|[{LettersOfBit(1)}]|[{LettersOfBit(2)}]|[{LettersOfBit(3)}]|[{LettersOfBit(4)}]|a|c)+";
 
     /// <summary>
-    /// Patterns at the limits of each capacity: as many states, classes and class boundaries as a program holds,
-    /// patterns that match nothing, each code point or the whole text, and patterns that can match the empty text,
-    /// which the search never reports.
+    /// Patterns at the limits of each capacity: as many states, classes and class boundaries as a program holds.
+    /// Also patterns that match nothing, each code point or the whole text. Also patterns that can match the empty
+    /// text, which the search never reports.
     /// </summary>
     public static IReadOnlyList<string> EdgePatterns(int states) => states switch
     {

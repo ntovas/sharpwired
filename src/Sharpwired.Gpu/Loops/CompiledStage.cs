@@ -2,7 +2,7 @@
 // .NET code, one statement group for each packed position, compiled with System.Linq.Expressions into
 // delegates of a limited size. Each delegate reads and writes one array of all packed values: the source
 // table first, then the value of each row, as TensorExecution keeps them. The rows come from
-// ShaderRows.FlattenProgram, which gives the values of TensorExecution, and each statement keeps the FP32
+// ShaderRows.FlattenProgram, which gives the values of TensorExecution. Each statement keeps the FP32
 // steps of TensorExecution:
 // - A sum is f(bias), then f(value + f(weight × input)) for each stored term, in stored order. Each step
 //   is one float operation, so the result rounds after each step. The rule of generated-js.ts gives the
@@ -11,8 +11,8 @@
 //   gives the same IL as Circuit.EvaluateTerms: one mul and one add on float32 values. A Release test
 //   (CompiledStageTests) checks the bits on the inputs where a fused multiply-add differs.
 // - A ReGLU is f(left × MathF.Max(0, gate)). A boolean atom is f(f(score + 8388609) - 8388609).
-// - An index read floors its index, reads +0 or the end candidate outside the table, NaN for a NaN index,
-//   and copies the selected value with no arithmetic.
+// - An index read floors its index. It reads +0 or the end candidate outside the table, and NaN for a NaN
+//   index. It copies the selected value with no arithmetic.
 // - A gather compute sums position × bit and the bits in double, and stores ToInt32 of the index and
 //   f(mass). A gather read clamps the index into the table, multiplies a masked candidate by the mass,
 //   and adds it to the row.
@@ -31,8 +31,8 @@ namespace Sharpwired.Gpu;
 /// <remarks>
 /// <para>
 /// The compiled delegates are immutable and can run on more threads. One instance holds one value array,
-/// so one instance must run on one thread only. <see cref="CreateCopy"/> gives an instance with its own
-/// array and the same delegates.
+/// so one instance must run on one thread only. The method <see cref="CreateCopy"/> gives an instance with
+/// its own array and the same delegates.
 /// </para>
 /// <para>
 /// Evaluate does not check the source table against the declared ranges. The loop runner checks each
@@ -67,7 +67,7 @@ public sealed class CompiledStage
     }
 
     // One delegate: it writes the values of its rows into values. A gather compute writes the index and
-    // the mass of its slot into the two slot arrays, and a gather read of a later chunk reads them.
+    // the mass of its slot into the two slot arrays. A gather read of a later chunk reads them.
     internal delegate void StageChunk(float[] values, int[] slotIndices, float[] slotMasses);
 
     /// <summary>The program that the delegates run.</summary>
@@ -145,7 +145,7 @@ public sealed class CompiledStage
     }
 
     // ECMAScript ToInt32, the conversion of an Int32Array store, as TensorExecution applies it to a
-    // gather index: NaN and the infinities give 0, and other values truncate toward zero and wrap
+    // gather index. NaN and the infinities give 0. Other values truncate toward zero and wrap
     // modulo 2^32.
     private static int JsToInt32(double value)
     {
@@ -237,7 +237,7 @@ public sealed class CompiledStage
         }
 
         // target = f(bias), then target = f(target + f(weight × input)) for each term in stored order.
-        // f(-0 + x) is x for each x, so a bias of -0 starts with the first product.
+        // The value f(-0 + x) is x for each x, so a bias of -0 starts with the first product.
         private void AddSum(ParameterExpression target, float bias, IReadOnlyList<ShaderTerm> terms)
         {
             if (terms.Count == 0)
@@ -254,7 +254,7 @@ public sealed class CompiledStage
         }
 
         // The value of candidate k: a strided run of source cells, or one case for each list position.
-        // k lies in 0..Count - 1 at each use.
+        // The index k lies in 0..Count - 1 at each use.
         private Expression Candidate(ShaderCandidates candidates, Expression k)
         {
             if (candidates.Form == CandidateForm.Strided)
@@ -303,8 +303,8 @@ public sealed class CompiledStage
             body.Add(Expression.Assign(Expression.ArrayAccess(slotMasses, Expression.Constant(compute.Slot)), Expression.Convert(gatherMass, typeof(float))));
         }
 
-        // TensorExecution.ApplyGathers, the read: clamp the index into the table, read the candidate,
-        // multiply a masked candidate by the mass, and add it to the row with one FP32 step.
+        // TensorExecution.ApplyGathers, the read: clamp the index into the table and read the candidate.
+        // Then multiply a masked candidate by the mass, and add it to the row with one FP32 step.
         private void AddGatherRead(GatherTerm gather)
         {
             var last = gather.Candidates.Count - 1;

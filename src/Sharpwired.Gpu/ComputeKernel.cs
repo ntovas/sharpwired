@@ -29,7 +29,7 @@ internal readonly record struct BufferRead(StorageBuffer Buffer, long Bytes, lon
 
 /// <summary>
 /// One storage buffer of a device. A kernel makes one for each binding, or binds a buffer that other
-/// kernels also bind. <see cref="Size"/> is the count of bytes that the last write or reserve declared.
+/// kernels also bind. The property <see cref="Size"/> is the count of bytes that the last write or reserve declared.
 /// The native buffer grows when a write or a reserve needs more bytes, and keeps its data.
 /// </summary>
 internal sealed unsafe class StorageBuffer : IDisposable
@@ -55,8 +55,8 @@ internal sealed unsafe class StorageBuffer : IDisposable
     public long Capacity { get; private set; }
 
     /// <summary>
-    /// The count of native buffers that this object created. wgpu-native can give the address of a
-    /// released buffer to a new buffer, so a kernel compares this number and not the address.
+    /// The count of native buffers that this object created. The library wgpu-native can give the address
+    /// of a released buffer to a new buffer, so a kernel compares this number and not the address.
     /// </summary>
     public long Generation { get; private set; }
 

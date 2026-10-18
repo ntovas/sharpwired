@@ -1,16 +1,17 @@
-// Handwired source: src/runtime/numeric-ui-core.ts (Circuit.indexReadAffine, reachableCandidates), the
-// read of src/json-search/json-step.ts (a read at a computed index with the clamp or the zero rule), and
-// createStepAnd of src/json-search/regex/data-program.ts (transitions[class][from][to] && bit as one
+// Handwired source: src/runtime/numeric-ui-core.ts (Circuit.indexReadAffine, reachableCandidates). Also
+// the read of src/json-search/json-step.ts (a read at a computed index with the clamp or the zero rule).
+// Also createStepAnd of src/json-search/regex/data-program.ts (transitions[class][from][to] && bit as one
 // read at class + classes × (1 - bit) with the zero rule above). This file holds the array reads of
-// the operation lowering, after the plan of phase 4 ("Lowering table", rows "array[i]") and the rules 2
-// to 5 of the phase 6 plan, task 1 (question 4):
+// the operation lowering, after the plan of phase 4 ("Lowering table", rows "array[i]"). It also follows
+// the rules 2 to 5 of the phase 6 plan, task 1 (question 4). The rules:
 // - Rule 2: t[Math.Clamp(i, 0, t.Length - 1)] is one index read with the clamp rule at i.
 // - Rule 3: Hw.ReadOrZero(t, i) is one index read with the zero rule on both sides.
-// - Rule 4: bit && t[i], with t a bool[] and i proven in 0..t.Length - 1, is one index read at
-//   i + n × (1 - bit) with the zero rule above. The read of t[i] has no wire until its reader needs
-//   it (TableReadValue), so that the AND of the bit and the read can give the gated read (Emitter.cs).
-// - Rule 5: an index read registers only the candidates that its index range reaches, and the index
-//   form gets the offset of the first one as bias.
+// - Rule 4: bit && t[i] is one index read at i + n × (1 - bit) with the zero rule above. The rule
+//   applies when t is a bool[] and i is proven in 0..t.Length - 1. The read of t[i] has no wire until
+//   its reader needs it (TableReadValue). Then the AND of the bit and the read can give the gated read
+//   (Emitter.cs).
+// - Rule 5: an index read registers only the candidates that its index range reaches. The index form
+//   gets the offset of the first one as bias.
 // The range of an index form comes from the declared ranges of the wires that the form reads. A
 // reader composes a small affine producer, for example the Select of ClampExact, into its own form.
 // The composed form has the same value, but the inferred range of its terms can be wider (the plan
@@ -24,8 +25,8 @@ namespace Sharpwired.IL;
 
 /// <summary>
 /// A Math.Clamp result with no wire yet (rule 2). The operands already have wires. The emit gives
-/// ClampExact. A read whose index is this value and whose bounds are the table bounds gives one index
-/// read with the clamp rule in place of ClampExact.
+/// ClampExact. A read can have this value as its index and the table bounds as its bounds. Such a read
+/// gives one index read with the clamp rule in place of ClampExact.
 /// </summary>
 internal sealed class ClampValue(ScalarKind kind, Wire operand, Wire minimum, Wire maximum, Func<Wire> build) : ScalarValue(kind)
 {
@@ -190,8 +191,9 @@ internal sealed partial class OperationLowering
     // The index read. With the cut, the candidates are the elements first..last that the index range
     // reaches, and the form gets the bias -first. An index below first can only occur when first is
     // 0, and an index above last only when last is the last element. So the rule of each side keeps
-    // the value. With a gate g, the form adds n × (1 - g), with n the count of the candidates: g = 1
-    // reads the candidate, and g = 0 reads past the last candidate, which is +0 by the zero rule.
+    // the value. With a gate g, the form adds n × (1 - g), with n the count of the candidates. With
+    // g = 1 the form reads the candidate. With g = 0 it reads past the last candidate, which is +0 by
+    // the zero rule.
     private Wire BuildRead(ScalarValue[] elements, ScalarKind kind, IndexForm form, OutOfRange rule, Wire? gate, bool cut, int offset)
     {
         var first = cut ? (int)Math.Max(0, Math.Floor(form.Range.Minimum)) : 0;

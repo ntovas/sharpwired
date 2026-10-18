@@ -1,6 +1,6 @@
 // No Handwired source. Handwired has no translator. The comparisons of the operation lowering, after
-// the plan, section "Decisions", question 4: the comparison opcodes, the comparison of two SSA values
-// for an opcode and for a branch, and the Compare macro at its instruction. The source rows are the
+// the plan, section "Decisions", question 4. This file holds the comparison opcodes, and the comparison of
+// two SSA values for an opcode and for a branch. It also holds the Compare macro at its instruction. The source rows are the
 // rows "a >= b ..." of $REF/docs/expressions.md. This file holds a part of OperationLowering, so that
 // OperationLowering.cs stays below 800 lines.
 

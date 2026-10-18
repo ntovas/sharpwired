@@ -51,7 +51,7 @@ public sealed class PatternField
     }
 
     /// <summary>
-    /// Apply an edit key: Backspace and Delete remove the code point before and after the caret, Left and Right move
+    /// Apply an edit key. Backspace and Delete remove the code point before and after the caret. Left and Right move
     /// the caret by one code point, and Home and End move it to the ends. Returns true when the text or the caret
     /// changed. The other keys change nothing.
     /// </summary>

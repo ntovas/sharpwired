@@ -1,8 +1,9 @@
-// Handwired source: tests/json-search/searcher.test.ts (the searcher on the CPU and on the GPU: the validation, the
-// kinds, a search for each capacity, the syntax error and the pattern that is too large, and the gate that gives a
-// result only to the newest request). The searcher over 100,000 generated documents on the CPU, with the example
-// patterns of the page in their scopes and in All: the capacity of each pattern, the totals, and the window marks
-// of the first 64 documents against the automaton over the display kinds of JsonReference. The GPU part is in
+// Handwired source: tests/json-search/searcher.test.ts (the searcher on the CPU and on the GPU). That file covers the
+// validation, the kinds, a search for each capacity, the syntax error and the pattern that is too large. It also
+// covers the gate that gives a result only to the newest request. The searcher over 100,000 generated documents on
+// the CPU, with the example patterns of the page in their scopes and in All. The checks are the capacity of each
+// pattern, the totals, and the window marks of the first 64 documents. The test compares these marks against the
+// automaton over the display kinds of JsonReference. The GPU part is in
 // GpuSearcherTests below. The times of the 100,000-document runs go to the test output.
 
 using System.Collections.Immutable;

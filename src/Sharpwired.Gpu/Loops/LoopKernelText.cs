@@ -1,15 +1,15 @@
 // Handwired source: src/json-search/loop-emit.ts (the buffers, the parameters, the for loops, the registers
-// as vars and the fields as function arrays of a loop shader) and the shared part of bit-emit.ts (the shader
-// around the stages). The shared parts of the two loop writers. One invocation runs one document: each
-// register is a var, each field a function array of the positions, and a looped stage a WGSL for loop over
-// the positions. A stage checks each cell that is not a shared cell before each evaluation, as the CPU
-// runner does, and a failed check stops the lane with the status 1 in the buffer lanes (the phase 5 carried
+// as vars and the fields as function arrays of a loop shader). Also the shared part of bit-emit.ts (the
+// shader around the stages). The shared parts of the two loop writers. One invocation runs one document.
+// Each register is a var, each field a function array of the positions, and a looped stage a WGSL for loop
+// over the positions. A stage checks each cell that is not a shared cell before each evaluation, as the CPU
+// runner does. A failed check stops the lane with the status 1 in the buffer lanes (the phase 5 carried
 // item "a status for each lane"). No WGSL name comes from a name of the program.
 // Differences from Handwired:
 // - The kernel runs each position. Handwired stops at the length of the text in the shader.
 // - The bindings are params, run, shared_values (the shared cells, then the constant tables of each stage),
-//   packed_words, lanes, document_values, window_values, one buffer for each LoopBuffer, and one target for
-//   each position group. document_values and window_values hold the groups in the order of a LoopRun.
+//   packed_words, lanes, document_values and window_values. Then one buffer for each LoopBuffer, and one
+//   target for each position group. document_values and window_values hold the groups in the order of a LoopRun.
 // - Each value of a register or a field is checked against the declaration of each cell that reads it, or
 //   proven to hold it. Handwired has no checks.
 
@@ -23,10 +23,10 @@ namespace Sharpwired.Gpu;
 
 /// <summary>
 /// The counts of a loop kernel. <see cref="Statements"/> counts the statements of main, with the statements of
-/// a looped stage one time. The row counts give the rows by the type that holds the value. <see cref="PackedReads"/>
-/// counts the index reads that are one bit of a packed word. <see cref="LaneOperations"/> counts the gates and
-/// the negations that one word operation computes for each lane of a word. <see cref="TableCells"/> counts the
-/// cells of the constant tables after the shared cells.
+/// a looped stage one time. The row counts give the rows by the type that holds the value. The count
+/// <see cref="PackedReads"/> gives the index reads that are one bit of a packed word. The count
+/// <see cref="LaneOperations"/> gives the gates and the negations that one word operation computes for each lane
+/// of a word. The count <see cref="TableCells"/> gives the cells of the constant tables after the shared cells.
 /// </summary>
 public sealed record LoopWgslStatistics(int Statements, int FloatRows, int WholeRows, int BitRows, int PackedReads, int LaneOperations, int TableCells);
 
@@ -35,9 +35,9 @@ public readonly record struct PackedCell(int Word, int Lane, int SharedOffset);
 
 /// <summary>
 /// The shader of a loop program, its counts, and the packed cells (bit-emit.ts packedCells).
-/// <see cref="PackedWordCount"/> is the number of words of the buffer packed_words: a word with no cell is 0.
-/// <see cref="ConstantTable"/> holds the cells of the constant tables, which the buffer shared_values holds after
-/// the shared cells.
+/// The property <see cref="PackedWordCount"/> is the number of words of the buffer packed_words. A word with no
+/// cell is 0. The property <see cref="ConstantTable"/> holds the cells of the constant tables. The buffer
+/// shared_values holds these cells after the shared cells.
 /// </summary>
 public sealed record LoopWgslModule(string Code, LoopWgslStatistics Statistics, ImmutableArray<PackedCell> PackedCells)
 {
@@ -71,9 +71,9 @@ internal sealed record StageCell(string Name, double Minimum, double Maximum, bo
 internal sealed record StageRule(string Name, bool AtMostOne, bool AllowAllZero, ImmutableArray<int> Members);
 
 /// <summary>
-/// One stage as the loop writers read it: the circuit and the program of its outputs, the source and the
-/// declaration of each cell, the write and the packed position of each output, and the rows, the proofs, the
-/// forms and the constant tables of the program.
+/// One stage as the loop writers read it. It holds the circuit and the program of its outputs, and the source
+/// and the declaration of each cell. It also holds the write and the packed position of each output. Then the
+/// rows, the proofs, the forms and the constant tables of the program.
 /// </summary>
 internal sealed class StageInfo
 {
@@ -155,8 +155,8 @@ internal sealed record LoopShape(
         program.Positions, [.. program.Buffers.Select(buffer => buffer.CellsPerDocument)], [.. program.Registers.Select(register => register.Initial)],
         program.Fields, program.OutputGroups, program.SharedSize);
 
-    // The index of each position group among the position groups, and the start of each document group in
-    // the values of one document, by group index.
+    // The index of each position group among the position groups, by group index. Also the start of each
+    // document group in the values of one document, by group index.
     public (int[] PositionIndex, int[] DocumentStart, int DocumentValues) GroupLayout()
     {
         var positionIndex = new int[Groups.Length];
@@ -199,8 +199,8 @@ internal enum CellStorage
 }
 
 /// <summary>
-/// The writer of a loop kernel: the choice of the storage of each register and field, the attempts of the
-/// words of registers (the Lanes rule), and the text around the stages.
+/// The writer of a loop kernel. It chooses the storage of each register and field, and it tries the words of
+/// registers (the Lanes rule). It also writes the text around the stages.
 /// </summary>
 internal sealed partial class LoopKernelWriter
 {
@@ -265,9 +265,9 @@ internal sealed partial class LoopKernelWriter
     }
 
     // The register storage: the f32 writer holds each register as f32. The integer writer holds a register as
-    // a bit when each write is a proven bit and the initial value is 0 or 1, as an i32 when each write is a
-    // proven whole number and the initial value is a whole number, and as f32 otherwise. The range of a
-    // register is the union of the proofs of the writes and the initial value.
+    // a bit when each write is a proven bit and the initial value is 0 or 1. It holds a register as an i32
+    // when each write is a proven whole number and the initial value is a whole number. Otherwise it holds a
+    // register as f32. The range of a register is the union of the proofs of the writes and the initial value.
     private (CellStorage[], (long, long)?[]) ChooseRegisters()
     {
         var count = Shape.RegisterInitials.Length;
@@ -292,10 +292,11 @@ internal sealed partial class LoopKernelWriter
     }
 
     // The field storage: the f32 writer holds a field of bits as a FloatWord and another field as f32. The
-    // integer writer holds a field of bits as a Word. It holds another field as a Word when each write is a
-    // proven bit, the width is at most 32 and each stage that writes it writes all of its components, as an
-    // i32 array when each write is proven whole, and as f32 otherwise. A field of bits holds 0 or 1 after the
-    // check of each write, so its range is 0..1 also with no proof.
+    // integer writer holds a field of bits as a Word. It holds another field as a Word when three conditions
+    // are true. Each write is a proven bit, the width is at most 32, and each stage that writes it writes all of
+    // its components. It holds another field as an i32 array when each write is proven whole, and as f32
+    // otherwise. A field of bits holds 0 or 1 after the check of each write, so its range is 0..1 also with
+    // no proof.
     private (CellStorage[], (long, long)?[]) ChooseFields()
     {
         var count = Shape.Fields.Length;

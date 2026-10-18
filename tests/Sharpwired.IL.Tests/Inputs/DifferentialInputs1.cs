@@ -1,7 +1,8 @@
 // No Handwired source. Generated inputs for the seeded differential test of the phase 6 plan, task 1.
-// Each method mixes the new translator forms (a bool as an int, Math.Clamp reads, Hw.ReadOrZero, gated
-// reads, the candidate cut, a branch on an int constant) with the forms of phase 4 (affine forms,
-// gates, comparisons, Min and Max, loops of form 1 and 2, inlined calls). A script with the fixed seed
+// Each method mixes the new translator forms with the forms of phase 4. The new forms are a bool as an
+// int, Math.Clamp reads, Hw.ReadOrZero, gated reads, the candidate cut, and a branch on an int constant.
+// The forms of phase 4 are affine forms, gates, comparisons, Min and Max, loops of form 1 and 2, and
+// inlined calls. A script with the fixed seed
 // 20261018 wrote the files DifferentialInputs0.cs to DifferentialInputs9.cs one time. Do not edit them by hand.
 
 using Sharpwired.Annotations;

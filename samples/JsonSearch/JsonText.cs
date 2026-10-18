@@ -1,8 +1,9 @@
 // Handwired source: src/json-search/documents.ts (the Json type, spaced and serialize) and the JSON.stringify
 // and Number.prototype.toString rules of ECMAScript that documents.ts calls. The values of a generated document
-// and their text: JSON.stringify for the compact, the indented (2 spaces) and the tabbed style, the spaced style,
-// and the escape of each UTF-16 code unit past U+007F. A number is written as JavaScript writes it, for example
-// 2.5e-7, 6.02e+23, 1500 and 0.0001, and an object keeps the order in which its keys were first set.
+// and their text. JSON.stringify gives the compact, the indented (2 spaces) and the tabbed style. This file also
+// writes the spaced style, and the escape of each UTF-16 code unit past U+007F. A number is written as JavaScript
+// writes it, for example 2.5e-7, 6.02e+23, 1500 and 0.0001. An object keeps the order in which its keys were
+// first set.
 
 using System.Globalization;
 using System.Text;
@@ -219,8 +220,9 @@ internal static class JsonText
     }
 
     /// <summary>
-    /// Number::toString of ECMAScript for a finite value: the shortest digits that give the value again, in
-    /// fixed notation for an exponent from -7 to 20, and else in exponential notation, for example 2.5e-7.
+    /// Number::toString of ECMAScript for a finite value: the shortest digits that give the value again.
+    /// The digits are in fixed notation for an exponent from -7 to 20, and else in exponential notation,
+    /// for example 2.5e-7.
     /// </summary>
     internal static string NumberText(double value)
     {

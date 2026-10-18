@@ -1,14 +1,14 @@
 // Handwired source: tests/json-search/regex/reference.ts. Two plain C# references for the search, written from
 // the definition, not from the programs. Both find each non-overlapping, non-empty match, leftmost and then
-// longest: from the scan position, the longest match that starts there moves the scan position to the end of the
+// longest. From the scan position, the longest match that starts there moves the scan position to the end of the
 // match. When no match starts there, the scan moves one code point on.
 // - AutomatonMatches runs the compiled automaton from each scan position, one code point at a time, until no
-//   state is left, and keeps the last position where an accepting state was reached. It reads the states, the
+//   state is left. It keeps the last position where an accepting state was reached. It reads the states, the
 //   targets, the sets and the accepting bits of the automaton, and not the class partition.
 // - DotNetMatches does not use the automaton. It tests each substring with .NET Regex and the pattern of
 //   DotNetPattern.Translate. Use it for texts of up to 40 code points.
-// Also the conversion of the marks of a document (0 outside a match, 1 inside, 2 at the first code point) to the
-// matches, and back.
+// The file also holds the conversion of the marks of a document to the matches, and back. A mark is 0 outside a
+// match, 1 inside, and 2 at the first code point.
 
 using System.Text;
 using JsonSearch;

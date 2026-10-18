@@ -1,6 +1,7 @@
-// Handwired source: assets/site.css (the color tokens: paper, sheet, ink, rule, copper and its washes, the wire
-// colors), assets/tool.css (the color of each display kind) and assets/json-search.css (the strengths of the plain
-// and the waiting cells of the map, 0.3 and 0.12 of ink). The colors of the window.
+// Handwired source: assets/site.css, assets/tool.css and assets/json-search.css. The file site.css gives the color
+// tokens: paper, sheet, ink, rule, copper and its washes, the wire colors. The file tool.css gives the color of each
+// display kind. The file json-search.css gives the strengths of the plain and the waiting cells of the map, 0.3 and
+// 0.12 of ink. The colors of the window.
 
 using Sharpwired.Raylib;
 

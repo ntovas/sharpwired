@@ -73,7 +73,7 @@ public sealed class LoopProgramTests
         Assert.Equal(0, program.SharedSize);
         Assert.Equal(new LengthCell(0, Positions), program.LengthCell);
 
-        // The Backward step writes one wire as the register and as the field, so its program has two roots
+        // The Backward step writes one wire as the register and as the field. So its program has two roots
         // for four outputs: the largest item and the two flags.
         var backward = program.Plans[0];
         Assert.Equal(4, backward.Writes.Length);

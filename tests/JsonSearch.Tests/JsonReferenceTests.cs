@@ -1,6 +1,6 @@
 // Handwired source: tests/json-search/highlighter/reference.test.ts. The plain C# reference alone: against
-// System.Text.Json, against the definitions of the first error on texts cut short, and against first errors
-// and display kinds written by hand. The highlighter tests compare the program with this reference, so these
+// System.Text.Json, and against the definitions of the first error on texts cut short. Also against first
+// errors and display kinds written by hand. The highlighter tests compare the program with this reference, so these
 // tests check the reference itself on broken texts. System.Text.Json takes the place of JSON.parse.
 
 using System.Text;

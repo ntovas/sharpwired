@@ -1,11 +1,11 @@
 // Handwired source: tests/json-search/search.test.ts and tests/json-search/edge-cases.test.ts (the search on the
-// GPU against the CPU and the references). On each adapter and with both writers: the highlighter writes the
-// display kinds into a buffer that stays on the GPU, and the search of each capacity reads it. Over 10,000
-// documents (the hand-written documents at the limits, then generated documents) with the patterns that fill the
-// capacity, the empty pattern and [^] (a match on the last position), in each scope and in the scopes of
-// edge-cases.ts (lists of kinds, and no kind), the match counts and the
-// window marks of the first 64 documents equal the CPU runner, and the window marks equal the automaton over the
-// display kinds of JsonReference. The CPU runner runs with StopAtLength false, as the GPU runs each position.
+// GPU against the CPU and the references). On each adapter and with both writers, the highlighter writes the
+// display kinds into a buffer that stays on the GPU. The search of each capacity reads that buffer. The tests
+// use 10,000 documents: the hand-written documents at the limits, then generated documents. The patterns are
+// the patterns that fill the capacity, the empty pattern and [^] (a match on the last position). Each search
+// runs in each scope and in the scopes of edge-cases.ts (lists of kinds, and no kind). The match counts and
+// the window marks of the first 64 documents equal the CPU runner. The window marks also equal the automaton
+// over the display kinds of JsonReference. The CPU runner runs with StopAtLength false, as the GPU runs each position.
 // Over 100,000 generated documents, one pattern at each capacity gives the counts of the CPU runner. The shader
 // create times and the run times go to the test output. Each value is a whole number, so the subnormal rule
 // excludes no document.
@@ -41,13 +41,13 @@ public sealed class GpuSearchTests(GpuFixture fixture, ITestOutputHelper output)
 
     private static readonly Lazy<ReferenceResult[]> WindowReferences = new(() => [.. Texts.Value.Take(WindowCount).Select(JsonReference.Highlight)]);
 
-    // The CPU results of each search, which both writers compare with: (states, pattern, scope) to the counts of
-    // each document and the marks of the window.
+    // The CPU results of each search, which both writers compare with. The key (states, pattern, scope) gives
+    // the counts of each document and the marks of the window.
     private static readonly ConcurrentDictionary<(int, string, string), (float[] Counts, float[] Marks)> CpuResults = new();
 
     // The searches of edge-cases.ts at the capacity (each pattern with all kinds and one more scope in turn,
-    // among them lists of kinds), the empty pattern and [^] in each scope, and at 8 states each pattern in each
-    // scope. The larger programs take more time on the CPU, so they run the searches of edge-cases.ts only.
+    // among them lists of kinds). Also the empty pattern and [^] in each scope, and at 8 states each pattern in
+    // each scope. The larger programs take more time on the CPU, so they run the searches of edge-cases.ts only.
     private static EdgeSearch[] Searches(int states)
     {
         EdgeSearch[] scopes =

@@ -1,6 +1,6 @@
-// No Handwired source. These tests cover the draw commands of phase 6 task 8 that make no Raylib call: the
-// checks of DrawPixels and DrawGlyphs, the pixel word of a color, the default font members of IWindowApp, the
-// code points that the window loads, and the choice of a font for each code point.
+// No Handwired source. These tests cover the draw commands of phase 6 task 8 that make no Raylib call. They
+// cover the checks of DrawPixels and DrawGlyphs, the pixel word of a color, and the default font members of
+// IWindowApp. They also cover the code points that the window loads, and the choice of a font for each code point.
 
 using System.Collections.Immutable;
 
@@ -71,8 +71,8 @@ public class DrawCommandTests
         Assert.Equal([.. Enumerable.Range(32, 95), 0x6771, 0x00f8], loaded);
     }
 
-    // No Handwired test. A code point goes to the first font that has it, and a code point that no font has goes
-    // to the replacement glyph "?" of the first font. With no font file, the Raylib default font draws ASCII.
+    // No Handwired test. A code point goes to the first font that has it. A code point that no font has goes to
+    // the replacement glyph "?" of the first font. With no font file, the Raylib default font draws ASCII.
     [Fact]
     public void Each_code_point_goes_to_the_first_font_that_has_it_or_to_the_replacement()
     {

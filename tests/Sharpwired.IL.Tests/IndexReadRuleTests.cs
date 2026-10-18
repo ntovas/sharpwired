@@ -1,7 +1,8 @@
-// No Handwired source. The tests of the rules 2 to 5 of the phase 6 plan, task 1 (question 4): the
-// clamp read, Hw.ReadOrZero, the gated read and the candidate cut. Each rule gives its operations on
-// its smallest method, each counterexample keeps the form of phase 4, each method equals its plain
-// method, and with RecognizePatterns = false the rules 2, 4 and 5 give the operations of phase 4.
+// No Handwired source. The tests of the rules 2 to 5 of the phase 6 plan, task 1 (question 4). The
+// rules are the clamp read, Hw.ReadOrZero, the gated read and the candidate cut. Each rule gives its
+// operations on its smallest method, and each counterexample keeps the form of phase 4. Each method
+// equals its plain method. With RecognizePatterns = false, the rules 2, 4 and 5 give the operations of
+// phase 4.
 
 using Sharpwired.Cells;
 using Sharpwired.Core;

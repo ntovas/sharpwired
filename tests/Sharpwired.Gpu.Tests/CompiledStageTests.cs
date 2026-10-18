@@ -42,9 +42,9 @@ public sealed class CompiledStageTests(ITestOutputHelper output)
     {
         var counts = Run(Cases(0x9d1ff, CircuitCount, openRangeShare: 0, subnormals: true), "seeded");
 
-        // The floors are half of the counts of the first run (Apple M5 Pro): 1,200 programs, 76,800
-        // evaluations, 6,806,400 values, 896 gather reads, 1,244 index reads, 8,890 NaN values and
-        // 83,892 values of -0.
+        // The floors are half of the counts of the first run (Apple M5 Pro). The first run gave 1,200
+        // programs, 76,800 evaluations, 6,806,400 values, 896 gather reads and 1,244 index reads. It also
+        // gave 8,890 NaN values and 83,892 values of -0.
         Assert.Equal(CircuitCount * Modes.Length, counts.Programs);
         Assert.Equal(CircuitCount * Modes.Length * SourcesPerCircuit, counts.Evaluations);
         Assert.True(counts.Values >= 3_403_200, $"values {counts.Values}");
@@ -59,8 +59,8 @@ public sealed class CompiledStageTests(ITestOutputHelper output)
     {
         var counts = Run(Cases(seed, OpenRangeCircuitCount, openRangeShare: 0.7, subnormals: false), $"open ranges, seed {seed:x}");
 
-        // The floors are half of the smaller counts of the two seeds in the first run: seed be7a gave
-        // 2,899,584 values, 295 gather reads and 984 index reads; seed 51ce5 gave 2,989,952, 351 and 740.
+        // The floors are half of the smaller counts of the two seeds in the first run. Seed be7a gave
+        // 2,899,584 values, 295 gather reads and 984 index reads. Seed 51ce5 gave 2,989,952, 351 and 740.
         Assert.Equal(OpenRangeCircuitCount * Modes.Length, counts.Programs);
         Assert.True(counts.Values >= 1_449_792, $"values {counts.Values}");
         Assert.True(counts.GatherReads >= 147, $"gatherReads {counts.GatherReads}");
@@ -94,8 +94,8 @@ public sealed class CompiledStageTests(ITestOutputHelper output)
         Assert.True(fusedDiffers > 0);
     }
 
-    // Large rows, a gate, a boolean atom and a table of 1,000 candidates, so the rows split into several
-    // delegates and a read crosses no chunk.
+    // Large rows, a gate, a boolean atom and a table of 1,000 candidates. The rows split into several
+    // delegates, and a read crosses no chunk.
     [Fact]
     public void A_large_program_gives_the_bits_of_TensorEvaluator()
     {

@@ -1,8 +1,8 @@
-// Handwired source: src/json-search/assets/json-search.html and json-search.css (the order of the parts: the pattern
-// field with the two segment groups at its right, the examples under it, the line of numbers, the map on its sheet
-// at the left and the document panel at the right). The page lets the browser place the parts. The window places
-// them itself, in screen pixels, from the size of the window: a window of 1,280 × 860 gives a field of 640 × 36 px
-// and a map of 600 px. The glyph grids of the field, the examples and the document have a fixed cell width, so the
+// Handwired source: src/json-search/assets/json-search.html and json-search.css (the order of the parts). The order
+// is: the pattern field with the two segment groups at its right, the examples under it, the line of numbers. Then
+// the map on its sheet at the left and the document panel at the right. The page lets the browser place the parts.
+// The window places them itself, in screen pixels, from the size of the window. A window of 1,280 × 860 gives a
+// field of 640 × 36 px and a map of 600 px. The glyph grids of the field, the examples and the document have a fixed cell width, so the
 // layout needs no font metrics.
 
 using System.Collections.Immutable;

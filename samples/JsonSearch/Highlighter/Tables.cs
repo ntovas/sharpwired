@@ -1,16 +1,17 @@
-// Handwired source: src/json-search/highlighter/tables.ts. The constant tables of the highlighter step: a
-// character class for each code point, the transition and event tables of the tokenizer, small tables for each
-// event, and the transition and error tables of the grammar. Each table comes from a transition function written
-// from the grammar of JSON (RFC 8259) and the rules in Kinds.cs, for example LexerStep(state, characterClass).
-// The reference of the tests (tests/JsonSearch.Tests/References/JsonReference.cs) has the same rules as a scanner
-// and a parser written by hand, without these tables, and the highlighter tests compare the program with it.
+// Handwired source: src/json-search/highlighter/tables.ts. The constant tables of the highlighter step. They hold
+// a character class for each code point and the transition and event tables of the tokenizer. They also hold
+// small tables for each event, and the transition and error tables of the grammar. Each table comes from a
+// transition function written from the grammar of JSON (RFC 8259) and the rules in Kinds.cs, for example
+// LexerStep(state, characterClass). The reference of the tests
+// (tests/JsonSearch.Tests/References/JsonReference.cs) has the same rules as a scanner and a parser written by
+// hand, without these tables. The highlighter tests compare the program with it.
 
 namespace JsonSearch;
 
 /// <summary>The tables of the highlighter. The step methods read them as constant tables.</summary>
 public static class Tables
 {
-    // The character classes. A letter that is part of a token has its own class, for example `e` is a hex digit,
+    // The character classes. A letter that is part of a token has its own class. For example, `e` is a hex digit,
     // an exponent and a letter of true and false. Each code point from U+0080 up, and U+007F, is Other, which only
     // a string accepts. End is a cell after the text, and TruncatedEnd the position after the 512th code point of
     // a longer text.
@@ -39,8 +40,8 @@ public static class Tables
         EndInsideToken, TruncatedEnd,
     }
 
-    // The grammar reads one token for each event: none, the start of a string, of a number or of a literal, a
-    // punctuation mark, a lexer error, or the end of the text.
+    // The grammar reads one token for each event. The tokens: none, the start of a string, a number or a
+    // literal, a punctuation mark, a lexer error, or the end of the text.
     private enum GrammarToken
     {
         None, String, Scalar, OpenObject, OpenArray, CloseObject, CloseArray, Colon, Comma, LexerError, End,
@@ -85,8 +86,8 @@ public static class Tables
 
     /// <summary>
     /// The container kinds as one integer, before the first error: bit d - 1 is 1 when the container at depth d
-    /// is an object. An opening brace at depth d - 1 adds 2^(d - 1), and a closing brace at depth d subtracts it,
-    /// so ObjectWeight[depthBefore × EventCount + event] is 2^depthBefore for { and -2^(depthBefore - 1) for }.
+    /// is an object. An opening brace at depth d - 1 adds 2^(d - 1), and a closing brace at depth d subtracts it.
+    /// So ObjectWeight[depthBefore × EventCount + event] is 2^depthBefore for { and -2^(depthBefore - 1) for }.
     /// The depths outside 0..16 read 0.
     /// </summary>
     public static readonly int[] ObjectWeight = [.. Enumerable.Range(0, (Kinds.MaximumDepth + 1) * EventCount).Select(entry =>
@@ -115,7 +116,7 @@ public static class Tables
 
     /// <summary>
     /// Display[event × GrammarStateCount + grammar state after the character]: a string character is a key when
-    /// the grammar expects a colon after it, which occurs only in a key.
+    /// the grammar expects a colon after it. That expectation occurs only in a key.
     /// </summary>
     public static readonly int[] Display = [.. Enum.GetValues<LexerEvent>().SelectMany(@event => Enum.GetValues<GrammarState>().Select(state => (int)DisplayKindOf(@event, state)))];
 
@@ -194,8 +195,9 @@ public static class Tables
         _ => LexerError(characterClass, LexerEvent.UnexpectedCharacter),
     };
 
-    // In a token that is not complete, for example after - or tr: the end of the text is EndInsideToken, the 513th
-    // code point is TruncatedEnd, and each other character that does not continue the token is the given error.
+    // These rules apply in a token that is not complete, for example after - or tr. The end of the text is
+    // EndInsideToken, and the 513th code point is TruncatedEnd. Each other character that does not continue the
+    // token is the given error.
     private static Step ContinueOr(CharacterClass characterClass, Step? continued, LexerEvent error)
     {
         if (continued is { } step) return step;
@@ -329,8 +331,9 @@ public static class Tables
         Enum.GetValues<GrammarState>().SelectMany(state => Enum.GetValues<GrammarToken>().SelectMany(token =>
             Enumerable.Range(0, ContextCount).Select(context => StepGrammar(state, token, context / 2, context % 2 == 1))));
 
-    // The grammar between tokens, from the state before a character, the token of the character, the depth class
-    // before it, and whether the container at that depth is an object. Only the starts of strings and scalars and
+    // The grammar between tokens, from the state before a character, the token of the character and the depth
+    // class before it. It also reads whether the container at that depth is an object. Only the starts of strings
+    // and scalars and
     // the punctuation change the state, and a string in a key position goes to Colon.
     private static GrammarStep StepGrammar(GrammarState state, GrammarToken token, int depthClass, bool inObject)
     {

@@ -37,7 +37,7 @@ public sealed record GpuRecurrentOptions(int StepsPerDispatch = 1024, GpuWriter 
 /// the WGSL specification does not guarantee. For the message, the runner replays each failed lane on
 /// the CPU with <see cref="RecurrentRunner"/>. The lane gets the status
 /// <see cref="RecurrentLaneStatus.Invalid"/> and the CPU message. When the CPU replay passes, the lane
-/// gets the result of the CPU replay: the CPU runner is the authority, as in the GPU loop runner. The
+/// gets the result of the CPU replay. The CPU runner is the authority, as in the GPU loop runner. The
 /// same replay applies to a nonzero loop overflow bit and to a suffix output that is not finite.</para>
 /// <para>The runner uses the lock of its device for the full call. Dispose the runner before its
 /// device.</para>

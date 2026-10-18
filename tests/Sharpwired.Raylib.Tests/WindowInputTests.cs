@@ -1,4 +1,4 @@
-// No Handwired source. These tests cover the keyboard members of WindowInput (phase 6 task 8): the phase 3
+// No Handwired source. These tests cover the keyboard members of WindowInput (phase 6 task 8). The phase 3
 // constructor gives no text and no key, and the init members keep what the window read.
 
 using System.Collections.Immutable;

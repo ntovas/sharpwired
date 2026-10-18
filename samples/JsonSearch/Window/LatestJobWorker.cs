@@ -1,6 +1,6 @@
 // Handwired source: src/json-search/demo-worker.ts (a worker that runs one request at a time, where a newer search
-// replaces the search in progress) and demo.ts (the page ends the RegExp worker to stop a timing that it left). A
-// .NET thread that runs only the newest job: a new job replaces the job that waits, and cancels the token of the job
+// replaces the search in progress). Also demo.ts (the page ends the RegExp worker to stop a timing that it left). A
+// .NET thread that runs only the newest job. A new job replaces the job that waits, and cancels the token of the job
 // in progress.
 
 namespace JsonSearch;

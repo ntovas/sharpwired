@@ -1,5 +1,6 @@
-// No Handwired source. The carried recurrent items of phase 5 (phase 6 plan, task 7): the setting
-// StepsPerDispatch, one suffix dispatch for each chunk, and a step kernel with 600 cells.
+// No Handwired source. The carried recurrent items of phase 5 (phase 6 plan, task 7). The items
+// are the setting StepsPerDispatch, one suffix dispatch for each chunk, and a step kernel with
+// 600 cells.
 
 using System.Diagnostics;
 using Sharpwired.IL;

@@ -1,12 +1,12 @@
 // Handwired source: tests/json-search/search.test.ts and lab/json-search/gpu (the loop shaders on the device
-// equal the CPU runner). Task 3 of the phase 6 plan, on each adapter and with both writers: each loop input over
-// 10,000 seeded documents equals the CPU runner (Object.is for the f32 writer, sameNumericValue for the integer
-// writer), with the faults of the CPU runner; a chained run keeps a position group on the GPU for a second
-// runner; a chunk limit of 1,000 documents gives the same values for 2,500 documents; an invalid lane gives the
-// fault of the CPU runner and keeps the other lanes. The create time of each shader and the run time over
-// 100,000 documents go to the test output. The subnormal rule (phase 5 decision 4) excludes a document with a
-// subnormal value on a device that flushes them, and the test writes the count.
-// A document value is compared at the index of its group and column (LoopCases.DocumentValueIndices), so a
+// equal the CPU runner). Task 3 of the phase 6 plan, on each adapter and with both writers. Each loop input over
+// 10,000 seeded documents equals the CPU runner, with the faults of the CPU runner. The comparison is Object.is
+// for the f32 writer and sameNumericValue for the integer writer. A chained run keeps a position group on the GPU
+// for a second runner. A chunk limit of 1,000 documents gives the same values for 2,500 documents. An invalid
+// lane gives the fault of the CPU runner and keeps the other lanes. The create time of each shader and the run
+// time over 100,000 documents go to the test output. The subnormal rule (phase 5 decision 4) excludes a document
+// with a subnormal value on a device that flushes them. The test writes the count.
+// A document value is compared at the index of its group and column (LoopCases.DocumentValueIndices). Thus a
 // group of 2 values with faults (LookupFaults) is compared document by document.
 
 using System.Diagnostics;
@@ -106,7 +106,7 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         });
     }
 
-    // A chained run: Leaders writes its position group "leaders" into a document buffer on the GPU, and Sum over 31
+    // A chained run: Leaders writes its position group "leaders" into a document buffer on the GPU. Sum over 31
     // positions reads that buffer as its documents (31 items and the length at column 31). No values come back
     // between the two runs. The result equals the same chain on the CPU.
     [Theory]
@@ -209,7 +209,7 @@ public sealed class GpuLoopRunnerTests(GpuFixture fixture, ITestOutputHelper out
         });
     }
 
-    // A cancelled run reaches no document. Each output and each position target holds NaN, and the run writes the
+    // A cancelled run reaches no document. Each output and each position target holds NaN. The run writes the
     // NaN values without an array for each document: 20,000 documents of 512 positions would need 41 MB.
     [Fact]
     public void A_cancelled_run_gives_NaN_for_each_document_without_an_array_for_each_document()

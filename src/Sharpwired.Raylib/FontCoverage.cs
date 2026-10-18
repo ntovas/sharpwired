@@ -1,6 +1,6 @@
 // No Handwired source. The code points that a TrueType or OpenType font file has, from its character map (the
 // cmap table). Raylib loads a glyph for each code point that a window asks for, also for a code point that the
-// file does not have, and then draws an empty glyph. So the window reads the character map first, and draws a
+// file does not have. For such a code point, Raylib draws an empty glyph. So the window reads the character map first, and draws a
 // replacement glyph for a code point that no font has (phase 6 decision 4). The reader knows the subtables of
 // format 4 (the basic plane) and format 12 (all planes), for the Unicode platform and the Windows Unicode
 // encodings. This file makes no Raylib call.
@@ -16,7 +16,8 @@ public static class FontCoverage
 
     /// <summary>The code points of the list that the font maps to a glyph other than glyph 0, the missing glyph.</summary>
     /// <exception cref="ArgumentException">
-    /// The bytes are not a font with a character map that the reader knows, or an offset or a length is past the end of the file.
+    /// The bytes are not a font with a character map that the reader knows. The method also throws it when an offset
+    /// or a length is past the end of the file.
     /// </exception>
     public static HashSet<int> Covered(ReadOnlySpan<byte> font, IEnumerable<int> codePoints)
     {

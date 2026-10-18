@@ -1,7 +1,7 @@
 // Handwired source: $REF/docs/expressions.md, table "Familiar expressions", row "Math.min(a, b),
 // Math.max(a, b), clamps and Math.abs(x)", and the plan, section "Lowering table", rows Math.Min to
 // Hw.FirstActive. The known calls of a plain method: Math.Min, Math.Max, Math.Clamp, Math.Abs,
-// MathF.Min, MathF.Max and MathF.Abs give MinimumExact, MaximumExact, ClampExact and Absolute; each
+// MathF.Min, MathF.Max and MathF.Abs give MinimumExact, MaximumExact, ClampExact and Absolute. Each
 // Hw method gives its macro (Relu, Boolean, ApplySpringMatrix, FirstActive, AnimatedObject). Hw.ReadOrZero
 // gives one index read with the zero rule (phase 6 plan, task 1, rule 3; IndexReads.cs).
 

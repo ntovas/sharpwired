@@ -1,15 +1,15 @@
 // Handwired source: src/json-search/loop-program.ts (the stages, registers, fields and outputs of a loop
-// program) and src/json-search/search-step.ts (the reverse and forward steps, for the sizes of the speed
-// test). Small [Handwired] step methods for the tests of task 2 of the phase 6 plan:
+// program). Also src/json-search/search-step.ts (the reverse and forward steps, for the sizes of the
+// speed test). Small [Handwired] step methods for the tests of task 2 of the phase 6 plan.
 // - Sum: a sum over the positions in one register, and a stage that runs once and writes the sum.
 // - Leaders: a backward stage writes a field of the largest item from each position to the end, and
 //   a field of two bits. A forward stage reads both fields and counts the items that equal that
 //   largest item.
-// - Lookup: a position output from a shared table, and a stage that runs once and writes two document
-//   outputs from a register and the length cell.
+// - Lookup: a position output from a shared table. A stage that runs once writes two document outputs
+//   from a register and the length cell.
 // - Overflow: the register passes its declared range at the position of the item 77.
-// - Reverse8, Reverse16, Reverse32, Forward8, Forward16, Forward32: steps of the shape of search-step.ts,
-//   for the speed of CompiledStage against TensorEvaluator at the step sizes of the plan.
+// - Reverse8, Reverse16, Reverse32, Forward8, Forward16, Forward32: steps of the shape of search-step.ts.
+//   The speed tests use them to compare CompiledStage with TensorEvaluator at the step sizes of the plan.
 // An item past the end of the text is -1. Each step keeps its registers and writes the fill value of
 // its position outputs at -1, so StopAtLength gives the same outputs.
 

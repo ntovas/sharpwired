@@ -168,8 +168,8 @@ public sealed class CpuRecurrentRunnerTests
 
     private static float[] Flatten(IReadOnlyList<float[]> lanes) => [.. lanes.SelectMany(lane => lane)];
 
-    // Each lane equals RecurrentRunner.Run: the same outputs by Js.ObjectIs, the same steps, Completed for
-    // the status Completed and Limit, and the CPU message for the status Invalid.
+    // Each lane equals RecurrentRunner.Run: the same outputs by Js.ObjectIs and the same steps. It also has
+    // Completed for the status Completed and Limit, and the CPU message for the status Invalid.
     internal static void AssertLanesEqualRecurrentRunner(RecurrentFunction function, IReadOnlyList<float[]> lanes, RecurrentBatch batch, int stepLimit)
     {
         Assert.Equal(lanes.Count, batch.Steps.Length);

@@ -1,7 +1,7 @@
 // No Handwired source. The browser picks a font for each character from the font list of the CSS. A Raylib
-// window loads its fonts itself. This file holds the parts of that choice that make no Raylib call: the code
-// points that the window loads, the font of each code point, and the replacement glyph for a code point that no
-// font has (phase 6 decision 4). FontCoverage.cs reads which code points a font file has.
+// window loads its fonts itself. This file holds the parts of that choice that make no Raylib call. These are
+// the code points that the window loads and the font of each code point. They also include the replacement
+// glyph for a code point that no font has (phase 6 decision 4). FontCoverage.cs reads which code points a font file has.
 
 namespace Sharpwired.Raylib;
 
@@ -32,9 +32,9 @@ public sealed class GlyphFonts
     public static GlyphFonts DefaultOnly() => new([Ascii().ToHashSet()]);
 
     /// <summary>
-    /// The code points to load from each font: ASCII 32..126 first, then the other code points of the app in
-    /// their first order, each one time. A value that is not a Unicode scalar value above ASCII, for example a
-    /// control code, a surrogate or a value past U+10FFFF, is left out.
+    /// The code points to load from each font. ASCII 32..126 come first, then the other code points of the app
+    /// in their first order, each one time. The method leaves out a value that is not a Unicode scalar value
+    /// above ASCII. Examples are a control code, a surrogate or a value past U+10FFFF.
     /// </summary>
     public static int[] CodePointsToLoad(IReadOnlyList<int> appCodePoints)
     {
@@ -50,8 +50,8 @@ public sealed class GlyphFonts
     }
 
     /// <summary>
-    /// The font that draws the code point and the code point that it draws: the first font that has the code
-    /// point, or the replacement glyph of the first font when no font has it.
+    /// The font that draws the code point and the code point that it draws. This is the first font that has
+    /// the code point. When no font has it, this is the replacement glyph of the first font.
     /// </summary>
     public (int Font, int CodePoint) Resolve(int codePoint)
     {

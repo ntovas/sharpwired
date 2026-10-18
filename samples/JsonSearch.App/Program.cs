@@ -1,6 +1,6 @@
 // No Handwired source. The executable of the JSON search sample. The options:
-// - --bench: write the bench table of SearchBench (the four example patterns in each scope, the program on the GPU
-//   and on the CPU, and .NET Regex) and exit with 0.
+// - --bench: write the bench table of SearchBench and exit with 0. The table holds the four example patterns in
+//   each scope, the program on the GPU and on the CPU, and .NET Regex.
 // - --documents N: the number of generated documents, 100,000 by default.
 // - --cpu: no GPU. Without it, the app opens the default adapter, and with no adapter it writes the reason to the
 //   error output and runs the CPU only.

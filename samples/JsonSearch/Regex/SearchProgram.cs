@@ -11,7 +11,7 @@
 //   next reached and matchCount.
 // - Finish runs one time and writes matchCount to the document group matchCount.
 // The length cell is column 512 of buffer 0: with StopAtLength, the CPU loops stop at the end of the text. A
-// cell after the text holds -1, whose class has no step, so the reverse bits stay what Start wrote, the forward
+// cell after the text holds -1, whose class has no step. So the reverse bits stay what Start wrote, the forward
 // pass finds no match there, and the outputs are the same.
 //
 // The shared cells, in this order: searchable[9], boundaries[32], regionClasses[34], transitions[17 × S × S]

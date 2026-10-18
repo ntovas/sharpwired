@@ -1,5 +1,5 @@
-// No Handwired source. The tests of the phase 4 carried item c (phase 6 plan, task 1): brtrue and
-// brfalse on an int constant other than 0 or 1. The branch follows the edge of k != 0 and emits no
+// No Handwired source. The tests of the phase 4 carried item c (phase 6 plan, task 1). They cover
+// brtrue and brfalse on an int constant other than 0 or 1. The branch follows the edge of k != 0 and emits no
 // operation. The test run in Debug checks the Debug IL, and the test run in Release checks the Release IL.
 
 using System.Reflection.Metadata;

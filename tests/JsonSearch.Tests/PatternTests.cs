@@ -1,9 +1,9 @@
 // Handwired source: tests/json-search/regex/regex-search.test.ts (the syntax errors, the capacity errors, the
-// hand-written cases and the random patterns against both references). The pattern compiler: the language, the
-// syntax errors with their code point positions and the Handwired messages, the Glushkov automaton, the class
-// partition and the capacity errors. The two plain references (RegexReference) find the hand-written matches,
-// and AutomatonMatches equals DotNetMatches on the seeded random patterns and texts, so .NET Regex checks the
-// compiler.
+// hand-written cases and the random patterns against both references). The tests cover the pattern compiler:
+// the language, and the syntax errors with their code point positions and the Handwired messages. They also
+// cover the Glushkov automaton, the class partition and the capacity errors. The two plain references
+// (RegexReference) find the hand-written matches. AutomatonMatches equals DotNetMatches on the seeded random
+// patterns and texts, so .NET Regex checks the compiler.
 
 using JsonSearch;
 using Xunit.Abstractions;

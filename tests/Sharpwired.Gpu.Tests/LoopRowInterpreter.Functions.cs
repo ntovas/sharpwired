@@ -1,6 +1,6 @@
 // Handwired source: tests/json-search/wgsl-interpreter.ts (the functions of the WGSL subset). The calls of the
-// kernel text that LoopRowInterpreter runs: the helper functions of the prelude as built-in functions with the
-// meaning of their WGSL bodies, select, clamp, max, min, floor, bitcast and the conversions.
+// kernel text that LoopRowInterpreter runs. The helper functions of the prelude are built-in functions with the
+// meaning of their WGSL bodies. The other calls are select, clamp, max, min, floor, bitcast and the conversions.
 
 namespace Sharpwired.Gpu.Tests;
 
@@ -91,7 +91,7 @@ internal sealed partial class LoopRowInterpreter
                 case "clamp":
                     {
                         // WGSL clamp is min(max(e, low), high). For f32, WGSL lets max and min return the other
-                        // operand of a NaN, and the interpreter does so: the f32 writer selects candidate 0 for a
+                        // operand of a NaN, and the interpreter does so. The f32 writer selects candidate 0 for a
                         // NaN index after this clamp.
                         var (x, low, high) = (arguments[0], arguments[1], arguments[2]);
                         if (x.Type == Type.Bool || low.Type != x.Type || high.Type != x.Type) throw new InvalidOperationException($"clamp of {x.Type}");

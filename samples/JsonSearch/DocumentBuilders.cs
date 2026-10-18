@@ -1,7 +1,7 @@
 // Handwired source: src/json-search/documents.ts (the word lists, the builders of the 7 shapes, someKeys,
-// sentence, time, hexId and person). Each builder makes its random choices in the order of documents.ts: the
-// members of an object in the order of the object literal, and a list item after item. `size` in 0..1 scales
-// the number of fields and items of a document.
+// sentence, time, hexId and person). Each builder makes its random choices in the order of documents.ts. It
+// makes the members of an object in the order of the object literal, and a list item after item. `size` in 0..1
+// scales the number of fields and items of a document.
 
 using System.Globalization;
 

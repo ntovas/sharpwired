@@ -1,6 +1,6 @@
 // No Handwired source. The batch runners of a RecurrentFunction (phase 6 plan, task 7, and question 4,
-// the carried items of phase 5): the status of each lane, the batch result, the interface that the GPU
-// and the CPU runners share, the parallel CPU runner, and the factory.
+// the carried items of phase 5). The file holds the status of each lane, the batch result, and the
+// interface that the GPU and the CPU runners share. It also holds the parallel CPU runner and the factory.
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
@@ -197,8 +197,8 @@ internal static class RecurrentBatches
     /// </summary>
     /// <remarks>
     /// A failed check is an <see cref="InvalidOperationException"/>, a <see cref="CellValueException"/>, or the
-    /// plain <see cref="ArgumentException"/> of a one-hot or at-most-one rule of the cell validator (it has no
-    /// type of its own). The method checks the step limit and the argument count first, so these argument
+    /// plain <see cref="ArgumentException"/> of a one-hot or at-most-one rule of the cell validator. That rule
+    /// has no type of its own. The method checks the step limit and the argument count first, so these argument
     /// errors throw. Each other subtype of <see cref="ArgumentException"/> also throws.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The step limit is negative.</exception>

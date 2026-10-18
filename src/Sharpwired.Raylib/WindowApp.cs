@@ -2,9 +2,9 @@
 // gives the host DOM events, requestAnimationFrame and CSS. A Sharpwired window host reads one
 // WindowInput in each frame and draws the DrawCommand list that the app returns.
 // This file makes no Raylib call. The command-line options of the window have no Handwired source.
-// Phase 6 task 8 adds the keyboard input (the browser gives the page input and keydown events, demo.ts), the
-// pixel scale, four draw commands for text, glyphs and pixels (demo.ts writes text nodes and one canvas
-// ImageData), and the font members of an app.
+// Phase 6 task 8 adds the keyboard input (the browser gives the page input and keydown events, demo.ts) and
+// the pixel scale. It also adds four draw commands for text, glyphs and pixels (demo.ts writes text nodes and
+// one canvas ImageData). It also adds the font members of an app.
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -134,9 +134,9 @@ public sealed record DrawGlyphs : DrawCommand
 
 /// <summary>
 /// An image of Width × Height pixels, row after row, each pixel a <see cref="Word"/>. The window keeps one
-/// texture for each DrawPixels command of a frame, by its place in the command list, and copies the pixels
+/// texture for each DrawPixels command of a frame, by its place in the command list. It copies the pixels
 /// into the texture only when Version changes. The image covers Width / Scale × Height / Scale screen pixels
-/// from (X, Y), so that a Scale equal to the pixel scale puts each pixel on one device pixel.
+/// from (X, Y). Thus a Scale equal to the pixel scale puts each pixel on one device pixel.
 /// </summary>
 public sealed record DrawPixels : DrawCommand
 {

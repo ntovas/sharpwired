@@ -281,8 +281,8 @@ public class HwTests
 
     // The macro skips the rebase when destination and destinationDuringSteps are one wire, and the
     // body always rebases. For finite values the outputs are still equal bit for bit (final fix wave,
-    // item F). destination - destination is +0, and the displacement after the spring step is never
-    // -0. The identity matrix and the zero displacements and velocities test the zero cases.
+    // item F). The difference destination - destination is +0, and the displacement after the spring
+    // step is never -0. The identity matrix and the zero displacements and velocities test the zero cases.
     [Fact]
     public void AnimatedObject_with_one_wire_as_both_destinations_equals_the_macro_bit_for_bit()
     {

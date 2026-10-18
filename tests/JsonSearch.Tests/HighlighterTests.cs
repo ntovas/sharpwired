@@ -1,8 +1,8 @@
 // Handwired source: tests/json-search/json-step.test.ts and the highlighter part of tests/json-search/search.test.ts
-// ("the step is 37 operations"). The highlighter loop program on the CPU runner, with both stage backends, against
-// the plain C# reference (JsonReference), which does not read the tables or the step methods: on the 2,509 corpus
-// texts, the documents at the limits, an object and an array at each depth, and the first 2,000 generated
-// documents with defects. The compiled-delegate backend also runs the 43,420 short texts. LoopProgram.EvaluatePlain,
+// ("the step is 37 operations"). The highlighter loop program runs on the CPU runner, with both stage backends,
+// against the plain C# reference (JsonReference). The reference does not read the tables or the step methods. The
+// texts are the 2,509 corpus texts, the documents at the limits, and an object and an array at each depth. They
+// also include the first 2,000 generated documents with defects. The compiled-delegate backend also runs the 43,420 short texts. LoopProgram.EvaluatePlain,
 // the plain step methods in a loop, equals the CPU runner. The operation and layer counts are pinned next to the
 // Handwired counts. On the reference evaluator, each declared grid and each index read holds at each position.
 
@@ -22,9 +22,9 @@ public sealed class HighlighterTests(ITestOutputHelper output)
     public static TheoryData<CpuStageBackend> Backends => new() { CpuStageBackend.Compiled, CpuStageBackend.Tensor };
 
     // For each depth, the two texts whose container code is nearest the level weight of the depth, 2^(depth - 1).
-    // An object in arrays, for example [[{"a":1}]] at depth 3, has a code of exactly the weight, so the step calls the
+    // An object in arrays, for example [[{"a":1}]] at depth 3, has a code of exactly the weight. So the step calls the
     // container an array when the weight of the table is larger. An array in objects, for example {"k":{"k":[1]}},
-    // has a code of the weight minus 1, so the step calls the container an object when the weight of the table is smaller.
+    // has a code of the weight minus 1. So the step calls the container an object when the weight of the table is smaller.
     internal static readonly string[] NestedTexts = [.. Enumerable.Range(1, Kinds.MaximumDepth).SelectMany(depth => new[]
     {
         new string('[', depth - 1) + "{\"a\":1}" + new string(']', depth - 1),
@@ -185,10 +185,10 @@ public sealed class HighlighterTests(ITestOutputHelper output)
         }
         foreach (var line in lines) output.WriteLine(line);
         // Handwired search.test.ts: step 37 operations with 12 index reads, end 17 operations with 6 index reads.
-        // Step has 3 more: the two error-state bits are 2 operations each (Handwired: 1 ReGLU each), and the first
-        // error bit is one operation more than the ReGLU of Handwired. End has the same 3 more, and 2 fewer: the
-        // affine form of firstErrorPosition composes errorFreeCount (Handwired: its own roundAffine), and the
-        // output truncated is the bit itself (Handwired: a roundAffine of the bit). So End has 1 more.
+        // Step has 3 more. The two error-state bits are 2 operations each (Handwired: 1 ReGLU each). The first
+        // error bit is one operation more than the ReGLU of Handwired. End has the same 3 more, and 2 fewer. The
+        // affine form of firstErrorPosition composes errorFreeCount (Handwired: its own roundAffine). The output
+        // truncated is the bit itself (Handwired: a roundAffine of the bit). So End has 1 more.
         Assert.Equal(
             [
                 "Step: 103 operations, 40 live operations that compute, 12 live index reads, 24 layers",
@@ -200,8 +200,8 @@ public sealed class HighlighterTests(ITestOutputHelper output)
     [Fact]
     public void Each_declared_grid_and_index_read_holds_at_each_position_on_the_reference_evaluator()
     {
-        // The nested texts, each tenth document at the limits, and for each kind of first error, and for none, the
-        // first three corpus texts that have it.
+        // The nested texts and each tenth document at the limits. Also, for each kind of first error and for none,
+        // the first three corpus texts that have it.
         var ofKind = Enum.GetValues<ErrorKind>().ToDictionary(kind => kind, _ => new List<string>());
         foreach (var text in Corpus.All)
         {

@@ -1,7 +1,7 @@
-// No Handwired source. The wide step of the phase 6 plan, task 7: a struct of 600 int fields that a loop
-// with no maximum turns one place to the left in each iteration. The step program has one state cell for
+// No Handwired source. The wide step of the phase 6 plan, task 7. It is a struct of 600 int fields that a
+// loop with no maximum turns one place to the left in each iteration. The step program has one state cell for
 // each field, so the step kernel has more than 512 cells. The translator refuses a local array as the
-// state of a step program (a store in the step, and a choice between two arrays), so the 600 values are
+// state of a step program (a store in the step, and a choice between two arrays). So the 600 values are
 // fields of a struct. A script wrote the fields and the statements of this file.
 
 using Sharpwired.Annotations;

@@ -1,7 +1,7 @@
-// Handwired source: none for the tests; the probe of the phase 6 plan, question 1 ("the same kernel with
-// the constant tables in a read-only storage buffer"), and the phase 5 carried item "shader creation time".
-// These tests read the text of both writers: an index read of constant candidates reads one table in the
-// storage buffer of the constant tables, and the constants get no statement. A root that is a source cell
+// Handwired source: none for the tests. The tests come from the probe of the phase 6 plan, question 1 ("the
+// same kernel with the constant tables in a read-only storage buffer"). They also come from the phase 5
+// carried item "shader creation time". These tests read the text of both writers. An index read of constant
+// candidates reads one table in the storage buffer of the constant tables, and the constants get no statement. A root that is a source cell
 // is a copy from the source buffer, with no statement of its own. They need no adapter.
 
 using Sharpwired.Core;

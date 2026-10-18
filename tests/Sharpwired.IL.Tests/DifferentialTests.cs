@@ -44,8 +44,8 @@ public class DifferentialTests(ITestOutputHelper output)
         AssertMatchesPlain(translated, 9000 + int.Parse(name["Differential".Length..], CultureInfo.InvariantCulture), ZeroSign.MayDiffer);
     }
 
-    // The new rules fire in the generated methods: zero reads (rule 3), gated reads (rule 4) and reads
-    // with fewer candidates than their array (rule 5). The counts go to the ledger of the task.
+    // The new rules apply in the generated methods. The rules are zero reads (rule 3), gated reads (rule 4)
+    // and reads with fewer candidates than their array (rule 5). The counts go to the ledger of the task.
     [Fact]
     public void The_generated_methods_use_each_new_read_rule()
     {

@@ -1,21 +1,22 @@
 // Handwired source: tests/json-search/bit-emit.test.ts (the programs "switches", "oneByOne", "mixed" and
-// "declaredField") and src/json-search/search-step.ts (a search of two passes). [Handwired] step methods and
-// loop programs for the tests of the two loop writers (task 3 of the phase 6 plan):
-// - Switches: six switches that stay on from one row to the next. on[k] && !blocked[k][row] && !stuck[k]
-//   has the same form for each k, over six registers of bits, six table reads at the same row and six
-//   shared cells. So each of the three lists is one word (the Lanes rule), and the reads are one packed
+// "declaredField") and src/json-search/search-step.ts (a search of two passes). This file holds the
+// [Handwired] step methods and loop programs for the tests of the two loop writers (task 3 of the phase 6
+// plan).
+// - Switches: six switches that stay on from one row to the next. For each k, the form of on[k] &&
+//   !blocked[k][row] && !stuck[k] is the same. It uses six registers of bits, six table reads at the same
+//   row and six shared cells. So each of the three lists is one word (the Lanes rule), and the reads are one packed
 //   word (the Packed reads rule).
 // - OneByOne: switch k reads on[k + 1] && !on[k + 2], which are no neighbor lanes of a word.
-// - Mixed: bits next to ordinary numbers: a sign cascade of two f32 cells, a whole streak, an f32 total from
-//   a constant table, and a whole bucket from a second constant table.
+// - Mixed: bits next to ordinary numbers. It has a sign cascade of two f32 cells, a whole streak and an f32
+//   total from a constant table. It also has a whole bucket from a second constant table.
 // - DeclaredField: a field that the loop program declares as bits, from a cell within 0..1 that is not a
-//   bit, so nothing proves that the field holds bits.
+//   bit. So nothing proves that the field holds bits.
 // - Fma: x * 1.0000001 - 1.0000002 at each position, for the keeps of the f32 writer (the inputs near 1 of
 //   WgslFormTests, as RoundingPointTests reads them).
 // - Search8: the Reverse8 and Forward8 steps of LoopInputs as a search of two passes, with a field of 8 bits.
-// - Delay and DelayInt: (x, a, b) with a and b registers, so that one register gets the old value of another
+// - Delay and DelayInt: (x, a, b) with a and b registers. One register gets the old value of another
 //   register (review of task 3: the kernel read the new value).
-// - DelayBits: the same delay with four registers of bits in one word, so that the new word reads the old word
+// - DelayBits: the same delay with four registers of bits in one word. The new word reads the old word
 //   (the copy of a word of registers into a let).
 // - Mul: x * y + 1.37, a ReGLU product that an affine row reads (the keep of the f32 writer).
 // - SignField: a field of bits that holds -0, 0 and 1, read back as an output (the word of the signs).
@@ -215,7 +216,7 @@ internal static class LoopWriterPrograms
         ],
         0);
 
-    // a and b are registers 0 and 1: the stage writes x to a and the old a to b, and the old b goes out.
+    // a and b are registers 0 and 1. The stage writes x to a and the old a to b, and the old b goes out.
     public static LoopProgram Delay(bool whole) => LoopProgram.Create(
         Positions,
         [Documents(Positions)],
@@ -230,7 +231,7 @@ internal static class LoopWriterPrograms
         0);
 
     // a0, a1, b0 and b1 are registers of bits that one stage writes, so they are the lanes of one word. The stage
-    // writes two comparisons to a0 and a1 and the old a0 and a1 to b0 and b1, and the old b0 || b1 goes out. The new
+    // writes two comparisons to a0 and a1 and the old a0 and a1 to b0 and b1. The old b0 || b1 goes out. The new
     // word reads the old word.
     public static LoopProgram DelayBits() => LoopProgram.Create(
         Positions,

@@ -1,7 +1,7 @@
-// No Handwired source. The tests of rule 1 of the phase 6 plan, task 1 (question 4): a bool used as an
+// No Handwired source. The tests of rule 1 of the phase 6 plan, task 1 (question 4). A bool used as an
 // int is the bit wire with the grid 1 and the range 0..1, with no operation. They also test the phase 4
-// carried items a (a bit with no grid 1 in an int form) and b (the Release form cgt.un of a bool
-// against 0), and the forward step of search-step.ts, alone and inlined at 6 positions. The test run
+// carried item a (a bit with no grid 1 in an int form). They also test the phase 4 carried item b (the
+// Release form cgt.un of a bool against 0). They also test the forward step of search-step.ts, alone and inlined at 6 positions. The test run
 // in Debug checks the Debug IL, and the test run in Release checks the Release IL.
 
 using System.Reflection.Metadata;
@@ -50,8 +50,8 @@ public class BitArithmeticTests
         Assert.Equal(new Sharpwired.Core.NumericRange(-100, 101), circuit.Ranges[translated.Outputs[0].Wire.Position]);
     }
 
-    // Rule 1 is not under TranslationOptions.RecognizePatterns: with the patterns off, a bit as an int is still the
-    // bit wire with the grid 1, and k + (b ? 1 : 0) is still one affine operation.
+    // Rule 1 is not under TranslationOptions.RecognizePatterns. With the patterns off, a bit as an int is still the
+    // bit wire with the grid 1. Also, k + (b ? 1 : 0) is still one affine operation.
     [Fact]
     public void With_patterns_off_a_bool_used_as_an_int_is_still_the_bit_wire()
     {

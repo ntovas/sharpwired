@@ -1,8 +1,8 @@
-// Handwired source: src/json-search/demo.ts (the frame of the page: the answers that arrived, the pattern, the
-// toggles, the map, the document and the line of numbers) and tests/json-search/demo.test.ts. The window app with
-// scripted WindowInput frames and a fake search service whose answers the test releases at chosen frames. The tests
-// read the draw commands: the field text and the caret, the selected segments, the line, the map pixels, and the
-// glyphs and the marks of the document.
+// Handwired source: src/json-search/demo.ts and tests/json-search/demo.test.ts. From demo.ts, the source is the frame
+// of the page. It has the answers that arrived, the pattern, the toggles, the map, the document and the line of numbers.
+// The window app with scripted WindowInput frames and a fake search service whose answers the test releases at chosen
+// frames. The tests read the draw commands: the field text and the caret, the selected segments, and the line. They
+// also read the map pixels, and the glyphs and the marks of the document.
 
 using System.Collections.Immutable;
 using Sharpwired.Gpu;

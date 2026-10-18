@@ -1,9 +1,9 @@
 // Handwired source: tests/json-search/highlighter/short-texts.ts. Short texts that put the highlighter in each
-// of its situations, written from the grammar of JSON and not from the tables of the program: each tokenizer
-// state, then each kind of character, then one more character that shows the next state of the tokenizer; each
-// ASCII character in the places where its kind matters; and short texts in containers at each nesting depth.
-// The random texts of the corpus reach only some of these pairs, for example `nu1`, a digit in null, or `-]`, a
-// bracket after a minus sign.
+// of its situations, written from the grammar of JSON and not from the tables of the program. First: each
+// tokenizer state, then each kind of character, then one more character that shows the next state of the
+// tokenizer. Second: each ASCII character in the places where its kind matters. Third: short texts in
+// containers at each nesting depth. The random texts of the corpus reach only some of these pairs. Examples
+// are `nu1`, a digit in null, and `-]`, a bracket after a minus sign.
 
 namespace JsonSearch.Tests;
 
@@ -16,8 +16,8 @@ internal static class ShortTexts
         "a", "b", "e", "E", "f", "l", "n", "r", "s", "t", "u", "c", "D", "x", "\u007f", "é", "😀",
     ];
 
-    // A start of a token that leaves the tokenizer in each of its states, for example "\u00 in a \u escape and 1e+
-    // after the sign of an exponent, and some whole tokens.
+    // A start of a token that leaves the tokenizer in each of its states, and some whole tokens. Examples are
+    // "\u00 in a \u escape and 1e+ after the sign of an exponent.
     private static readonly string[] TokenStarts =
     [
         "", "\"", "\"\\", "\"\\u", "\"\\u0", "\"\\u00", "\"\\u000", "\"\\u0000", "\"a", "\"a\"", "-", "0", "1", "12", "1.", "1.5", "1e",
@@ -84,8 +84,8 @@ internal static class ShortTexts
                 foreach (var next in NextCharacters) Add(start + character + next);
             }
         }
-        // Each ASCII character and U+0080 where a token starts, in a string, after a backslash, in a \u escape, in
-        // a number and in a literal.
+        // Each ASCII character and U+0080 in six places. The places are where a token starts, in a string, after a
+        // backslash, in a \u escape, in a number and in a literal.
         for (var codePoint = 0; codePoint <= 0x80; codePoint++)
         {
             foreach (var start in new[] { "", "\"", "\"\\", "\"\\u0", "0", "1e", "t" })

@@ -1,8 +1,8 @@
 // Handwired source: $REF/src/json-search/search-step.ts (the forward step: mark = highlighted + start,
 // nextMatchCount = matchCount + start) and $REF/src/json-search/regex/data-program.ts (createStepAnd).
-// C# inputs for the phase 6 plan, task 1: a bool used as an int (carried items a and b of phase 4), a
-// branch on an int constant (carried item c), and the forward step of the search at 8 states, alone and
-// inlined in a loop over positions.
+// C# inputs for the phase 6 plan, task 1. One input is a bool used as an int (carried items a and b
+// of phase 4). One input is a branch on an int constant (carried item c). The inputs also include the forward
+// step of the search at 8 states, alone and inlined in a loop over positions.
 
 using Sharpwired.Annotations;
 
@@ -87,7 +87,7 @@ public static class BitArithmeticInputs
         return total;
     }
 
-    // The cause of the full-unroll refusal of the plan probe: count starts at the constant 0, so the
+    // The cause of the full-unroll refusal of the plan probe: count starts at the constant 0. So the
     // first copy gives the int gate ITE(b[0], 1, 0). Gate rule 5 gives the affine form b[0] with no
     // grid, and the form count + 1 of the next copy was not exact.
     [Handwired]

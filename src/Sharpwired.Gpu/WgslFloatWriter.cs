@@ -1,7 +1,8 @@
 // Handwired source: src/json-search/emit.ts (createRowWriter) and src/json-search/loop-emit.ts (the
 // buffers and the parameters of a shader). The f32 writer: one WGSL statement for each row, with the
-// keep function k around each literal, each product and each partial sum. emit.ts writes the rows
-// without keep, drops a bias of 0, and writes the boolean atom as a select. This writer keeps the stored
+// keep function k around each literal, each product and each partial sum. In Handwired, emit.ts writes
+// the rows without keep, drops a bias of 0, and writes the boolean atom as a select. This writer keeps
+// the stored
 // form of each operation, so each rounding point gives the reference bits (question 2 of the phase 5
 // plan). A row that only a constant table reads gets no statement (ShaderRows.Needed).
 
@@ -26,8 +27,9 @@ public enum GpuWriter
 }
 
 /// <summary>
-/// The counts of a written shader. <see cref="Statements"/> counts the statements of the source
-/// cells, the rows and the roots. <see cref="Keeps"/> counts the calls of the keep function k. The
+/// The counts of a written shader. The <see cref="Statements"/> property counts the statements of
+/// the source cells, the rows and the roots. The <see cref="Keeps"/> property counts the calls of
+/// the keep function k. The
 /// row counts give the written rows by the type that holds the value: f32, i32 or u32. The f32 writer
 /// writes f32 rows only. A row that the integer writer converts from an f32 statement counts as i32
 /// or u32.
@@ -89,10 +91,10 @@ public static class WgslFloatWriter
 // the f32 text of a position that the integer writer holds as an integer, for example f32(w3). It gives null
 // for an f32 position. The step kernel of RecurrentKernelWriter passes cellName, which gives the variable of a
 // source cell, for example cell3. Then a read of a source cell reads the variable. A read of a source cell at
-// a computed index is a select over the variables, as for a list of computed values. candidateRead gives the
-// text of a read of the candidates at an i32 index, for example a read of a constant table, or null for the
-// forms below. sourceBuffer false (the loop kernels) reads no candidate from the buffer sources: such a read
-// is a select over the names of the cells.
+// a computed index is a select over the variables, as for a list of computed values. The parameter
+// candidateRead gives the text of a read of the candidates at an i32 index, for example a read of a constant
+// table. For the forms below, it gives null. With sourceBuffer false (the loop kernels), the writer reads no
+// candidate from the buffer sources. Such a read is a select over the names of the cells.
 internal sealed partial class FloatBody(
     int sourceSize,
     Func<int, string?>? floatName = null,
@@ -164,7 +166,7 @@ internal sealed partial class FloatBody(
         return start < 0 ? null : $"{buffer}[{WgslText.Uint(offset + start)} + u32({index})]";
     };
 
-    // A root that is a source cell is a copy from the buffer: a source cell gets a statement only where a
+    // A root that is a source cell is a copy from the buffer. A source cell gets a statement only where a
     // row reads it (the phase 5 carried item "shader creation time").
     public WgslModule Finish(int[] rootPositions, int floatRows, int wholeRows = 0, int bitRows = 0, ImmutableArray<float> constantTable = default)
     {

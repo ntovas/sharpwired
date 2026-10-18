@@ -1,7 +1,7 @@
 // Handwired source: tests/json-search/search.test.ts ("the step has the sizes the README gives") and
 // tests/json-search/edge-cases.test.ts (the statement counts of the shaders: 107, 147, 171 and 219). The sizes of
-// the three search programs, pinned next to the Handwired sizes: the operations of each stage, the layers, the
-// shared cells and the pattern cells, and the statistics of the integer writer. Also the check that Search8,
+// the three search programs, pinned next to the Handwired sizes. The sizes are the operations of each stage, the
+// layers, the shared cells and the pattern cells, and the statistics of the integer writer. Also the check that Search8,
 // Search16 and Search32 have equal IL apart from the constants of S.
 
 using System.Reflection;
@@ -18,8 +18,8 @@ public sealed partial class SearchTests
         .Select(field => (OpCode)field.GetValue(null)!)
         .ToDictionary(code => code.Value);
 
-    // One IL instruction in a form without the encoding choices of the compiler: the short and the long form
-    // of an opcode have the same name, a branch target is an instruction index, and a member of the step class
+    // One IL instruction in a form without the encoding choices of the compiler. The short and the long form
+    // of an opcode have the same name, and a branch target is an instruction index. A member of the step class
     // has the name "step." and its member name.
     private sealed record Instruction(string Name, string Operand, int? Constant);
 
@@ -173,8 +173,8 @@ public sealed partial class SearchTests
         // mask adds 3 operations to the reverse (Handwired: 151 masked at 8 states), so Reverse equals the
         // Handwired masked count. Forward has 4 more: "a match continues" is a sum and a comparison of 2
         // operations in place of one noneOf (SearchSteps.cs). Finish copies a register and computes nothing.
-        // Handwired pattern cells: 1,097, 4,177, 16,481. Here each has S × S + 1 more: the 17th class of each pair
-        // (from, to) and cell 0 of regionClasses (plan, question 1, items 4 and 5).
+        // Handwired pattern cells: 1,097, 4,177, 16,481. Here each has S × S + 1 more. These are the 17th class of each
+        // pair (from, to) and cell 0 of regionClasses (plan, question 1, items 4 and 5).
         Assert.Equal(
             [
                 "8 states: Start 8/0/1, Reverse 151/66/9, Forward 96/64/9, Finish 0/0/0; shared 1171, pattern cells 1162",
