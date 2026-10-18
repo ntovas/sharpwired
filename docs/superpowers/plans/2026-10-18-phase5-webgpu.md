@@ -472,7 +472,7 @@ The tasks run in this order. Each task ends with a green `dotnet test` and `dotn
 - `dotnet test` passes (Debug). `dotnet test -c Release` passes.
 - `grep -rn "TODO\|Skip =" src tests samples` gives no result.
 - `grep -rln "Silk.NET" src samples tests --include=*.cs` gives only files in `src/Sharpwired.Gpu/`.
-- `grep -rln "unsafe" src --include=*.cs` gives only `GpuDevice.cs` and `ComputeKernel.cs`.
+- `grep -rln "unsafe" src --include='*.cs'` gives only `src/Sharpwired.Gpu/GpuDevice.cs`, `src/Sharpwired.Gpu/ComputeKernel.cs`, and `src/Sharpwired.IL/IlDecoder.cs`. Phase 4 added the unsafe method of `IlDecoder.cs`. The phase 5 rule covers the files of `src/Sharpwired.Gpu/` only.
 - `grep -rln "Raylib_cs" src samples tests` gives only `src/Sharpwired.Raylib/RaylibWindow.cs`.
 - Each new source file is below 800 lines.
 - The test output names each adapter, its backend, and `FlushesSubnormals`.

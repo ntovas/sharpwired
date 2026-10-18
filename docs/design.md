@@ -120,11 +120,72 @@ The `Hw` static class holds the operations that have no plain C# form. Examples 
 
 - `ReferenceEvaluator`: one operation at a time, in wire order. It defines what a program computes.
 - `TensorEvaluator`: the compiled program in layers of sparse matrices on the CPU, with gather lowering and index reads.
-- `GpuEvaluator` (WebGPU): a WGSL compute shader written from the compiled program, over a batch of source tables. Each thread evaluates one source table. Two writers, as in handwired's JSON search: one writes each operation as one `f32` statement, and one holds proven integers and bits as `u32` values or as bits of a word.
+- `GpuEvaluator` (WebGPU): a WGSL compute shader written from the compiled program, over a batch of source tables. Each thread evaluates one source table. Two writers, as in handwired's JSON search: one writes each operation as one `f32` statement, and one holds proven whole numbers as `i32` values and proven bits as `u32` values.
+- `CpuBatchEvaluator`: the same batch contract (`IBatchEvaluator`) on the CPU, with one `TensorEvaluator` for each worker of a parallel loop. `BatchEvaluators.Create` gives the GPU evaluator when the caller gives a device, and the CPU evaluator otherwise.
+- `GpuRecurrentRunner`: the recurrent step form of phase 4 on the GPU (see below).
 
 Why not ILGPU: ILGPU has CUDA, OpenCL and CPU accelerators. The development machine is an Apple M5 Pro, which has no CUDA, and Apple deprecated OpenCL on macOS. ILGPU would run on the CPU accelerator there. I did not verify the current ILGPU backend list.
 
-Known problem: a shader compiler can simplify `(x + K) - K` to `x`, which breaks the boolean atom and round chains. Metal can compile with fast math, which allows this. The `u32` writer is exact under any float mode, because integer arithmetic does not depend on it. The `f32` writer must keep the stored FP32 evaluation at each rounding point. I did not verify which math mode wgpu selects for Metal. The first GPU task is a test that runs the boolean atom, a round chain and a sign cascade on each WebGPU adapter and compares the results with the reference evaluator.
+### The WebGPU packages
+
+`src/Sharpwired.Gpu` references three packages, version 2.23.0 (the newest version on nuget.org at the start of phase 5):
+
+| Package | Content |
+| --- | --- |
+| `Silk.NET.WebGPU` | The `webgpu.h` bindings. .NET 10 uses the `net5.0` asset. |
+| `Silk.NET.WebGPU.Native.WGPU` | The wgpu-native library for macOS, Linux and Windows. The build is wgpu-native commit `94605142`. |
+| `Silk.NET.WebGPU.Extensions.WGPU` | The wgpu-native extensions: `InstanceEnumerateAdapters`, `DevicePoll`, `SetLogCallback`. |
+
+Only `GpuDevice.cs` and `ComputeKernel.cs` call the native API. No code outside `src/Sharpwired.Gpu` uses the namespace `Silk.NET`.
+
+### Probe facts
+
+A probe program and the device tests measured these facts on the Apple M5 Pro (Metal backend) with this wgpu-native:
+
+- The default uncaptured error handler of wgpu-native aborts the process on a validation error. So `GpuDevice` installs its own callback as the first call on a new device, and creates each shader module, pipeline, bind group and buffer inside an error scope. The scope message holds the wgpu detail ("Caused by: ...").
+- An error in `QueueSubmit` aborts the process. For example, a submit that uses a buffer with a pending map aborts. So a map request that does not complete marks the device unusable, and each later call throws.
+- The automatic pipeline layout drops each binding that the shader does not use. So `ComputeKernel` creates an explicit bind group layout.
+- wgpu-native gives the address of a released buffer to the next new buffer. So a kernel compares a generation number for each storage buffer to decide if its bind group is out of date. A compare of the native address gave the values of a released buffer after two grows.
+- This wgpu-native does not turn Metal fast math off (the library has `setPreserveInvariance:` and no `setFastMathEnabled:` or `setMathMode:`). Without keep, the GPU folded `(x + 8388609) - 8388609` to `x` (60 of 64 values differ), contracted `x * b + c` to a fused multiply-add (17 of 64), gave `+0` for `-abs(x) * 0` (64 of 64), gave 0 for `max(0, NaN)`, and folded `x != x` to false.
+- The GPU writes 0 in place of an FP32 result whose magnitude is below 2^-126 (subnormal flush). No WGSL form stops it.
+
+### The keep function
+
+Each shader starts with the keep function `k(v) = bitcast<f32>(bitcast<u32>(v) ^ params.zero)`. `params.zero` is 0 in a read-only storage buffer, and the shader compiler cannot know the value. So `k(v)` returns `v` with the same bits, and the compiler cannot move arithmetic across it. The f32 writer puts keep around each product, each partial sum and each literal. An affine row is the left fold of the reference: `value = k(bias)`, then `value = k(value + k(k(w) * x))` for each term. The boolean atom is `k(k(S + k(8388609.0)) - k(8388609.0))`. NaN tests use the bits, and `relu` keeps NaN and `+0` for a `-0` gate.
+
+Limit: WGSL §15.7.5 blocks the reorder and the fusion of operations across `k`, so the keep form gives the stored FP32 order on each implementation. WGSL §15.7.2 lets an implementation assume that no NaN and no infinity occur, and does not guarantee `-0`. So `WgslFormTests` and `RoundingPointTests` measure the results with NaN, infinities and `-0` on each adapter. The specification does not guarantee them.
+
+### The subnormal limit
+
+`GpuDevice.FlushesSubnormals` reports the subnormal flush. `GpuDevice.Open` measures it with one kernel: `k(x * k(2^-10))` with `x = 2^-120`. On a device that flushes, the f32 writer is not exact for an evaluation that holds a nonzero value of magnitude below 2^-126 in an f32 row. A sign cascade over a difference below 2^-126 then returns the bit of equal operands, as handwired's execution-model.md states. On such a device, the tests compare each evaluation with no subnormal value, and count the other evaluations. The Apple M5 Pro flushes.
+
+### The two writers
+
+`WgslFloatWriter` writes each operation as one `f32` statement with keep. With it, `GpuEvaluator` gives the reference bits (`Object.is`), apart from the subnormal limit. A program with gather lowering can give the other sign of an exact zero.
+
+`WgslIntegerWriter`, the default, holds a proven bit as a `u32` that is 0 or 1, and a proven whole number as an `i32`. It writes each other operation as the f32 writer does, and a whole value that an f32 row reads is `k(f32(w))`. `IntegerProof.Prove` gives one proof for each packed position:
+
+- A source cell is a bit when the circuit declares it an exact bit. It is whole on a grid of 1 or more with a range inside ±2^24. The integer evaluator checks the grid and the bit declarations of each source table.
+- An affine row or a ReGLU row is whole when its operands, its bias and its weights are whole, and the bound of each product and partial sum is at most 2^24. FP32 computes such a value with no rounding, in any order, so the `i32` statement gives the value of the `f32` statement.
+- A boolean atom, an index read with an `f32` index, and the bit of `Compare` are proven only when the cone of the row is finite: each wire of the cone has a finite magnitude bound. Range inference does not follow NaN, and NaN has no integer. This is the finite-cone rule.
+- A masked gather read is whole only when each member of its one-hot group is a proven bit. A one-hot declaration is not a proof, because no evaluator checks it. A finite cone alone is not enough: a member can hold 0.5.
+- A grid or a bit that the caller declares on an operation is not a proof. The bit of `Compare` is the one exception: the rule trusts the declarations that `Compare` used.
+
+An `i32` has no `-0`, so the integer writer can give `+0` where the reference gives `-0` (sameNumericValue). The packed words of handwired's bit-emit.ts (bits of one `u32`, `packWords`) move to phase 6.
+
+### The batch runner
+
+One invocation evaluates one source table. Workgroup size 64. A batch splits into chunks that fit the buffer limits of the device. `GpuDevice.Open` requests the adapter maximum of the buffer limits. `GpuEvaluator` checks each source table on the CPU, as `TensorEvaluator` does, before it takes the lock of the device. All GPU calls of one device run one at a time under this lock. A root that the program does not hold gives NaN.
+
+### The recurrent step on the GPU
+
+`GpuRecurrentRunner` runs a `RecurrentFunction` of `TranslateRecurrent`. The prefix, the step kernel and the suffix run in one command buffer. The step kernel holds each state cell in a `var` and loops over the step program for each lane. It runs at most `StepsPerDispatch` (1,024) evaluations of each lane in one dispatch, because macOS stops a GPU command that runs too long. The host submits more dispatches while a lane runs.
+
+The step kernel checks each cell in the kernel with the declarations of the step table: finite, within the range, an exact bit, a multiple of the grid, and the one-hot rules. It checks the cells of the first source table, and each next value before the done test. So a value past a cell range, also the range ±2^23 of a wide `int` cell, stops the lane. It is never a silent wrong value. For a lane that fails, the host replays the lane on the CPU with `RecurrentRunner` and throws its message with the lane number. Each lane equals `RecurrentRunner.Run`: the same steps, the same `Completed`, and the same outputs, with the writer limits above.
+
+### Result
+
+The rounding-point test (`RoundingPointTests`) runs the boolean atom, a round chain, a sign cascade and a fused multiply-add program on each adapter with both writers. Each output equals the reference evaluator, apart from the subnormal limit. Metal fast math stays on, and the keep form gives the reference bits. On the Apple M5 Pro, the 173 tests of `Sharpwired.Gpu.Tests` ran in 36 s in Debug and in 19 s in Release (2026-10-18).
 
 ## Layer 4: the hosts and samples
 
@@ -147,5 +208,5 @@ Each phase ends with passing tests.
 ## Open items
 
 - License: handwired is MIT. Code ported from it must keep its copyright notice. Add a `NOTICE` file with the handwired notice before the first port.
-- GPU exactness under Metal fast math: see the known problem in Layer 3.
+- GPU exactness under Metal fast math: resolved in phase 5. This wgpu-native keeps Metal fast math on. The keep function gives the reference bits for each rounding point on the Apple M5 Pro, with both writers. The subnormal flush stays a documented limit (Layer 3, "The subnormal limit").
 - Range attributes on nested structs: the first version takes ranges only from attributes. Range inference across inlined calls comes from the core inference.

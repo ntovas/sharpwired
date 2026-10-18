@@ -52,10 +52,10 @@ This checklist is the definition of done. Each phase owns the items under it.
 
 ### Phase 5: the WebGPU backend
 
-- [ ] R5.1 A WGSL (WebGPU Shading Language) writer with one `f32` statement per operation, and a writer that holds proven integers and bits as `u32` values.
-- [ ] R5.2 A batch runner over many source tables, through wgpu-native.
-- [ ] R5.3 A test runs the boolean atom, a round chain and a sign cascade on each available adapter and compares with the reference evaluator.
-- [ ] R5.4 The recurrent step form of phase 4 runs on the GPU.
+- [x] R5.1 A WGSL (WebGPU Shading Language) writer with one `f32` statement per operation, and a writer that holds proven integers and bits as `u32` values.
+- [x] R5.2 A batch runner over many source tables, through wgpu-native.
+- [x] R5.3 A test runs the boolean atom, a round chain and a sign cascade on each available adapter and compares with the reference evaluator.
+- [x] R5.4 The recurrent step form of phase 4 runs on the GPU.
 
 ### Phase 6: the JSON search demo
 
