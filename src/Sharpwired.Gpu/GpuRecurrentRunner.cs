@@ -152,7 +152,9 @@ public sealed class GpuRecurrentRunner : IRecurrentBatchRunner
     /// CPU result, so a kernel check that fails falsely is visible only here. A test expects 0, apart from the lanes
     /// that the subnormal rule excludes.
     /// </summary>
-    internal int ReplayPasses { get; private set; }
+    internal int ReplayPasses => Volatile.Read(ref replayPasses);
+
+    private int replayPasses;
 
     /// <summary>
     /// Write the step kernel, the prefix shader and the suffix shader of the function, and create their
@@ -342,7 +344,7 @@ public sealed class GpuRecurrentRunner : IRecurrentBatchRunner
             cpu.Outputs.AsSpan().CopyTo(result.Outputs.AsSpan(lane * outputCount, outputCount));
             result.Steps[lane] = cpu.Steps;
             result.Status[lane] = cpu.Completed ? RecurrentLaneStatus.Completed : RecurrentLaneStatus.Limit;
-            ReplayPasses++;
+            Interlocked.Increment(ref replayPasses);
             return;
         }
         result.Outputs.AsSpan(lane * outputCount, outputCount).Fill(float.NaN);

@@ -40,7 +40,7 @@ This checklist is the definition of done. Each phase owns the items under it.
 - [x] R3.1 `SourceTable` and the cell functions (`Constant`, `Input`, `InputBit`, `Event`, `State`, `StateBit`, `List`, `OneHot`, `Permutation`, `AtMostOne`), `Next`, `Finish`, the validator.
 - [x] R3.2 Host timing: frame planning (`AdvanceFrame`), the two write-back policies, settle checks, snaps, spring matrix functions, `QuantizeFrameTiming`.
 - [x] R3.3 Prefix networks.
-- [x] R3.4 The toggle switch with the builder API, a Raylib-cs window host, and a test against a plain C# reference over a scripted trace.
+- [x] R3.4 The toggle switch with the builder API, a Raylib-cs window host, and a test against a plain C# reference over a scripted trace. The manual window check (phase 3 plan, "How to run the sample") is open for the user.
 
 ### Phase 4: the IL translator
 
@@ -62,7 +62,7 @@ This checklist is the definition of done. Each phase owns the items under it.
 - [x] R6.1 The document generator (seeded, 7 kinds, valid JSON of up to 512 code points).
 - [x] R6.2 The JSON highlighter program and the regex search program in sizes of 8, 16 and 32 states, as in Handwired `src/json-search`.
 - [x] R6.3 GPU and CPU paths over 100,000 documents, with timings next to .NET `Regex`.
-- [x] R6.4 A Raylib-cs window: the pattern field, the scope toggle (all, keys, string values), the backend toggle, the match map, and one document with colors and marks.
+- [x] R6.4 A Raylib-cs window: the pattern field, the scope toggle (all, keys, string values), the backend toggle, the match map, and one document with colors and marks. The manual window check (phase 6 plan, "Verification", steps 3 to 14) is open for the user.
 - [x] R6.5 Tests that run without a GPU compare the programs with a plain C# reference.
 
 ### All phases
